@@ -2,7 +2,8 @@
 Generic Adapter - Accepts manual column mapping.
 
 Allows users to specify which columns correspond to date, amount, and merchant.
-"""
+Amount sign convention: charges/expenses should be POSITIVE, payments/credits should be NEGATIVE.
+If your CSV uses a different convention, override parse() to flip the sign."""
 
 import pandas as pd
 from datetime import datetime
@@ -24,10 +25,13 @@ class GenericAdapter(BaseAdapter):
     
     def __init__(
         self,
-        date_col: str,
-        amount_col: str,
-        merchant_col: str,
-        date_format: str = '%Y-%m-%d',
+        date_col,
+        amount_col,
+        merchant_col,
+        date_format: str,
+        has_header: bool,
+        auto_category = "",
+        
     ):
         """
         Initialize generic adapter with column mappings.
@@ -42,17 +46,21 @@ class GenericAdapter(BaseAdapter):
         self.amount_col = amount_col
         self.merchant_col = merchant_col
         self.date_format = date_format
+        self.has_header = has_header
+        self.auto_category = auto_category
     
-    def parse(self, dataframe: pd.DataFrame) -> pd.DataFrame:
+    def parse(self, file_path: str) -> pd.DataFrame:
         """
         Parse and normalize CSV data using specified columns.
         
         Args:
-            dataframe: Raw CSV data
+            file_path: Path to the CSV file to be parsed
             
         Returns:
             Normalized DataFrame with columns: date, amount, merchant
         """
+        dataframe = pd.read_csv(file_path, header=0 if self.has_header else None)
+
         # Validate columns exist
         missing_cols = []
         for col in [self.date_col, self.amount_col, self.merchant_col]:
@@ -83,8 +91,5 @@ class GenericAdapter(BaseAdapter):
         
         # Remove rows with invalid data
         result = result.dropna(subset=['date', 'amount', 'merchant'])
-        
-        # Ensure amounts are positive (if negative, take absolute value)
-        result['amount'] = result['amount'].abs()
         
         return result.reset_index(drop=True)

@@ -2,9 +2,9 @@
 Base Adapter - Abstract interface for CSV parsers.
 
 Each adapter must implement parse() to normalize CSV data to:
-- date
-- amount
-- merchant
+- date (datetime.date)
+- amount (float) - CONVENTION: charges/expenses are POSITIVE, payments/credits are NEGATIVE
+- merchant (string)
 
 All other processing (deduplication, account assignment) happens in import_service.
 """
@@ -17,12 +17,12 @@ class BaseAdapter(ABC):
     """Abstract base class for CSV adapters."""
     
     @abstractmethod
-    def parse(self, dataframe: pd.DataFrame) -> pd.DataFrame:
+    def parse(self, file_path: str) -> pd.DataFrame:
         """
         Parse and normalize CSV data.
         
         Args:
-            dataframe: Raw CSV data as pandas DataFrame
+            file_path: Path to CSV file
             
         Returns:
             Normalized DataFrame with columns: date, amount, merchant

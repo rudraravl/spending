@@ -23,12 +23,15 @@ def calculate_total(
     """
     Calculate total spending for transactions matching filters.
     
+    NOTE: This sums ALL amounts (positive charges + negative payments/credits).
+    If you want only charges, add a filter: Transaction.amount > 0
+    
     Args:
         session: Database session
         filters: TransactionFilter object
         
     Returns:
-        Total amount (sum of all transaction amounts)
+        Total amount (sum of all transaction amounts, including negative values)
     """
     query = session.query(func.sum(Transaction.amount))
     
@@ -66,6 +69,8 @@ def summarize_by_tag(
 ) -> pd.DataFrame:
     """
     Summarize spending by tag.
+    
+    NOTE: This sums ALL amounts (positive charges + negative payments/credits).
     
     Args:
         session: Database session

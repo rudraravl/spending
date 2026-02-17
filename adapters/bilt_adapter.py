@@ -2,6 +2,7 @@
 BILT Adapter - Parser for BILT Mastercard CSV exports.
 
 Expects columns: Transaction Date, Amount, Merchant Name
+BILT format: Sign convention not yet verified.
 """
 
 import pandas as pd
@@ -17,4 +18,6 @@ class BiltAdapter(GenericAdapter):
             amount_col='Amount',
             merchant_col='Merchant Name',
             date_format='%m/%d/%Y',
+            has_header=True,
+            auto_category='',
         )

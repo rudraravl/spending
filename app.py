@@ -1,10 +1,12 @@
 """
-Personal Budget App - MVP
+Spending - MVP
 Local-only spending tracker with CSV import, manual entry, and summaries.
 """
 
 import streamlit as st
 import pandas as pd
+import os
+import tempfile
 from datetime import date, datetime
 from db.database import init_db, get_session, close_session
 from db.models import Account, Category, Tag, Transaction
@@ -25,7 +27,6 @@ from services.summary_service import (
 )
 from services.import_service import (
     import_csv,
-    preview_csv,
     get_available_adapters,
     ensure_account,
     ensure_category,
@@ -42,7 +43,7 @@ from sqlalchemy.orm import Session
 
 # === PAGE CONFIG ===
 st.set_page_config(
-    page_title="Personal Budget App",
+    page_title="Spending",
     page_icon="💰",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -194,20 +195,45 @@ elif page == "Import CSV":
         if uploaded_file and account:
             st.subheader("Preview")
             
-            # Preview the data
+            # Preview the raw uploaded CSV
             try:
-                if adapter_name == "generic":
-                    kwargs = {
-                        'date_col': date_col,
-                        'amount_col': amount_col,
-                        'merchant_col': merchant_col,
-                    }
-                else:
-                    kwargs = {}
-                
-                preview_df = preview_csv(uploaded_file.name, adapter_name, **kwargs)
-                st.info(f"Found {len(preview_df)} transactions")
-                st.dataframe(preview_df, use_container_width=True)
+                uploaded_file.seek(0)
+                preview_df = pd.read_csv(uploaded_file)
+                uploaded_file.seek(0)
+
+                total_entries = len(preview_df)
+                parsed_dates = None
+
+                date_candidates = [
+                    col for col in preview_df.columns
+                    if "date" in str(col).lower()
+                ]
+
+                for col in date_candidates:
+                    candidate_dates = pd.to_datetime(preview_df[col], errors="coerce")
+                    if candidate_dates.notna().any():
+                        parsed_dates = candidate_dates
+                        break
+
+                stats_col1, stats_col2 = st.columns(2)
+                with stats_col1:
+                    st.metric("Total Entries", total_entries)
+                with stats_col2:
+                    st.markdown("**Date Range**")
+                    if parsed_dates is not None:
+                        min_date = parsed_dates.min().date()
+                        max_date = parsed_dates.max().date()
+                        st.markdown(
+                            f"<div style='font-size: 0.95rem;'>{min_date} → {max_date}</div>",
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.markdown(
+                            "<div style='font-size: 0.95rem;'>Not detected</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                st.dataframe(preview_df.head(20), use_container_width=True)
                 
                 # Import button
                 if st.button("✅ Confirm Import"):
@@ -219,14 +245,24 @@ elif page == "Import CSV":
                         }
                     else:
                         kwargs = {}
-                    
-                    num_imported, skipped = import_csv(
-                        session,
-                        uploaded_file.name,
-                        account.id,
-                        adapter_name,
-                        **kwargs,
-                    )
+
+                    temp_path = None
+                    try:
+                        uploaded_file.seek(0)
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as temp_file:
+                            temp_file.write(uploaded_file.getvalue())
+                            temp_path = temp_file.name
+
+                        num_imported, skipped = import_csv(
+                            session,
+                            temp_path,
+                            account.id,
+                            adapter_name,
+                            **kwargs,
+                        )
+                    finally:
+                        if temp_path and os.path.exists(temp_path):
+                            os.remove(temp_path)
                     
                     st.success(f"✅ Imported {num_imported} transactions")
                     if skipped:
@@ -296,83 +332,77 @@ elif page == "All Transactions":
     st.title("📋 All Transactions")
     
     session = get_db_session()
-    
-    # Pagination
-    page_size = 20
-    total_txns = count_transactions(session)
-    total_pages = (total_txns + page_size - 1) // page_size
-    
-    if "current_page" not in st.session_state:
-        st.session_state.current_page = 1
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.write(f"Page {st.session_state.current_page} of {total_pages}")
-    
-    with col2:
-        if st.button("← Previous") and st.session_state.current_page > 1:
-            st.session_state.current_page -= 1
-            st.rerun()
-    
-    with col3:
-        if st.button("Next →") and st.session_state.current_page < total_pages:
-            st.session_state.current_page += 1
-            st.rerun()
-    
-    # Get transactions for current page
-    offset = (st.session_state.current_page - 1) * page_size
-    transactions = get_transactions(session, limit=page_size, offset=offset)
+
+    # Get all transactions for table view
+    transactions = get_transactions(session)
     
     if not transactions:
         st.info("No transactions found.")
     else:
-        # Display as editable table
-        for txn in transactions:
-            with st.expander(f"{txn.date} | {txn.merchant} | ${txn.amount:.2f}"):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    new_date = st.date_input("Date", value=txn.date, key=f"date_{txn.id}")
-                    new_amount = st.number_input("Amount", value=txn.amount, key=f"amount_{txn.id}")
-                    new_merchant = st.text_input("Merchant", value=txn.merchant, key=f"merchant_{txn.id}")
-                
-                with col2:
-                    new_notes = st.text_area("Notes", value=txn.notes or "", key=f"notes_{txn.id}")
-                    all_tags = get_all_tags(session)
-                    selected_tags = st.multiselect(
-                        "Tags",
-                        [t.name for t in all_tags],
-                        default=[t.name for t in txn.tags],
-                        key=f"tags_{txn.id}",
-                    )
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    if st.button("Save", key=f"save_{txn.id}"):
-                        try:
-                            if new_date != txn.date:
-                                update_transaction(session, txn.id, "date", new_date)
-                            if new_amount != txn.amount:
-                                update_transaction(session, txn.id, "amount", new_amount)
-                            if new_merchant != txn.merchant:
-                                update_transaction(session, txn.id, "merchant", new_merchant)
-                            if new_notes != (txn.notes or ""):
-                                update_transaction(session, txn.id, "notes", new_notes if new_notes else None)
-                            
-                            # Update tags
-                            tag_ids = [t.id for t in all_tags if t.name in selected_tags]
-                            assign_tags(session, txn.id, tag_ids)
-                            
-                            st.success("✅ Updated!")
-                        except Exception as e:
-                            st.error(f"Error: {str(e)}")
-                
-                with col2:
-                    if st.button("Delete", key=f"delete_{txn.id}"):
-                        delete_transaction(session, txn.id)
-                        st.success("✅ Deleted!")
-                        st.rerun()
+        st.caption("Double-click a cell to edit.")
+
+        table_df = pd.DataFrame([
+            {
+                'id': txn.id,
+                'Date': txn.date,
+                'Merchant': txn.merchant,
+                'Amount': float(txn.amount),
+                'Notes': txn.notes or "",
+                'Account': txn.account.name if txn.account else "",
+                'Tags': ', '.join([t.name for t in txn.tags]) if txn.tags else "",
+            }
+            for txn in transactions
+        ])
+
+        edited_df = st.data_editor(
+            table_df,
+            hide_index=True,
+            use_container_width=True,
+            height=650,
+            disabled=['id', 'Account', 'Tags'],
+            column_config={
+                'id': st.column_config.NumberColumn('id', disabled=True),
+                'Date': st.column_config.DateColumn('Date', format='YYYY-MM-DD'),
+                'Amount': st.column_config.NumberColumn('Amount', format='$%.2f'),
+            },
+            key='all_transactions_editor',
+        )
+
+        updated_cells = 0
+        transaction_map = {txn.id: txn for txn in transactions}
+
+        for _, row in edited_df.iterrows():
+            transaction_id = int(row['id'])
+            transaction = transaction_map.get(transaction_id)
+            if not transaction:
+                continue
+
+            try:
+                new_date = pd.to_datetime(row['Date']).date() if pd.notna(row['Date']) else transaction.date
+                new_amount = float(row['Amount']) if pd.notna(row['Amount']) else float(transaction.amount)
+                new_merchant = str(row['Merchant']).strip() if pd.notna(row['Merchant']) else transaction.merchant
+                raw_notes = str(row['Notes']).strip() if pd.notna(row['Notes']) else ""
+                new_notes = raw_notes if raw_notes else None
+
+                if new_date != transaction.date:
+                    update_transaction(session, transaction_id, 'date', new_date)
+                    updated_cells += 1
+                if new_amount != float(transaction.amount):
+                    update_transaction(session, transaction_id, 'amount', new_amount)
+                    updated_cells += 1
+                if new_merchant != transaction.merchant:
+                    update_transaction(session, transaction_id, 'merchant', new_merchant)
+                    updated_cells += 1
+                existing_notes = transaction.notes if transaction.notes else None
+                if new_notes != existing_notes:
+                    update_transaction(session, transaction_id, 'notes', new_notes)
+                    updated_cells += 1
+            except Exception as e:
+                st.error(f"Error updating row {transaction_id}: {str(e)}")
+
+        if updated_cells > 0:
+            st.success(f"✅ Auto-saved {updated_cells} change(s)")
+            st.rerun()
     
     close_session(session)
 
@@ -729,4 +759,4 @@ elif page == "Settings":
 
 # === FOOTER ===
 st.divider()
-st.caption("💰 Personal Budget App MVP • Local SQLite • v1.0")
+st.caption("Spending • Local SQLite • v0.1")

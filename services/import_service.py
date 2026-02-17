@@ -22,10 +22,10 @@ from adapters.discover_adapter import DiscoverAdapter
 
 # Adapter registry
 ADAPTERS = {
-    'generic': GenericAdapter,
-    'wells': WellsAdapter,
-    'bilt': BiltAdapter,
-    'discover': DiscoverAdapter,
+    'Generic': GenericAdapter,
+    'Wells': WellsAdapter,
+    'Bilt': BiltAdapter,
+    'Discover': DiscoverAdapter,
 }
 
 
@@ -50,14 +50,12 @@ def preview_csv(
     Returns:
         Parsed DataFrame
     """
-    # Read CSV
-    df = pd.read_csv(file_path)
     
     # Get adapter
     adapter = _get_adapter(adapter_name, **adapter_kwargs)
     
     # Parse
-    parsed = adapter.parse(df)
+    parsed = adapter.parse(file_path)
     
     return parsed
 
@@ -88,9 +86,8 @@ def import_csv(
         raise ValueError(f"Account with id {account_id} does not exist")
     
     # Read and parse CSV
-    df = pd.read_csv(file_path)
     adapter = _get_adapter(adapter_name, **adapter_kwargs)
-    parsed = adapter.parse(df)
+    parsed = adapter.parse(file_path)
     
     # Import transactions
     num_imported = 0

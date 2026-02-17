@@ -1,10 +1,11 @@
 """
 Discover Adapter - Parser for Discover card CSV exports.
 
-Expects columns: Trans. Date, Amount, Merchant Name
+Expects columns: Trans. Date, Amount, Description
+Discover format: Charges are positive, payments/credits are negative.
+This matches our convention, so no transformation needed.
 """
 
-import pandas as pd
 from adapters.generic_adapter import GenericAdapter
 
 
@@ -15,6 +16,8 @@ class DiscoverAdapter(GenericAdapter):
         super().__init__(
             date_col='Trans. Date',
             amount_col='Amount',
-            merchant_col='Merchant Name',
+            merchant_col='Description',
             date_format='%m/%d/%Y',
+            has_header=True,
+            auto_category='Category',
         )

@@ -50,6 +50,7 @@ class Category(Base):
 
     # Relationships
     tags = relationship('Tag', back_populates='category', cascade='all, delete-orphan')
+    transactions = relationship('Transaction', back_populates='category')
 
     def __repr__(self):
         return f"<Category(id={self.id}, name='{self.name}')>"
@@ -84,12 +85,14 @@ class Transaction(Base):
     amount = Column(Float, nullable=False)
     merchant = Column(String, nullable=False)
     account_id = Column(Integer, ForeignKey('accounts.id'), nullable=False)
+    category_id = Column(Integer, ForeignKey('categories.id'), nullable=True)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
     account = relationship('Account', back_populates='transactions')
+    category = relationship('Category', back_populates='transactions')
     tags = relationship(
         'Tag',
         secondary=transaction_tags,

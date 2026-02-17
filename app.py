@@ -23,7 +23,7 @@ from services.summary_service import (
     calculate_total,
     summarize_by_tag,
     summarize_by_category,
-    export_summary,
+    export_transactions,
 )
 from services.import_service import (
     import_csv,
@@ -136,8 +136,14 @@ if page == "Dashboard":
                 'Date': txn.date,
                 'Merchant': txn.merchant,
                 'Amount': f"${txn.amount:.2f}",
-                'Account': txn.account.name,
+                'Category': (
+                    sorted({t.category.name for t in txn.tags})[0]
+                    if len({t.category.name for t in txn.tags}) == 1
+                    else (txn.category.name if txn.category else 'None')
+                ),
                 'Tags': ', '.join([t.name for t in txn.tags]) or 'None',
+                'Notes': txn.notes or '',
+                'Acct': txn.account.name,
             })
         st.dataframe(pd.DataFrame(recent_data), use_container_width=True)
     else:
@@ -298,6 +304,16 @@ elif page == "Add Transaction":
         with col2:
             account = st.selectbox("Account", [a.name for a in accounts])
             account_id = next((a.id for a in accounts if a.name == account), None)
+
+            selected_category_name = st.selectbox(
+                "Category (optional)",
+                ["None"] + [c.name for c in categories],
+            )
+            category_id = (
+                next((c.id for c in categories if c.name == selected_category_name), None)
+                if selected_category_name != "None"
+                else None
+            )
             
             # Tag selection
             selected_tags = st.multiselect(
@@ -316,6 +332,7 @@ elif page == "Add Transaction":
                     amount,
                     merchant,
                     account_id,
+                    category_id,
                     notes if notes else None,
                     tag_ids if tag_ids else None,
                 )
@@ -332,6 +349,24 @@ elif page == "All Transactions":
     st.title("📋 All Transactions")
     
     session = get_db_session()
+    all_tags = get_all_tags(session)
+    all_categories = get_all_categories(session)
+    tag_name_to_id = {tag.name: tag.id for tag in all_tags}
+    tag_name_to_category = {tag.name: tag.category.name for tag in all_tags}
+    category_to_tag_names = {}
+    for tag in all_tags:
+        category_to_tag_names.setdefault(tag.category.name, []).append(tag.name)
+    category_names = sorted([category.name for category in all_categories])
+    tag_names = sorted(tag_name_to_id.keys())
+
+    def normalize_tag_list(value):
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [str(v).strip() for v in value if str(v).strip()]
+        if isinstance(value, str):
+            return [v.strip() for v in value.split(',') if v.strip()]
+        return []
 
     # Get all transactions for table view
     transactions = get_transactions(session)
@@ -339,7 +374,7 @@ elif page == "All Transactions":
     if not transactions:
         st.info("No transactions found.")
     else:
-        st.caption("Double-click a cell to edit.")
+        st.caption("Double-click a cell to edit. Check Delete and click away to remove a row.")
 
         table_df = pd.DataFrame([
             {
@@ -347,9 +382,15 @@ elif page == "All Transactions":
                 'Date': txn.date,
                 'Merchant': txn.merchant,
                 'Amount': float(txn.amount),
+                'Category': (
+                    sorted({t.category.name for t in txn.tags})[0]
+                    if len({t.category.name for t in txn.tags}) == 1
+                    else (txn.category.name if txn.category else "")
+                ),
+                'Tags': [t.name for t in txn.tags] if txn.tags else [],
                 'Notes': txn.notes or "",
-                'Account': txn.account.name if txn.account else "",
-                'Tags': ', '.join([t.name for t in txn.tags]) if txn.tags else "",
+                'Acct': txn.account.name if txn.account else "",
+                'Delete': False,
             }
             for txn in transactions
         ])
@@ -359,22 +400,44 @@ elif page == "All Transactions":
             hide_index=True,
             use_container_width=True,
             height=650,
-            disabled=['id', 'Account', 'Tags'],
+            disabled=['id', 'Acct'],
             column_config={
                 'id': st.column_config.NumberColumn('id', disabled=True),
                 'Date': st.column_config.DateColumn('Date', format='YYYY-MM-DD'),
+                'Merchant': st.column_config.TextColumn('Merchant', width='small'),
                 'Amount': st.column_config.NumberColumn('Amount', format='$%.2f'),
+                'Category': st.column_config.SelectboxColumn(
+                    'Category',
+                    options=[""] + category_names,
+                    help='Optional: used to constrain selected tags to one category.',
+                ),
+                'Tags': st.column_config.MultiselectColumn(
+                    'Tags',
+                    options=tag_names,
+                    help='Assign one or more tags to categorize this transaction.',
+                ),
+                'Delete': st.column_config.CheckboxColumn('Delete'),
             },
             key='all_transactions_editor',
         )
 
         updated_cells = 0
+        deleted_rows = 0
         transaction_map = {txn.id: txn for txn in transactions}
 
         for _, row in edited_df.iterrows():
             transaction_id = int(row['id'])
             transaction = transaction_map.get(transaction_id)
             if not transaction:
+                continue
+
+            should_delete = bool(row['Delete']) if pd.notna(row['Delete']) else False
+            if should_delete:
+                try:
+                    delete_transaction(session, transaction_id)
+                    deleted_rows += 1
+                except Exception as e:
+                    st.error(f"Error deleting row {transaction_id}: {str(e)}")
                 continue
 
             try:
@@ -397,13 +460,62 @@ elif page == "All Transactions":
                 if new_notes != existing_notes:
                     update_transaction(session, transaction_id, 'notes', new_notes)
                     updated_cells += 1
+
+                selected_category = str(row['Category']).strip() if pd.notna(row['Category']) else ""
+                selected_tags = normalize_tag_list(row['Tags'])
+                existing_tags = sorted([t.name for t in transaction.tags])
+
+                selected_categories = {tag_name_to_category[tag_name] for tag_name in selected_tags if tag_name in tag_name_to_category}
+                if not selected_category and len(selected_categories) == 1:
+                    selected_category = next(iter(selected_categories))
+
+                unknown_tags = [tag_name for tag_name in selected_tags if tag_name not in tag_name_to_id]
+                if unknown_tags:
+                    st.error(f"Unknown tags on row {transaction_id}: {', '.join(unknown_tags)}")
+                    continue
+
+                if selected_category:
+                    allowed_tags = set(category_to_tag_names.get(selected_category, []))
+                    invalid_tags = [tag_name for tag_name in selected_tags if tag_name not in allowed_tags]
+                    if invalid_tags:
+                        st.error(
+                            f"Row {transaction_id}: selected tags {', '.join(invalid_tags)} do not belong to category '{selected_category}'."
+                        )
+                        continue
+
+                if selected_category == "" and len(selected_categories) > 1:
+                    st.error(
+                        f"Row {transaction_id}: choose a single category when using tags from multiple categories."
+                    )
+                    continue
+
+                existing_category = transaction.category.name if transaction.category else ""
+                if selected_category != existing_category:
+                    new_category_id = next(
+                        (category.id for category in all_categories if category.name == selected_category),
+                        None,
+                    )
+                    update_transaction(session, transaction_id, 'category_id', new_category_id)
+                    updated_cells += 1
+
+                if sorted(selected_tags) != existing_tags:
+                    assign_tags(
+                        session,
+                        transaction_id,
+                        [tag_name_to_id[tag_name] for tag_name in selected_tags],
+                    )
+                    updated_cells += 1
             except Exception as e:
                 st.error(f"Error updating row {transaction_id}: {str(e)}")
+
+        if deleted_rows > 0:
+            st.success(f"✅ Deleted {deleted_rows} row(s)")
+            st.rerun()
 
         if updated_cells > 0:
             st.success(f"✅ Auto-saved {updated_cells} change(s)")
             st.rerun()
-    
+
     close_session(session)
 
 
@@ -508,9 +620,14 @@ elif page == "Custom Date Range":
                 'Date': txn.date,
                 'Merchant': txn.merchant,
                 'Amount': f"${txn.amount:.2f}",
-                'Account': txn.account.name,
+                'Category': (
+                    sorted({t.category.name for t in txn.tags})[0]
+                    if len({t.category.name for t in txn.tags}) == 1
+                    else (txn.category.name if txn.category else 'None')
+                ),
                 'Tags': ', '.join([t.name for t in txn.tags]) or 'None',
                 'Notes': txn.notes or '',
+                'Acct': txn.account.name,
             })
         
         st.dataframe(pd.DataFrame(txn_data), use_container_width=True)
@@ -545,10 +662,10 @@ elif page == "Summaries":
             if not tag_summary.empty:
                 st.dataframe(tag_summary, use_container_width=True)
                 
-                if st.button("Export Tag Summary", key="export_tag_month"):
-                    category_summary = summarize_by_category(session, filters)
-                    tag_file, cat_file = export_summary(tag_summary, category_summary, "current_month")
-                    st.success(f"✅ Exported to {tag_file}")
+                if st.button("Export View CSV", key="export_tag_month"):
+                    period_transactions = get_transactions(session, filters=filters)
+                    export_file = export_transactions(period_transactions, "current_month")
+                    st.success(f"✅ Exported to {export_file}")
             else:
                 st.info("No tagged transactions.")
         
@@ -578,10 +695,10 @@ elif page == "Summaries":
             if not tag_summary.empty:
                 st.dataframe(tag_summary, use_container_width=True)
                 
-                if st.button("Export Tag Summary", key="export_tag_year"):
-                    category_summary = summarize_by_category(session, filters)
-                    tag_file, cat_file = export_summary(tag_summary, category_summary, "current_year")
-                    st.success(f"✅ Exported to {tag_file}")
+                if st.button("Export View CSV", key="export_tag_year"):
+                    period_transactions = get_transactions(session, filters=filters)
+                    export_file = export_transactions(period_transactions, "current_year")
+                    st.success(f"✅ Exported to {export_file}")
             else:
                 st.info("No tagged transactions.")
         
@@ -611,10 +728,10 @@ elif page == "Summaries":
             if not tag_summary.empty:
                 st.dataframe(tag_summary, use_container_width=True)
                 
-                if st.button("Export Tag Summary", key="export_tag_semester"):
-                    category_summary = summarize_by_category(session, filters)
-                    tag_file, cat_file = export_summary(tag_summary, category_summary, "current_semester")
-                    st.success(f"✅ Exported to {tag_file}")
+                if st.button("Export View CSV", key="export_tag_semester"):
+                    period_transactions = get_transactions(session, filters=filters)
+                    export_file = export_transactions(period_transactions, "current_semester")
+                    st.success(f"✅ Exported to {export_file}")
             else:
                 st.info("No tagged transactions.")
         

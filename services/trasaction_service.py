@@ -11,8 +11,9 @@ Provides:
 
 from datetime import date
 from typing import List, Optional, Dict, Any
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
-from db.models import Transaction, Tag, Account
+from db.models import Transaction, Tag, Account, Category
 from utils.filters import TransactionFilter
 
 
@@ -22,6 +23,7 @@ def create_transaction(
     amount: float,
     merchant: str,
     account_id: int,
+    category_id: Optional[int] = None,
     notes: Optional[str] = None,
     tag_ids: Optional[List[int]] = None,
 ) -> Transaction:
@@ -34,6 +36,7 @@ def create_transaction(
         amount: Transaction amount
         merchant: Merchant name
         account_id: ID of the account
+        category_id: Optional category ID to assign
         notes: Optional notes
         tag_ids: Optional list of tag IDs to assign
         
@@ -44,12 +47,18 @@ def create_transaction(
     account = session.query(Account).filter(Account.id == account_id).first()
     if not account:
         raise ValueError(f"Account with id {account_id} does not exist")
+
+    if category_id is not None:
+        category = session.query(Category).filter(Category.id == category_id).first()
+        if not category:
+            raise ValueError(f"Category with id {category_id} does not exist")
     
     transaction = Transaction(
         date=date_,
         amount=amount,
         merchant=merchant,
         account_id=account_id,
+        category_id=category_id,
         notes=notes,
     )
     
@@ -87,7 +96,7 @@ def update_transaction(
         raise ValueError(f"Transaction with id {transaction_id} does not exist")
     
     # Validate field
-    valid_fields = ['date', 'amount', 'merchant', 'notes', 'account_id']
+    valid_fields = ['date', 'amount', 'merchant', 'notes', 'account_id', 'category_id']
     if field not in valid_fields:
         raise ValueError(f"Invalid field '{field}'. Must be one of {valid_fields}")
     
@@ -96,6 +105,11 @@ def update_transaction(
         account = session.query(Account).filter(Account.id == value).first()
         if not account:
             raise ValueError(f"Account with id {value} does not exist")
+
+    if field == 'category_id' and value is not None:
+        category = session.query(Category).filter(Category.id == value).first()
+        if not category:
+            raise ValueError(f"Category with id {value} does not exist")
     
     setattr(transaction, field, value)
     session.commit()
@@ -182,7 +196,10 @@ def get_transactions(
         # Filter by category (transactions with tags in the category)
         if filters.category_id:
             query = query.filter(
-                Transaction.tags.any(Tag.category_id == filters.category_id)
+                or_(
+                    Transaction.category_id == filters.category_id,
+                    Transaction.tags.any(Tag.category_id == filters.category_id),
+                )
             )
     
     # Apply ordering
@@ -274,7 +291,10 @@ def count_transactions(
         
         if filters.category_id:
             query = query.filter(
-                Transaction.tags.any(Tag.category_id == filters.category_id)
+                or_(
+                    Transaction.category_id == filters.category_id,
+                    Transaction.tags.any(Tag.category_id == filters.category_id),
+                )
             )
     
     return query.count()

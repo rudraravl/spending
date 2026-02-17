@@ -30,6 +30,12 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 def init_db():
     """Initialize the database by creating all tables."""
     Base.metadata.create_all(bind=engine)
+
+    with engine.begin() as conn:
+        columns = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info(transactions)").fetchall()]
+        if 'category_id' not in columns:
+            conn.exec_driver_sql("ALTER TABLE transactions ADD COLUMN category_id INTEGER")
+
     print(f"Database initialized at {DB_PATH}")
 
 

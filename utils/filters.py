@@ -5,7 +5,8 @@ Provides a reusable TransactionFilter object that supports:
 - Date range (start_date, end_date)
 - Account
 - Category
-- Tags
+- Subcategory
+- Tags (AND logic: transaction must have ALL specified tags)
 - Amount range (min_amount, max_amount)
 
 Filters are combinable and used throughout the app.
@@ -23,7 +24,8 @@ class TransactionFilter:
     - Date range (start_date, end_date) - required for summaries
     - Account ID
     - Category ID
-    - Tag IDs (multiple tags = OR logic)
+    - Subcategory ID
+    - Tag IDs (AND logic: transaction must have ALL specified tags)
     - Amount range (min and max)
     """
     
@@ -33,6 +35,7 @@ class TransactionFilter:
         end_date: Optional[date] = None,
         account_id: Optional[int] = None,
         category_id: Optional[int] = None,
+        subcategory_id: Optional[int] = None,
         tag_ids: Optional[List[int]] = None,
         min_amount: Optional[float] = None,
         max_amount: Optional[float] = None,
@@ -45,7 +48,8 @@ class TransactionFilter:
             end_date: End date (inclusive)
             account_id: Account ID to filter by
             category_id: Category ID to filter by
-            tag_ids: List of tag IDs to filter by
+            subcategory_id: Subcategory ID to filter by
+            tag_ids: List of tag IDs to filter by (AND logic: transaction must have ALL tags)
             min_amount: Minimum transaction amount
             max_amount: Maximum transaction amount
         """
@@ -53,6 +57,7 @@ class TransactionFilter:
         self.end_date = end_date
         self.account_id = account_id
         self.category_id = category_id
+        self.subcategory_id = subcategory_id
         self.tag_ids = tag_ids
         self.min_amount = min_amount
         self.max_amount = max_amount
@@ -88,8 +93,9 @@ class TransactionFilter:
         # For IDs: use the one that is set (or None if both unset)
         account_id = self.account_id or other.account_id
         category_id = self.category_id or other.category_id
+        subcategory_id = self.subcategory_id or other.subcategory_id
         
-        # For tags: combine lists
+        # For tags: combine lists (AND logic: transaction must have ALL tags from both filters)
         tag_ids = None
         if self.tag_ids or other.tag_ids:
             tag_ids = (self.tag_ids or []) + (other.tag_ids or [])
@@ -100,6 +106,7 @@ class TransactionFilter:
             end_date=end_date,
             account_id=account_id,
             category_id=category_id,
+            subcategory_id=subcategory_id,
             tag_ids=tag_ids,
             min_amount=min_amount,
             max_amount=max_amount,
@@ -115,6 +122,8 @@ class TransactionFilter:
             parts.append(f"account_id={self.account_id}")
         if self.category_id:
             parts.append(f"category_id={self.category_id}")
+        if self.subcategory_id:
+            parts.append(f"subcategory_id={self.subcategory_id}")
         if self.tag_ids:
             parts.append(f"tag_ids={self.tag_ids}")
         if self.min_amount is not None:

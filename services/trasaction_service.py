@@ -11,9 +11,9 @@ Provides:
 
 from datetime import date
 from typing import List, Optional, Dict, Any
-from sqlalchemy import or_
+from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session
-from db.models import Transaction, Tag, Account, Category
+from db.models import Transaction, Tag, Account, Category, Subcategory
 from utils.filters import TransactionFilter
 
 
@@ -23,7 +23,8 @@ def create_transaction(
     amount: float,
     merchant: str,
     account_id: int,
-    category_id: Optional[int] = None,
+    category_id: int,
+    subcategory_id: int,
     notes: Optional[str] = None,
     tag_ids: Optional[List[int]] = None,
 ) -> Transaction:
@@ -36,22 +37,37 @@ def create_transaction(
         amount: Transaction amount
         merchant: Merchant name
         account_id: ID of the account
-        category_id: Optional category ID to assign
+        category_id: REQUIRED category ID
+        subcategory_id: REQUIRED subcategory ID (must belong to category_id)
         notes: Optional notes
         tag_ids: Optional list of tag IDs to assign
         
     Returns:
         Created Transaction object
+        
+    Raises:
+        ValueError: If account, category, or subcategory doesn't exist, or if subcategory doesn't belong to category
     """
     # Verify account exists
     account = session.query(Account).filter(Account.id == account_id).first()
     if not account:
         raise ValueError(f"Account with id {account_id} does not exist")
 
-    if category_id is not None:
-        category = session.query(Category).filter(Category.id == category_id).first()
-        if not category:
-            raise ValueError(f"Category with id {category_id} does not exist")
+    # Verify category exists
+    category = session.query(Category).filter(Category.id == category_id).first()
+    if not category:
+        raise ValueError(f"Category with id {category_id} does not exist")
+    
+    # Verify subcategory exists and belongs to category
+    subcategory = session.query(Subcategory).filter(Subcategory.id == subcategory_id).first()
+    if not subcategory:
+        raise ValueError(f"Subcategory with id {subcategory_id} does not exist")
+    
+    if subcategory.category_id != category_id:
+        raise ValueError(
+            f"Subcategory '{subcategory.name}' (id={subcategory_id}) does not belong to "
+            f"category '{category.name}' (id={category_id})"
+        )
     
     transaction = Transaction(
         date=date_,
@@ -59,12 +75,17 @@ def create_transaction(
         merchant=merchant,
         account_id=account_id,
         category_id=category_id,
+        subcategory_id=subcategory_id,
         notes=notes,
     )
     
     # Add tags if provided
     if tag_ids:
         tags = session.query(Tag).filter(Tag.id.in_(tag_ids)).all()
+        if len(tags) != len(tag_ids):
+            existing_ids = {tag.id for tag in tags}
+            missing_ids = set(tag_ids) - existing_ids
+            raise ValueError(f"Tags with ids {missing_ids} do not exist")
         transaction.tags = tags
     
     session.add(transaction)
@@ -85,18 +106,21 @@ def update_transaction(
     Args:
         session: Database session
         transaction_id: ID of the transaction
-        field: Field name to update (date, amount, merchant, notes, account_id)
+        field: Field name to update (date, amount, merchant, notes, account_id, category_id, subcategory_id)
         value: New value
         
     Returns:
         Updated Transaction object
+        
+    Raises:
+        ValueError: If transaction doesn't exist, field is invalid, or validation fails
     """
     transaction = session.query(Transaction).filter(Transaction.id == transaction_id).first()
     if not transaction:
         raise ValueError(f"Transaction with id {transaction_id} does not exist")
     
     # Validate field
-    valid_fields = ['date', 'amount', 'merchant', 'notes', 'account_id', 'category_id']
+    valid_fields = ['date', 'amount', 'merchant', 'notes', 'account_id', 'category_id', 'subcategory_id']
     if field not in valid_fields:
         raise ValueError(f"Invalid field '{field}'. Must be one of {valid_fields}")
     
@@ -106,10 +130,36 @@ def update_transaction(
         if not account:
             raise ValueError(f"Account with id {value} does not exist")
 
-    if field == 'category_id' and value is not None:
+    # Special validation for category_id
+    if field == 'category_id':
+        if value is None:
+            raise ValueError("category_id is required and cannot be None")
         category = session.query(Category).filter(Category.id == value).first()
         if not category:
             raise ValueError(f"Category with id {value} does not exist")
+        # If changing category, validate subcategory still belongs to new category
+        if transaction.subcategory_id:
+            subcategory = session.query(Subcategory).filter(Subcategory.id == transaction.subcategory_id).first()
+            if subcategory and subcategory.category_id != value:
+                raise ValueError(
+                    f"Cannot change category: current subcategory '{subcategory.name}' "
+                    f"belongs to category id {subcategory.category_id}, not {value}"
+                )
+    
+    # Special validation for subcategory_id
+    if field == 'subcategory_id':
+        if value is None:
+            raise ValueError("subcategory_id is required and cannot be None")
+        subcategory = session.query(Subcategory).filter(Subcategory.id == value).first()
+        if not subcategory:
+            raise ValueError(f"Subcategory with id {value} does not exist")
+        # Validate subcategory belongs to transaction's category
+        if transaction.category_id != subcategory.category_id:
+            category = session.query(Category).filter(Category.id == transaction.category_id).first()
+            raise ValueError(
+                f"Subcategory '{subcategory.name}' (id={value}) does not belong to "
+                f"transaction's category '{category.name if category else 'Unknown'}' (id={transaction.category_id})"
+            )
     
     setattr(transaction, field, value)
     session.commit()
@@ -189,18 +239,18 @@ def get_transactions(
         if filters.max_amount is not None:
             query = query.filter(Transaction.amount <= filters.max_amount)
         
-        # Filter by tag (any of the specified tags)
+        # Filter by tag (AND logic: transaction must have ALL specified tags)
         if filters.tag_ids:
-            query = query.filter(Transaction.tags.any(Tag.id.in_(filters.tag_ids)))
+            for tag_id in filters.tag_ids:
+                query = query.filter(Transaction.tags.any(Tag.id == tag_id))
         
-        # Filter by category (transactions with tags in the category)
+        # Filter by category (direct category_id match only)
         if filters.category_id:
-            query = query.filter(
-                or_(
-                    Transaction.category_id == filters.category_id,
-                    Transaction.tags.any(Tag.category_id == filters.category_id),
-                )
-            )
+            query = query.filter(Transaction.category_id == filters.category_id)
+        
+        # Filter by subcategory
+        if filters.subcategory_id:
+            query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
     
     # Apply ordering
     query = query.order_by(Transaction.date.desc(), Transaction.id.desc())
@@ -286,15 +336,17 @@ def count_transactions(
         if filters.max_amount is not None:
             query = query.filter(Transaction.amount <= filters.max_amount)
         
+        # Filter by tag (AND logic: transaction must have ALL specified tags)
         if filters.tag_ids:
-            query = query.filter(Transaction.tags.any(Tag.id.in_(filters.tag_ids)))
+            for tag_id in filters.tag_ids:
+                query = query.filter(Transaction.tags.any(Tag.id == tag_id))
         
+        # Filter by category (direct category_id match only)
         if filters.category_id:
-            query = query.filter(
-                or_(
-                    Transaction.category_id == filters.category_id,
-                    Transaction.tags.any(Tag.category_id == filters.category_id),
-                )
-            )
+            query = query.filter(Transaction.category_id == filters.category_id)
+        
+        # Filter by subcategory
+        if filters.subcategory_id:
+            query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
     
     return query.count()

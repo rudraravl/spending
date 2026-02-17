@@ -11,9 +11,20 @@ Provides:
 from typing import List, Optional, Dict, Tuple
 import pandas as pd
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_
-from db.models import Transaction, Tag, Category
+from sqlalchemy import func, and_
+from db.models import Transaction, Tag, Category, Subcategory
 from utils.filters import TransactionFilter
+
+
+# Subcategory name(s) to exclude from spending totals (case-insensitive)
+PAYMENT_SUBCATEGORY_NAMES = {'payments'}
+
+
+def _exclude_payment_transactions(query):
+    """Exclude transactions in the Payments subcategory from spending aggregates."""
+    return query.filter(
+        ~Transaction.subcategory.has(func.lower(Subcategory.name).in_(list(PAYMENT_SUBCATEGORY_NAMES)))
+    )
 
 
 def calculate_total(
@@ -22,18 +33,18 @@ def calculate_total(
 ) -> float:
     """
     Calculate total spending for transactions matching filters.
-    
-    NOTE: This sums ALL amounts (positive charges + negative payments/credits).
-    If you want only charges, add a filter: Transaction.amount > 0
-    
+
+    NOTE: Transactions in the Payments subcategory are excluded from totals.
+
     Args:
         session: Database session
         filters: TransactionFilter object
-        
+
     Returns:
-        Total amount (sum of all transaction amounts, including negative values)
+        Total amount (sum of matching transaction amounts excluding Payments subcategory)
     """
     query = session.query(func.sum(Transaction.amount))
+    query = _exclude_payment_transactions(query)
     
     if filters:
         if filters.start_date:
@@ -51,16 +62,18 @@ def calculate_total(
         if filters.max_amount is not None:
             query = query.filter(Transaction.amount <= filters.max_amount)
         
+        # Filter by tag (AND logic: transaction must have ALL specified tags)
         if filters.tag_ids:
-            query = query.filter(Transaction.tags.any(Tag.id.in_(filters.tag_ids)))
+            for tag_id in filters.tag_ids:
+                query = query.filter(Transaction.tags.any(Tag.id == tag_id))
         
+        # Filter by category (direct category_id match only)
         if filters.category_id:
-            query = query.filter(
-                or_(
-                    Transaction.category_id == filters.category_id,
-                    Transaction.tags.any(Tag.category_id == filters.category_id),
-                )
-            )
+            query = query.filter(Transaction.category_id == filters.category_id)
+        
+        # Filter by subcategory
+        if filters.subcategory_id:
+            query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
     
     result = query.scalar()
     return float(result) if result else 0.0
@@ -71,25 +84,25 @@ def summarize_by_tag(
     filters: Optional[TransactionFilter] = None,
 ) -> pd.DataFrame:
     """
-    Summarize spending by tag.
-    
-    NOTE: This sums ALL amounts (positive charges + negative payments/credits).
-    
+    Summarize spending by tag (contextual reporting only, tags have no accounting meaning).
+
+    NOTE: Transactions in the Payments subcategory are excluded from this summary.
+
     Args:
         session: Database session
         filters: TransactionFilter object
         
     Returns:
-        DataFrame with columns: category, tag, total, count, percent
+        DataFrame with columns: tag, total, count, percent
     """
     # Get all transactions matching filters
     query = session.query(
         Tag.id.label('tag_id'),
-        Category.name.label('category'),
         Tag.name.label('tag'),
         func.sum(Transaction.amount).label('total'),
         func.count(Transaction.id).label('count'),
-    ).join(Transaction.tags).join(Tag.category).group_by(Tag.id, Category.name, Tag.name)
+    ).join(Transaction.tags).group_by(Tag.id, Tag.name)
+    query = _exclude_payment_transactions(query)
     
     # Apply filters
     if filters:
@@ -108,11 +121,18 @@ def summarize_by_tag(
         if filters.max_amount is not None:
             query = query.filter(Transaction.amount <= filters.max_amount)
         
+        # Filter by tag (AND logic: transaction must have ALL specified tags)
         if filters.tag_ids:
-            query = query.filter(Tag.id.in_(filters.tag_ids))
+            for tag_id in filters.tag_ids:
+                query = query.filter(Transaction.tags.any(Tag.id == tag_id))
         
+        # Filter by category (direct category_id match only)
         if filters.category_id:
-            query = query.filter(Tag.category_id == filters.category_id)
+            query = query.filter(Transaction.category_id == filters.category_id)
+        
+        # Filter by subcategory
+        if filters.subcategory_id:
+            query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
     
     results = query.all()
     
@@ -120,7 +140,6 @@ def summarize_by_tag(
     data = []
     for row in results:
         data.append({
-            'category': row.category,
             'tag': row.tag,
             'total': row.total,
             'count': row.count,
@@ -130,7 +149,7 @@ def summarize_by_tag(
     df = pd.DataFrame(data)
     
     if len(df) == 0:
-        return pd.DataFrame(columns=['category', 'tag', 'total', 'count', 'percent'])
+        return pd.DataFrame(columns=['tag', 'total', 'count', 'percent'])
     
     # Calculate percentage
     total = df['total'].sum()
@@ -142,7 +161,7 @@ def summarize_by_tag(
     # Sort by total descending
     df = df.sort_values('total', ascending=False).reset_index(drop=True)
     
-    return df[['category', 'tag', 'total', 'count', 'percent']]
+    return df[['tag', 'total', 'count', 'percent']]
 
 
 def summarize_by_category(
@@ -150,7 +169,7 @@ def summarize_by_category(
     filters: Optional[TransactionFilter] = None,
 ) -> pd.DataFrame:
     """
-    Summarize spending by category.
+    Summarize spending by category (accounting classification).
     
     Args:
         session: Database session
@@ -159,51 +178,46 @@ def summarize_by_category(
     Returns:
         DataFrame with columns: category, total, count, percent
     """
-    tagged_query = session.query(
+    # Group by category_id directly (every transaction has exactly one category)
+    query = session.query(
         Category.id.label('category_id'),
         Category.name.label('category'),
         func.sum(Transaction.amount).label('total'),
         func.count(Transaction.id).label('count'),
-    ).select_from(Transaction).join(Transaction.tags).join(Tag.category).group_by(Category.id, Category.name)
-
-    untagged_query = session.query(
-        Category.id.label('category_id'),
-        Category.name.label('category'),
-        func.sum(Transaction.amount).label('total'),
-        func.count(Transaction.id).label('count'),
-    ).select_from(Transaction).join(Transaction.category).filter(~Transaction.tags.any()).group_by(Category.id, Category.name)
+    ).select_from(Transaction).join(Transaction.category).group_by(Category.id, Category.name)
+    query = _exclude_payment_transactions(query)
     
     # Apply filters
     if filters:
         if filters.start_date:
-            tagged_query = tagged_query.filter(Transaction.date >= filters.start_date)
-            untagged_query = untagged_query.filter(Transaction.date >= filters.start_date)
+            query = query.filter(Transaction.date >= filters.start_date)
         
         if filters.end_date:
-            tagged_query = tagged_query.filter(Transaction.date <= filters.end_date)
-            untagged_query = untagged_query.filter(Transaction.date <= filters.end_date)
+            query = query.filter(Transaction.date <= filters.end_date)
         
         if filters.account_id:
-            tagged_query = tagged_query.filter(Transaction.account_id == filters.account_id)
-            untagged_query = untagged_query.filter(Transaction.account_id == filters.account_id)
+            query = query.filter(Transaction.account_id == filters.account_id)
         
         if filters.min_amount is not None:
-            tagged_query = tagged_query.filter(Transaction.amount >= filters.min_amount)
-            untagged_query = untagged_query.filter(Transaction.amount >= filters.min_amount)
+            query = query.filter(Transaction.amount >= filters.min_amount)
         
         if filters.max_amount is not None:
-            tagged_query = tagged_query.filter(Transaction.amount <= filters.max_amount)
-            untagged_query = untagged_query.filter(Transaction.amount <= filters.max_amount)
+            query = query.filter(Transaction.amount <= filters.max_amount)
         
+        # Filter by tag (AND logic: transaction must have ALL specified tags)
         if filters.tag_ids:
-            tagged_query = tagged_query.filter(Tag.id.in_(filters.tag_ids))
-            untagged_query = untagged_query.filter(False)
+            for tag_id in filters.tag_ids:
+                query = query.filter(Transaction.tags.any(Tag.id == tag_id))
         
+        # Filter by category (direct category_id match only)
         if filters.category_id:
-            tagged_query = tagged_query.filter(Category.id == filters.category_id)
-            untagged_query = untagged_query.filter(Category.id == filters.category_id)
+            query = query.filter(Transaction.category_id == filters.category_id)
+        
+        # Filter by subcategory
+        if filters.subcategory_id:
+            query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
     
-    results = tagged_query.all() + untagged_query.all()
+    results = query.all()
     
     # Convert to list of dicts
     data = []
@@ -219,11 +233,6 @@ def summarize_by_category(
     
     if len(df) == 0:
         return pd.DataFrame(columns=['category', 'total', 'count', 'percent'])
-
-    df = (
-        df.groupby('category', as_index=False)
-        .agg({'total': 'sum', 'count': 'sum'})
-    )
     
     # Calculate percentage
     total = df['total'].sum()
@@ -236,6 +245,92 @@ def summarize_by_category(
     df = df.sort_values('total', ascending=False).reset_index(drop=True)
     
     return df[['category', 'total', 'count', 'percent']]
+
+
+def summarize_by_subcategory(
+    session: Session,
+    filters: Optional[TransactionFilter] = None,
+) -> pd.DataFrame:
+    """
+    Summarize spending by subcategory (accounting classification).
+    
+    Args:
+        session: Database session
+        filters: TransactionFilter object
+        
+    Returns:
+        DataFrame with columns: category, subcategory, total, count, percent
+    """
+    # Group by subcategory_id directly (every transaction has exactly one subcategory)
+    query = session.query(
+        Category.name.label('category'),
+        Subcategory.name.label('subcategory'),
+        func.sum(Transaction.amount).label('total'),
+        func.count(Transaction.id).label('count'),
+    ).select_from(Transaction).join(Transaction.subcategory).join(Subcategory.category).group_by(
+        Category.id, Category.name, Subcategory.id, Subcategory.name
+    )
+    query = _exclude_payment_transactions(query)
+    
+    # Apply filters
+    if filters:
+        if filters.start_date:
+            query = query.filter(Transaction.date >= filters.start_date)
+        
+        if filters.end_date:
+            query = query.filter(Transaction.date <= filters.end_date)
+        
+        if filters.account_id:
+            query = query.filter(Transaction.account_id == filters.account_id)
+        
+        if filters.min_amount is not None:
+            query = query.filter(Transaction.amount >= filters.min_amount)
+        
+        if filters.max_amount is not None:
+            query = query.filter(Transaction.amount <= filters.max_amount)
+        
+        # Filter by tag (AND logic: transaction must have ALL specified tags)
+        if filters.tag_ids:
+            for tag_id in filters.tag_ids:
+                query = query.filter(Transaction.tags.any(Tag.id == tag_id))
+        
+        # Filter by category (direct category_id match only)
+        if filters.category_id:
+            query = query.filter(Transaction.category_id == filters.category_id)
+        
+        # Filter by subcategory
+        if filters.subcategory_id:
+            query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
+    
+    results = query.all()
+    
+    # Convert to list of dicts
+    data = []
+    for row in results:
+        data.append({
+            'category': row.category,
+            'subcategory': row.subcategory,
+            'total': row.total,
+            'count': row.count,
+        })
+    
+    # Create DataFrame
+    df = pd.DataFrame(data)
+    
+    if len(df) == 0:
+        return pd.DataFrame(columns=['category', 'subcategory', 'total', 'count', 'percent'])
+    
+    # Calculate percentage
+    total = df['total'].sum()
+    if total > 0:
+        df['percent'] = (df['total'] / total * 100).round(2)
+    else:
+        df['percent'] = 0.0
+    
+    # Sort by total descending
+    df = df.sort_values('total', ascending=False).reset_index(drop=True)
+    
+    return df[['category', 'subcategory', 'total', 'count', 'percent']]
 
 
 def export_summary(
@@ -276,19 +371,18 @@ def transactions_to_dataframe(transactions: List[Transaction]) -> pd.DataFrame:
     """Convert transactions to a DataFrame matching transaction views."""
     data = []
     for txn in transactions:
-        categories = sorted({t.category.name for t in txn.tags})
-        category_name = categories[0] if len(categories) == 1 else (txn.category.name if txn.category else 'None')
         data.append({
             'Date': txn.date,
             'Merchant': txn.merchant,
             'Amount': float(txn.amount),
             'Notes': txn.notes or '',
             'Account': txn.account.name if txn.account else '',
-            'Category': category_name,
+            'Category': txn.category.name if txn.category else 'None',
+            'Subcategory': txn.subcategory.name if txn.subcategory else 'None',
             'Tags': ', '.join([t.name for t in txn.tags]) or 'None',
         })
 
-    return pd.DataFrame(data, columns=['Date', 'Merchant', 'Amount', 'Notes', 'Account', 'Category', 'Tags'])
+    return pd.DataFrame(data, columns=['Date', 'Merchant', 'Amount', 'Notes', 'Account', 'Category', 'Subcategory', 'Tags'])
 
 
 def export_transactions(

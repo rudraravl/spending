@@ -3,14 +3,27 @@ SQLAlchemy ORM Models for the Personal Budget App.
 
 Defines the following entities:
 - Account: Credit card or bank account
-- Category: High-level spending category (Food, Travel, Housing, etc.)
-- Tag: Specific tag within a category
+- Category: High-level accounting category (Food, Travel, etc.)
+- Subcategory: Required accounting subcategory (e.g., Food -> Grocery)
+- Tag: Flat context label (0..N per transaction)
 - Transaction: Individual transaction entry
 - TransactionTag: Many-to-many relationship between Transaction and Tag
 """
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Text, ForeignKey, Table
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Float,
+    Date,
+    DateTime,
+    Text,
+    ForeignKey,
+    Table,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 
@@ -32,7 +45,7 @@ class Account(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, nullable=False)
     type = Column(String, nullable=False)  # e.g., "credit_card", "checking", "savings"
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
 
     # Relationships
     transactions = relationship('Transaction', back_populates='account', cascade='all, delete-orphan')
@@ -42,30 +55,49 @@ class Account(Base):
 
 
 class Category(Base):
-    """Represents a high-level spending category."""
+    """Represents a high-level accounting category."""
     __tablename__ = 'categories'
 
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, nullable=False)
+    created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
 
     # Relationships
-    tags = relationship('Tag', back_populates='category', cascade='all, delete-orphan')
+    subcategories = relationship('Subcategory', back_populates='category', cascade='all, delete-orphan')
     transactions = relationship('Transaction', back_populates='category')
 
     def __repr__(self):
         return f"<Category(id={self.id}, name='{self.name}')>"
 
 
+class Subcategory(Base):
+    """Represents a required accounting subcategory (belongs to exactly one Category)."""
+    __tablename__ = 'subcategories'
+    __table_args__ = (
+        UniqueConstraint('name', 'category_id', name='uq_subcategories_name_category_id'),
+    )
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+    category_id = Column(Integer, ForeignKey('categories.id'), nullable=False)
+    created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
+
+    category = relationship('Category', back_populates='subcategories')
+    transactions = relationship('Transaction', back_populates='subcategory')
+
+    def __repr__(self):
+        return f"<Subcategory(id={self.id}, name='{self.name}', category_id={self.category_id})>"
+
+
 class Tag(Base):
-    """Represents a specific tag within a category."""
+    """Represents a flat context tag (no accounting meaning)."""
     __tablename__ = 'tags'
 
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, nullable=False)
-    category_id = Column(Integer, ForeignKey('categories.id'), nullable=False)
+    created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
 
     # Relationships
-    category = relationship('Category', back_populates='tags')
     transactions = relationship(
         'Transaction',
         secondary=transaction_tags,
@@ -73,7 +105,7 @@ class Tag(Base):
     )
 
     def __repr__(self):
-        return f"<Tag(id={self.id}, name='{self.name}', category_id={self.category_id})>"
+        return f"<Tag(id={self.id}, name='{self.name}')>"
 
 
 class Transaction(Base):
@@ -85,14 +117,21 @@ class Transaction(Base):
     amount = Column(Float, nullable=False)
     merchant = Column(String, nullable=False)
     account_id = Column(Integer, ForeignKey('accounts.id'), nullable=False)
-    category_id = Column(Integer, ForeignKey('categories.id'), nullable=True)
+    category_id = Column(Integer, ForeignKey('categories.id'), nullable=False)
+    subcategory_id = Column(Integer, ForeignKey('subcategories.id'), nullable=False)
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
+    updated_at = Column(
+        DateTime,
+        server_default=func.current_timestamp(),
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
 
     # Relationships
     account = relationship('Account', back_populates='transactions')
     category = relationship('Category', back_populates='transactions')
+    subcategory = relationship('Subcategory', back_populates='transactions')
     tags = relationship(
         'Tag',
         secondary=transaction_tags,

@@ -9,7 +9,7 @@ import os
 import tempfile
 from datetime import date, datetime
 from db.database import init_db, get_session, close_session
-from db.models import Account, Category, Tag, Transaction
+from db.models import Account, Category, Subcategory, Tag, Transaction
 from services.trasaction_service import (
     create_transaction,
     update_transaction,
@@ -23,6 +23,7 @@ from services.summary_service import (
     calculate_total,
     summarize_by_tag,
     summarize_by_category,
+    summarize_by_subcategory,
     export_transactions,
 )
 from services.import_service import (
@@ -30,6 +31,7 @@ from services.import_service import (
     get_available_adapters,
     ensure_account,
     ensure_category,
+    ensure_subcategory,
     ensure_tag,
 )
 from utils.filters import TransactionFilter
@@ -101,6 +103,11 @@ def get_all_tags(session: Session):
     return session.query(Tag).all()
 
 
+def get_subcategories_by_category(session: Session, category_id: int):
+    """Get all subcategories for a given category."""
+    return session.query(Subcategory).filter(Subcategory.category_id == category_id).all()
+
+
 # === PAGE: DASHBOARD ===
 if page == "Dashboard":
     st.title("💰 Budget Dashboard")
@@ -136,11 +143,8 @@ if page == "Dashboard":
                 'Date': txn.date,
                 'Merchant': txn.merchant,
                 'Amount': f"${txn.amount:.2f}",
-                'Category': (
-                    sorted({t.category.name for t in txn.tags})[0]
-                    if len({t.category.name for t in txn.tags}) == 1
-                    else (txn.category.name if txn.category else 'None')
-                ),
+                'Category': txn.category.name if txn.category else 'None',
+                'Subcategory': txn.subcategory.name if txn.subcategory else 'None',
                 'Tags': ', '.join([t.name for t in txn.tags]) or 'None',
                 'Notes': txn.notes or '',
                 'Acct': txn.account.name,
@@ -286,13 +290,15 @@ elif page == "Add Transaction":
     
     session = get_db_session()
     
-    # Get accounts and tags
+    # Get accounts, categories, and tags
     accounts = get_all_accounts(session)
     categories = get_all_categories(session)
     all_tags = get_all_tags(session)
     
     if not accounts:
         st.error("Please create an account in Settings first.")
+    elif not categories:
+        st.error("Please create a category in Settings first.")
     else:
         col1, col2 = st.columns(2)
         
@@ -305,19 +311,28 @@ elif page == "Add Transaction":
             account = st.selectbox("Account", [a.name for a in accounts])
             account_id = next((a.id for a in accounts if a.name == account), None)
 
+            # Category selection (required)
             selected_category_name = st.selectbox(
-                "Category (optional)",
-                ["None"] + [c.name for c in categories],
+                "Category *",
+                [c.name for c in categories],
             )
-            category_id = (
-                next((c.id for c in categories if c.name == selected_category_name), None)
-                if selected_category_name != "None"
-                else None
-            )
+            category_id = next((c.id for c in categories if c.name == selected_category_name), None)
             
-            # Tag selection
+            # Subcategory selection (filtered by category, required)
+            subcategories = get_subcategories_by_category(session, category_id) if category_id else []
+            if subcategories:
+                selected_subcategory_name = st.selectbox(
+                    "Subcategory *",
+                    [s.name for s in subcategories],
+                )
+                subcategory_id = next((s.id for s in subcategories if s.name == selected_subcategory_name), None)
+            else:
+                st.warning(f"No subcategories found for '{selected_category_name}'. Please create one in Settings.")
+                subcategory_id = None
+            
+            # Tag selection (optional)
             selected_tags = st.multiselect(
-                "Tags",
+                "Tags (optional)",
                 [t.name for t in all_tags],
             )
             tag_ids = [t.id for t in all_tags if t.name in selected_tags]
@@ -325,21 +340,25 @@ elif page == "Add Transaction":
         notes = st.text_area("Notes (optional)")
         
         if st.button("Save Transaction"):
-            try:
-                create_transaction(
-                    session,
-                    txn_date,
-                    amount,
-                    merchant,
-                    account_id,
-                    category_id,
-                    notes if notes else None,
-                    tag_ids if tag_ids else None,
-                )
-                st.success("✅ Transaction added!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error: {str(e)}")
+            if not subcategory_id:
+                st.error("Please select a subcategory.")
+            else:
+                try:
+                    create_transaction(
+                        session,
+                        txn_date,
+                        amount,
+                        merchant,
+                        account_id,
+                        category_id,
+                        subcategory_id,
+                        notes if notes else None,
+                        tag_ids if tag_ids else None,
+                    )
+                    st.success("✅ Transaction added!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
     
     close_session(session)
 
@@ -352,10 +371,11 @@ elif page == "All Transactions":
     all_tags = get_all_tags(session)
     all_categories = get_all_categories(session)
     tag_name_to_id = {tag.name: tag.id for tag in all_tags}
-    tag_name_to_category = {tag.name: tag.category.name for tag in all_tags}
-    category_to_tag_names = {}
-    for tag in all_tags:
-        category_to_tag_names.setdefault(tag.category.name, []).append(tag.name)
+    category_name_to_id = {cat.name: cat.id for cat in all_categories}
+    category_id_to_subcategories = {
+        cat.id: get_subcategories_by_category(session, cat.id)
+        for cat in all_categories
+    }
     category_names = sorted([category.name for category in all_categories])
     tag_names = sorted(tag_name_to_id.keys())
 
@@ -374,7 +394,7 @@ elif page == "All Transactions":
     if not transactions:
         st.info("No transactions found.")
     else:
-        st.caption("Double-click a cell to edit. Check Delete and click away to remove a row.")
+        st.caption("Double-click a cell to edit. Check Delete for one or more rows, then click Delete selected.")
 
         table_df = pd.DataFrame([
             {
@@ -382,11 +402,8 @@ elif page == "All Transactions":
                 'Date': txn.date,
                 'Merchant': txn.merchant,
                 'Amount': float(txn.amount),
-                'Category': (
-                    sorted({t.category.name for t in txn.tags})[0]
-                    if len({t.category.name for t in txn.tags}) == 1
-                    else (txn.category.name if txn.category else "")
-                ),
+                'Category': txn.category.name if txn.category else "",
+                'Subcategory': txn.subcategory.name if txn.subcategory else "",
                 'Tags': [t.name for t in txn.tags] if txn.tags else [],
                 'Notes': txn.notes or "",
                 'Acct': txn.account.name if txn.account else "",
@@ -408,21 +425,49 @@ elif page == "All Transactions":
                 'Amount': st.column_config.NumberColumn('Amount', format='$%.2f'),
                 'Category': st.column_config.SelectboxColumn(
                     'Category',
-                    options=[""] + category_names,
-                    help='Optional: used to constrain selected tags to one category.',
+                    options=category_names,
+                    help='Required: accounting category for this transaction.',
+                ),
+                'Subcategory': st.column_config.TextColumn(
+                    'Subcategory',
+                    help='Required: accounting subcategory. Must belong to selected category.',
                 ),
                 'Tags': st.column_config.MultiselectColumn(
                     'Tags',
                     options=tag_names,
-                    help='Assign one or more tags to categorize this transaction.',
+                    help='Optional: contextual labels (no accounting meaning).',
                 ),
                 'Delete': st.column_config.CheckboxColumn('Delete'),
             },
             key='all_transactions_editor',
         )
 
+        selected_delete_ids = [
+            int(row['id'])
+            for _, row in edited_df.iterrows()
+            if pd.notna(row['Delete']) and bool(row['Delete'])
+        ]
+
+        delete_clicked = st.button(
+            f"Delete selected ({len(selected_delete_ids)})",
+            type='primary',
+            disabled=len(selected_delete_ids) == 0,
+        )
+
+        if delete_clicked:
+            deleted_rows = 0
+            for transaction_id in selected_delete_ids:
+                try:
+                    delete_transaction(session, transaction_id)
+                    deleted_rows += 1
+                except Exception as e:
+                    st.error(f"Error deleting row {transaction_id}: {str(e)}")
+
+            if deleted_rows > 0:
+                st.success(f"✅ Deleted {deleted_rows} row(s)")
+                st.rerun()
+
         updated_cells = 0
-        deleted_rows = 0
         transaction_map = {txn.id: txn for txn in transactions}
 
         for _, row in edited_df.iterrows():
@@ -431,16 +476,8 @@ elif page == "All Transactions":
             if not transaction:
                 continue
 
-            should_delete = bool(row['Delete']) if pd.notna(row['Delete']) else False
-            if should_delete:
-                try:
-                    delete_transaction(session, transaction_id)
-                    deleted_rows += 1
-                except Exception as e:
-                    st.error(f"Error deleting row {transaction_id}: {str(e)}")
-                continue
-
             try:
+                # Update basic fields
                 new_date = pd.to_datetime(row['Date']).date() if pd.notna(row['Date']) else transaction.date
                 new_amount = float(row['Amount']) if pd.notna(row['Amount']) else float(transaction.amount)
                 new_merchant = str(row['Merchant']).strip() if pd.notna(row['Merchant']) else transaction.merchant
@@ -461,42 +498,55 @@ elif page == "All Transactions":
                     update_transaction(session, transaction_id, 'notes', new_notes)
                     updated_cells += 1
 
+                # Update category/subcategory
                 selected_category = str(row['Category']).strip() if pd.notna(row['Category']) else ""
-                selected_tags = normalize_tag_list(row['Tags'])
-                existing_tags = sorted([t.name for t in transaction.tags])
-
-                selected_categories = {tag_name_to_category[tag_name] for tag_name in selected_tags if tag_name in tag_name_to_category}
-                if not selected_category and len(selected_categories) == 1:
-                    selected_category = next(iter(selected_categories))
-
-                unknown_tags = [tag_name for tag_name in selected_tags if tag_name not in tag_name_to_id]
-                if unknown_tags:
-                    st.error(f"Unknown tags on row {transaction_id}: {', '.join(unknown_tags)}")
+                selected_subcategory = str(row['Subcategory']).strip() if pd.notna(row['Subcategory']) else ""
+                
+                if not selected_category:
+                    st.error(f"Row {transaction_id}: Category is required.")
                     continue
-
-                if selected_category:
-                    allowed_tags = set(category_to_tag_names.get(selected_category, []))
-                    invalid_tags = [tag_name for tag_name in selected_tags if tag_name not in allowed_tags]
-                    if invalid_tags:
-                        st.error(
-                            f"Row {transaction_id}: selected tags {', '.join(invalid_tags)} do not belong to category '{selected_category}'."
-                        )
-                        continue
-
-                if selected_category == "" and len(selected_categories) > 1:
+                
+                new_category_id = category_name_to_id.get(selected_category)
+                if not new_category_id:
+                    st.error(f"Row {transaction_id}: Unknown category '{selected_category}'.")
+                    continue
+                
+                # Find subcategory
+                if not selected_subcategory:
+                    st.error(f"Row {transaction_id}: Subcategory is required.")
+                    continue
+                
+                subcategories = category_id_to_subcategories.get(new_category_id, [])
+                matching_subcategory = next(
+                    (s for s in subcategories if s.name == selected_subcategory),
+                    None
+                )
+                
+                if not matching_subcategory:
                     st.error(
-                        f"Row {transaction_id}: choose a single category when using tags from multiple categories."
+                        f"Row {transaction_id}: Subcategory '{selected_subcategory}' not found for category '{selected_category}'. "
+                        f"Available: {', '.join([s.name for s in subcategories])}"
                     )
                     continue
-
-                existing_category = transaction.category.name if transaction.category else ""
-                if selected_category != existing_category:
-                    new_category_id = next(
-                        (category.id for category in all_categories if category.name == selected_category),
-                        None,
-                    )
+                
+                # Update category if changed
+                if transaction.category_id != new_category_id:
                     update_transaction(session, transaction_id, 'category_id', new_category_id)
                     updated_cells += 1
+                
+                # Update subcategory if changed
+                if transaction.subcategory_id != matching_subcategory.id:
+                    update_transaction(session, transaction_id, 'subcategory_id', matching_subcategory.id)
+                    updated_cells += 1
+
+                # Update tags
+                selected_tags = normalize_tag_list(row['Tags'])
+                existing_tags = sorted([t.name for t in transaction.tags])
+                
+                unknown_tags = [tag_name for tag_name in selected_tags if tag_name not in tag_name_to_id]
+                if unknown_tags:
+                    st.error(f"Row {transaction_id}: Unknown tags: {', '.join(unknown_tags)}")
+                    continue
 
                 if sorted(selected_tags) != existing_tags:
                     assign_tags(
@@ -507,10 +557,6 @@ elif page == "All Transactions":
                     updated_cells += 1
             except Exception as e:
                 st.error(f"Error updating row {transaction_id}: {str(e)}")
-
-        if deleted_rows > 0:
-            st.success(f"✅ Deleted {deleted_rows} row(s)")
-            st.rerun()
 
         if updated_cells > 0:
             st.success(f"✅ Auto-saved {updated_cells} change(s)")
@@ -538,7 +584,7 @@ elif page == "Custom Date Range":
     # Optional filters
     st.subheader("Filters")
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         accounts = get_all_accounts(session)
@@ -553,6 +599,16 @@ elif page == "Custom Date Range":
         category_id = next((c.id for c in categories if c.name == selected_category), None) if selected_category != "All" else None
     
     with col3:
+        subcategories = get_subcategories_by_category(session, category_id) if category_id else []
+        subcategory_names = [s.name for s in subcategories]
+        selected_subcategory = st.selectbox(
+            "Subcategory (optional)",
+            ["All"] + subcategory_names,
+            disabled=not category_id,
+        )
+        subcategory_id = next((s.id for s in subcategories if s.name == selected_subcategory), None) if selected_subcategory != "All" and subcategories else None
+    
+    with col4:
         all_tags = get_all_tags(session)
         tag_names = [t.name for t in all_tags]
         selected_tags = st.multiselect("Tags (optional)", tag_names)
@@ -574,6 +630,7 @@ elif page == "Custom Date Range":
         end_date=end_date,
         account_id=account_id,
         category_id=category_id,
+        subcategory_id=subcategory_id,
         tag_ids=tag_ids if tag_ids else None,
         min_amount=min_amount if min_amount > 0 else None,
         max_amount=max_amount if max_amount > 0 else None,
@@ -612,6 +669,16 @@ elif page == "Custom Date Range":
         
         st.divider()
         
+        # Display subcategory summary
+        st.subheader("By Subcategory")
+        subcategory_summary = summarize_by_subcategory(session, filters)
+        if not subcategory_summary.empty:
+            st.dataframe(subcategory_summary, use_container_width=True)
+        else:
+            st.info("No subcategories assigned to transactions in this range.")
+        
+        st.divider()
+        
         # Display transactions
         st.subheader("Transactions")
         txn_data = []
@@ -620,11 +687,8 @@ elif page == "Custom Date Range":
                 'Date': txn.date,
                 'Merchant': txn.merchant,
                 'Amount': f"${txn.amount:.2f}",
-                'Category': (
-                    sorted({t.category.name for t in txn.tags})[0]
-                    if len({t.category.name for t in txn.tags}) == 1
-                    else (txn.category.name if txn.category else 'None')
-                ),
+                'Category': txn.category.name if txn.category else 'None',
+                'Subcategory': txn.subcategory.name if txn.subcategory else 'None',
                 'Tags': ', '.join([t.name for t in txn.tags]) or 'None',
                 'Notes': txn.notes or '',
                 'Acct': txn.account.name,
@@ -654,7 +718,7 @@ elif page == "Summaries":
         
         st.divider()
         
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             st.subheader("By Tag")
@@ -676,6 +740,14 @@ elif page == "Summaries":
                 st.dataframe(category_summary, use_container_width=True)
             else:
                 st.info("No categorized transactions.")
+        
+        with col3:
+            st.subheader("By Subcategory")
+            subcategory_summary = summarize_by_subcategory(session, filters)
+            if not subcategory_summary.empty:
+                st.dataframe(subcategory_summary, use_container_width=True)
+            else:
+                st.info("No subcategorized transactions.")
     
     with tab2:
         st.subheader("Current Year Summary")
@@ -687,7 +759,7 @@ elif page == "Summaries":
         
         st.divider()
         
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             st.subheader("By Tag")
@@ -709,6 +781,14 @@ elif page == "Summaries":
                 st.dataframe(category_summary, use_container_width=True)
             else:
                 st.info("No categorized transactions.")
+        
+        with col3:
+            st.subheader("By Subcategory")
+            subcategory_summary = summarize_by_subcategory(session, filters)
+            if not subcategory_summary.empty:
+                st.dataframe(subcategory_summary, use_container_width=True)
+            else:
+                st.info("No subcategorized transactions.")
     
     with tab3:
         st.subheader("Current Semester Summary")
@@ -720,7 +800,7 @@ elif page == "Summaries":
         
         st.divider()
         
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             st.subheader("By Tag")
@@ -742,6 +822,14 @@ elif page == "Summaries":
                 st.dataframe(category_summary, use_container_width=True)
             else:
                 st.info("No categorized transactions.")
+        
+        with col3:
+            st.subheader("By Subcategory")
+            subcategory_summary = summarize_by_subcategory(session, filters)
+            if not subcategory_summary.empty:
+                st.dataframe(subcategory_summary, use_container_width=True)
+            else:
+                st.info("No subcategorized transactions.")
     
     close_session(session)
 
@@ -790,15 +878,15 @@ elif page == "Settings":
     
     st.divider()
     
-    # Manage categories and tags
-    st.subheader("🏷️ Categories & Tags")
+    # Manage categories
+    st.subheader("📁 Categories")
     
     col1, col2 = st.columns(2)
     
     with col1:
         st.write("**Create New Category**")
         
-        category_name = st.text_input("Category Name")
+        category_name = st.text_input("Category Name", key="new_category")
         
         if st.button("Create Category"):
             try:
@@ -806,6 +894,7 @@ elif page == "Settings":
                 session.add(category)
                 session.commit()
                 st.success(f"✅ Category '{category_name}' created!")
+                st.rerun()
             except Exception as e:
                 st.error(f"Error: {str(e)}")
     
@@ -827,49 +916,90 @@ elif page == "Settings":
     
     st.divider()
     
-    st.write("**Create New Tag**")
+    # Manage subcategories
+    st.subheader("📂 Subcategories")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        tag_name = st.text_input("Tag Name")
-    
-    with col2:
+        st.write("**Create New Subcategory**")
+        
         categories = get_all_categories(session)
         if categories:
-            category = st.selectbox("Category", [c.name for c in categories])
-            category_id = next((c.id for c in categories if c.name == category), None)
+            selected_category_name = st.selectbox("Category", [c.name for c in categories], key="subcategory_category")
+            category_id = next((c.id for c in categories if c.name == selected_category_name), None)
+            subcategory_name = st.text_input("Subcategory Name", key="new_subcategory")
+            
+            if st.button("Create Subcategory"):
+                try:
+                    subcategory = Subcategory(name=subcategory_name, category_id=category_id)
+                    session.add(subcategory)
+                    session.commit()
+                    st.success(f"✅ Subcategory '{subcategory_name}' created under '{selected_category_name}'!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
         else:
-            st.error("Please create a category first.")
-            category_id = None
+            st.info("Please create a category first.")
     
-    if category_id and st.button("Create Tag"):
-        try:
-            tag = Tag(name=tag_name, category_id=category_id)
-            session.add(tag)
-            session.commit()
-            st.success(f"✅ Tag '{tag_name}' created!")
-        except Exception as e:
-            st.error(f"Error: {str(e)}")
+    with col2:
+        st.write("**Existing Subcategories**")
+        categories = get_all_categories(session)
+        if categories:
+            for category in categories:
+                subcategories = get_subcategories_by_category(session, category.id)
+                if subcategories:
+                    st.write(f"**{category.name}:**")
+                    for subcategory in subcategories:
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            st.write(f"  • {subcategory.name}")
+                        with col2:
+                            if st.button("Delete", key=f"delete_subcategory_{subcategory.id}"):
+                                session.delete(subcategory)
+                                session.commit()
+                                st.rerun()
+        else:
+            st.info("No categories yet.")
     
     st.divider()
     
-    st.write("**Existing Tags**")
-    all_tags = get_all_tags(session)
-    if all_tags:
-        for tag in all_tags:
-            col1, col2, col3 = st.columns([3, 1, 1])
-            with col1:
-                st.write(f"• {tag.name}")
-            with col2:
-                st.write(f"Category: {tag.category.name}")
-            with col3:
-                if st.button("Delete", key=f"delete_tag_{tag.id}"):
-                    session.delete(tag)
-                    session.commit()
-                    st.rerun()
-    else:
-        st.info("No tags yet.")
+    # Manage tags (flat, no category)
+    st.subheader("🏷️ Tags (Context Labels)")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("**Create New Tag**")
+        st.caption("Tags are flat context labels with no accounting meaning.")
+        
+        tag_name = st.text_input("Tag Name", key="new_tag")
+        
+        if st.button("Create Tag"):
+            try:
+                tag = Tag(name=tag_name)
+                session.add(tag)
+                session.commit()
+                st.success(f"✅ Tag '{tag_name}' created!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error: {str(e)}")
+    
+    with col2:
+        st.write("**Existing Tags**")
+        all_tags = get_all_tags(session)
+        if all_tags:
+            for tag in all_tags:
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.write(f"• {tag.name}")
+                with col2:
+                    if st.button("Delete", key=f"delete_tag_{tag.id}"):
+                        session.delete(tag)
+                        session.commit()
+                        st.rerun()
+        else:
+            st.info("No tags yet.")
     
     close_session(session)
 

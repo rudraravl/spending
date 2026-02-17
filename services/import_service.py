@@ -12,7 +12,7 @@ from typing import List, Tuple, Optional
 import pandas as pd
 from datetime import date
 from sqlalchemy.orm import Session
-from db.models import Transaction, Account, Category, Tag
+from db.models import Transaction, Account, Category, Subcategory, Tag
 from adapters.base_adapter import BaseAdapter
 from adapters.generic_adapter import GenericAdapter
 from adapters.wells_adapter import WellsAdapter
@@ -105,12 +105,18 @@ def import_csv(
                 })
                 continue
             
-            # Create transaction
+            # Create transaction (requires category + subcategory)
+            # Default to "Other" category with "Uncategorized" subcategory if not specified
+            other_category = ensure_category(session, "Other")
+            other_subcategory = ensure_subcategory(session, "Uncategorized", other_category.id)
+            
             transaction = Transaction(
                 date=pd.to_datetime(row['date']).date() if isinstance(row['date'], str) else row['date'],
                 amount=float(row['amount']),
                 merchant=str(row['merchant']),
                 account_id=account_id,
+                category_id=other_category.id,
+                subcategory_id=other_subcategory.id,
                 notes=None,
             )
             session.add(transaction)
@@ -211,14 +217,45 @@ def ensure_category(session: Session, category_name: str) -> Category:
     return category
 
 
-def ensure_tag(session: Session, tag_name: str, category_id: int) -> Tag:
+def ensure_subcategory(session: Session, subcategory_name: str, category_id: int) -> Subcategory:
+    """
+    Ensure a subcategory exists, creating it if necessary.
+    
+    Args:
+        session: Database session
+        subcategory_name: Name of the subcategory
+        category_id: ID of the parent category
+        
+    Returns:
+        Subcategory object
+    """
+    subcategory = session.query(Subcategory).filter(
+        Subcategory.name == subcategory_name,
+        Subcategory.category_id == category_id
+    ).first()
+    
+    if not subcategory:
+        # Verify category exists
+        category = session.query(Category).filter(Category.id == category_id).first()
+        if not category:
+            raise ValueError(f"Category with id {category_id} does not exist")
+        
+        subcategory = Subcategory(name=subcategory_name, category_id=category_id)
+        session.add(subcategory)
+        session.commit()
+    
+    return subcategory
+
+
+def ensure_tag(session: Session, tag_name: str) -> Tag:
     """
     Ensure a tag exists, creating it if necessary.
+    
+    Tags are flat (no category relationship).
     
     Args:
         session: Database session
         tag_name: Name of the tag
-        category_id: ID of the parent category
         
     Returns:
         Tag object
@@ -226,12 +263,7 @@ def ensure_tag(session: Session, tag_name: str, category_id: int) -> Tag:
     tag = session.query(Tag).filter(Tag.name == tag_name).first()
     
     if not tag:
-        # Verify category exists
-        category = session.query(Category).filter(Category.id == category_id).first()
-        if not category:
-            raise ValueError(f"Category with id {category_id} does not exist")
-        
-        tag = Tag(name=tag_name, category_id=category_id)
+        tag = Tag(name=tag_name)
         session.add(tag)
         session.commit()
     

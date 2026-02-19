@@ -239,10 +239,13 @@ def get_transactions(
         if filters.max_amount is not None:
             query = query.filter(Transaction.amount <= filters.max_amount)
         
-        # Filter by tag (AND logic: transaction must have ALL specified tags)
+        # Filter by tag (AND: all tags required; OR: any tag matches)
         if filters.tag_ids:
-            for tag_id in filters.tag_ids:
-                query = query.filter(Transaction.tags.any(Tag.id == tag_id))
+            if getattr(filters, "tags_match_any", False):
+                query = query.filter(Transaction.tags.any(Tag.id.in_(filters.tag_ids)))
+            else:
+                for tag_id in filters.tag_ids:
+                    query = query.filter(Transaction.tags.any(Tag.id == tag_id))
         
         # Filter by category (direct category_id match only)
         if filters.category_id:
@@ -336,10 +339,13 @@ def count_transactions(
         if filters.max_amount is not None:
             query = query.filter(Transaction.amount <= filters.max_amount)
         
-        # Filter by tag (AND logic: transaction must have ALL specified tags)
+        # Filter by tag (AND: all tags required; OR: any tag matches)
         if filters.tag_ids:
-            for tag_id in filters.tag_ids:
-                query = query.filter(Transaction.tags.any(Tag.id == tag_id))
+            if getattr(filters, "tags_match_any", False):
+                query = query.filter(Transaction.tags.any(Tag.id.in_(filters.tag_ids)))
+            else:
+                for tag_id in filters.tag_ids:
+                    query = query.filter(Transaction.tags.any(Tag.id == tag_id))
         
         # Filter by category (direct category_id match only)
         if filters.category_id:

@@ -5,6 +5,7 @@ Local-only spending tracker with CSV import, manual entry, and summaries.
 
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 import os
 import tempfile
 from datetime import date, datetime
@@ -66,7 +67,7 @@ page = st.sidebar.radio(
         "Import CSV",
         "Add Transaction",
         "All Transactions",
-        "Custom Date Range",
+        "Views",
         "Summaries",
         "Settings",
     ],
@@ -106,6 +107,69 @@ def get_all_tags(session: Session):
 def get_subcategories_by_category(session: Session, category_id: int):
     """Get all subcategories for a given category."""
     return session.query(Subcategory).filter(Subcategory.category_id == category_id).all()
+
+
+def _pie_from_summary(df: pd.DataFrame, names_col: str, title: str):
+    """Build a Plotly pie chart from a summary DataFrame with 'total' and a label column."""
+    if df is None or df.empty or names_col not in df.columns or "total" not in df.columns:
+        return None
+    fig = px.pie(df, values="total", names=names_col, title=title)
+    fig.update_layout(margin=dict(t=40, b=20, l=20, r=20), height=320)
+    return fig
+
+
+def _render_summary_tab(session, filters, export_key: str):
+    """Render one summary tab: total metric, then By Tag / By Category / By Subcategory stacked, each with table + pie."""
+    total = calculate_total(session, filters)
+    st.metric("Total Spend", f"${total:.2f}")
+    st.divider()
+
+    # --- By Tag (stacked row: table | pie) ---
+    st.subheader("By Tag")
+    tag_summary = summarize_by_tag(session, filters)
+    col_table, col_chart = st.columns([1, 1])
+    with col_table:
+        if not tag_summary.empty:
+            st.dataframe(tag_summary, use_container_width=True)
+        else:
+            st.info("No tagged transactions.")
+    with col_chart:
+        if not tag_summary.empty:
+            fig = _pie_from_summary(tag_summary, "tag", "Spend by Tag")
+            if fig:
+                st.plotly_chart(fig, use_container_width=True, key=f"{export_key}_pie_tag")
+    st.divider()
+
+    # --- By Category (stacked row: table | pie) ---
+    st.subheader("By Category")
+    category_summary = summarize_by_category(session, filters)
+    col_table, col_chart = st.columns([1, 1])
+    with col_table:
+        if not category_summary.empty:
+            st.dataframe(category_summary, use_container_width=True)
+        else:
+            st.info("No categorized transactions.")
+    with col_chart:
+        if not category_summary.empty:
+            fig = _pie_from_summary(category_summary, "category", "Spend by Category")
+            if fig:
+                st.plotly_chart(fig, use_container_width=True, key=f"{export_key}_pie_category")
+    st.divider()
+
+    # --- By Subcategory (stacked row: table | pie) ---
+    st.subheader("By Subcategory")
+    subcategory_summary = summarize_by_subcategory(session, filters)
+    col_table, col_chart = st.columns([1, 1])
+    with col_table:
+        if not subcategory_summary.empty:
+            st.dataframe(subcategory_summary, use_container_width=True)
+        else:
+            st.info("No subcategorized transactions.")
+    with col_chart:
+        if not subcategory_summary.empty:
+            fig = _pie_from_summary(subcategory_summary, "subcategory", "Spend by Subcategory")
+            if fig:
+                st.plotly_chart(fig, use_container_width=True, key=f"{export_key}_pie_subcategory")
 
 
 # === PAGE: DASHBOARD ===
@@ -366,7 +430,7 @@ elif page == "Add Transaction":
 # === PAGE: ALL TRANSACTIONS ===
 elif page == "All Transactions":
     st.title("📋 All Transactions")
-    
+
     session = get_db_session()
     all_tags = get_all_tags(session)
     all_categories = get_all_categories(session)
@@ -376,10 +440,13 @@ elif page == "All Transactions":
         cat.id: get_subcategories_by_category(session, cat.id)
         for cat in all_categories
     }
-    category_names = sorted([category.name for category in all_categories])
+    category_names = sorted([c.name for c in all_categories])
+    subcategory_names = sorted(
+        {s.name for cat in all_categories for s in category_id_to_subcategories[cat.id]}
+    )
     tag_names = sorted(tag_name_to_id.keys())
 
-    def normalize_tag_list(value):
+    def _normalize_tag_list(value):
         if value is None:
             return []
         if isinstance(value, list):
@@ -388,14 +455,16 @@ elif page == "All Transactions":
             return [v.strip() for v in value.split(',') if v.strip()]
         return []
 
-    # Get all transactions for table view
+    # Show flash message from a previous save/delete action
+    if "_all_txn_flash" in st.session_state:
+        msg, level = st.session_state.pop("_all_txn_flash")
+        (st.success if level == "success" else st.error)(msg)
+
     transactions = get_transactions(session)
-    
+
     if not transactions:
         st.info("No transactions found.")
     else:
-        st.caption("Double-click a cell to edit. Check Delete for one or more rows, then click Delete selected.")
-
         table_df = pd.DataFrame([
             {
                 'id': txn.id,
@@ -411,170 +480,186 @@ elif page == "All Transactions":
             }
             for txn in transactions
         ])
-
-        edited_df = st.data_editor(
-            table_df,
-            hide_index=True,
-            use_container_width=True,
-            height=650,
-            disabled=['id', 'Acct'],
-            column_config={
-                'id': st.column_config.NumberColumn('id', disabled=True),
-                'Date': st.column_config.DateColumn('Date', format='YYYY-MM-DD'),
-                'Merchant': st.column_config.TextColumn('Merchant', width='small'),
-                'Amount': st.column_config.NumberColumn('Amount', format='$%.2f'),
-                'Category': st.column_config.SelectboxColumn(
-                    'Category',
-                    options=category_names,
-                    help='Required: accounting category for this transaction.',
-                ),
-                'Subcategory': st.column_config.TextColumn(
-                    'Subcategory',
-                    help='Required: accounting subcategory. Must belong to selected category.',
-                ),
-                'Tags': st.column_config.MultiselectColumn(
-                    'Tags',
-                    options=tag_names,
-                    help='Optional: contextual labels (no accounting meaning).',
-                ),
-                'Delete': st.column_config.CheckboxColumn('Delete'),
-            },
-            key='all_transactions_editor',
-        )
-
-        selected_delete_ids = [
-            int(row['id'])
-            for _, row in edited_df.iterrows()
-            if pd.notna(row['Delete']) and bool(row['Delete'])
-        ]
-
-        delete_clicked = st.button(
-            f"Delete selected ({len(selected_delete_ids)})",
-            type='primary',
-            disabled=len(selected_delete_ids) == 0,
-        )
-
-        if delete_clicked:
-            deleted_rows = 0
-            for transaction_id in selected_delete_ids:
-                try:
-                    delete_transaction(session, transaction_id)
-                    deleted_rows += 1
-                except Exception as e:
-                    st.error(f"Error deleting row {transaction_id}: {str(e)}")
-
-            if deleted_rows > 0:
-                st.success(f"✅ Deleted {deleted_rows} row(s)")
-                st.rerun()
-
-        updated_cells = 0
         transaction_map = {txn.id: txn for txn in transactions}
 
-        for _, row in edited_df.iterrows():
-            transaction_id = int(row['id'])
-            transaction = transaction_map.get(transaction_id)
-            if not transaction:
-                continue
+        st.caption(
+            "Double-click a cell to edit, then click **Save changes** to persist. "
+            "Check **Delete** to mark rows for deletion."
+        )
 
-            try:
-                # Update basic fields
-                new_date = pd.to_datetime(row['Date']).date() if pd.notna(row['Date']) else transaction.date
-                new_amount = float(row['Amount']) if pd.notna(row['Amount']) else float(transaction.amount)
-                new_merchant = str(row['Merchant']).strip() if pd.notna(row['Merchant']) else transaction.merchant
-                raw_notes = str(row['Notes']).strip() if pd.notna(row['Notes']) else ""
-                new_notes = raw_notes if raw_notes else None
+        # st.form batches all edits client-side; nothing is sent to the server
+        # until a submit button is clicked, so edited_df is guaranteed to
+        # contain every cell edit the user made.
+        with st.form("all_txn_edit_form"):
+            edited_df = st.data_editor(
+                table_df,
+                hide_index=True,
+                use_container_width=True,
+                height=650,
+                disabled=['id', 'Acct'],
+                column_config={
+                    'id': st.column_config.NumberColumn('id', disabled=True),
+                    'Date': st.column_config.DateColumn('Date', format='YYYY-MM-DD'),
+                    'Merchant': st.column_config.TextColumn('Merchant', width='small'),
+                    'Amount': st.column_config.NumberColumn('Amount', format='$%.2f'),
+                    'Category': st.column_config.SelectboxColumn('Category', options=category_names),
+                    'Subcategory': st.column_config.SelectboxColumn('Subcategory', options=subcategory_names),
+                    'Tags': st.column_config.MultiselectColumn('Tags', options=tag_names),
+                    'Delete': st.column_config.CheckboxColumn('Delete'),
+                },
+                key="all_txn_editor",
+            )
 
-                if new_date != transaction.date:
-                    update_transaction(session, transaction_id, 'date', new_date)
-                    updated_cells += 1
-                if new_amount != float(transaction.amount):
-                    update_transaction(session, transaction_id, 'amount', new_amount)
-                    updated_cells += 1
-                if new_merchant != transaction.merchant:
-                    update_transaction(session, transaction_id, 'merchant', new_merchant)
-                    updated_cells += 1
-                existing_notes = transaction.notes if transaction.notes else None
-                if new_notes != existing_notes:
-                    update_transaction(session, transaction_id, 'notes', new_notes)
-                    updated_cells += 1
+            btn_col1, btn_col2, btn_col3, btn_col4 = st.columns([2, 1, 1, 1])
+            with btn_col3:
+                save_submitted = st.form_submit_button("💾 Save changes", type="primary")
+            with btn_col4:
+                delete_submitted = st.form_submit_button("🗑️ Delete checked")
 
-                # Update category/subcategory
-                selected_category = str(row['Category']).strip() if pd.notna(row['Category']) else ""
-                selected_subcategory = str(row['Subcategory']).strip() if pd.notna(row['Subcategory']) else ""
-                
-                if not selected_category:
-                    st.error(f"Row {transaction_id}: Category is required.")
-                    continue
-                
-                new_category_id = category_name_to_id.get(selected_category)
-                if not new_category_id:
-                    st.error(f"Row {transaction_id}: Unknown category '{selected_category}'.")
-                    continue
-                
-                # Find subcategory
-                if not selected_subcategory:
-                    st.error(f"Row {transaction_id}: Subcategory is required.")
-                    continue
-                
-                subcategories = category_id_to_subcategories.get(new_category_id, [])
-                matching_subcategory = next(
-                    (s for s in subcategories if s.name == selected_subcategory),
-                    None
-                )
-                
-                if not matching_subcategory:
-                    st.error(
-                        f"Row {transaction_id}: Subcategory '{selected_subcategory}' not found for category '{selected_category}'. "
-                        f"Available: {', '.join([s.name for s in subcategories])}"
-                    )
-                    continue
-                
-                # Update category if changed
-                if transaction.category_id != new_category_id:
-                    update_transaction(session, transaction_id, 'category_id', new_category_id)
-                    updated_cells += 1
-                
-                # Update subcategory if changed
-                if transaction.subcategory_id != matching_subcategory.id:
-                    update_transaction(session, transaction_id, 'subcategory_id', matching_subcategory.id)
-                    updated_cells += 1
+        # ---- Handle Save ----
+        # Use the edited_rows delta from session state so we only touch rows
+        # the user actually changed, and validate before mutating ORM objects.
+        if save_submitted:
+            edited_rows = st.session_state.get("all_txn_editor", {}).get("edited_rows", {})
+            data_cols = edited_rows and any(
+                col != "Delete" for changes in edited_rows.values() for col in changes
+            )
 
-                # Update tags
-                selected_tags = normalize_tag_list(row['Tags'])
-                existing_tags = sorted([t.name for t in transaction.tags])
-                
-                unknown_tags = [tag_name for tag_name in selected_tags if tag_name not in tag_name_to_id]
-                if unknown_tags:
-                    st.error(f"Row {transaction_id}: Unknown tags: {', '.join(unknown_tags)}")
-                    continue
+            if not data_cols:
+                st.info("No changes detected.")
+            else:
+                updated_count = 0
+                errors = []
 
-                if sorted(selected_tags) != existing_tags:
-                    assign_tags(
-                        session,
-                        transaction_id,
-                        [tag_name_to_id[tag_name] for tag_name in selected_tags],
-                    )
-                    updated_cells += 1
-            except Exception as e:
-                st.error(f"Error updating row {transaction_id}: {str(e)}")
+                for row_idx, changes in edited_rows.items():
+                    row_idx = int(row_idx)
+                    txn_id = int(table_df.iloc[row_idx]['id'])
+                    txn = transaction_map.get(txn_id)
+                    if not txn:
+                        continue
 
-        if updated_cells > 0:
-            st.success(f"✅ Auto-saved {updated_cells} change(s)")
-            st.rerun()
+                    # Skip rows where only the Delete checkbox changed
+                    field_changes = {k: v for k, v in changes.items() if k != "Delete"}
+                    if not field_changes:
+                        continue
+
+                    try:
+                        # --- Build a validated dict of {orm_attr: new_value} ---
+                        updates = {}
+
+                        if 'Date' in field_changes:
+                            updates['date'] = pd.to_datetime(field_changes['Date']).date()
+
+                        if 'Amount' in field_changes:
+                            updates['amount'] = float(field_changes['Amount'])
+
+                        if 'Merchant' in field_changes:
+                            updates['merchant'] = str(field_changes['Merchant']).strip()
+
+                        if 'Notes' in field_changes:
+                            raw = str(field_changes['Notes']).strip()
+                            updates['notes'] = raw if raw else None
+
+                        # Category and subcategory must be validated together:
+                        # use the changed value if present, otherwise fall back to current.
+                        if 'Category' in field_changes or 'Subcategory' in field_changes:
+                            cat_name = field_changes.get(
+                                'Category', txn.category.name if txn.category else ""
+                            )
+                            subcat_name = field_changes.get(
+                                'Subcategory', txn.subcategory.name if txn.subcategory else ""
+                            )
+
+                            if not cat_name:
+                                errors.append(f"Row {txn_id}: Category is required.")
+                                continue
+                            cat_id = category_name_to_id.get(cat_name)
+                            if not cat_id:
+                                errors.append(f"Row {txn_id}: Unknown category '{cat_name}'.")
+                                continue
+                            if not subcat_name:
+                                errors.append(f"Row {txn_id}: Subcategory is required.")
+                                continue
+                            subcats = category_id_to_subcategories.get(cat_id, [])
+                            match = next((s for s in subcats if s.name == subcat_name), None)
+                            if not match:
+                                avail = ', '.join(s.name for s in subcats)
+                                errors.append(
+                                    f"Row {txn_id}: Subcategory '{subcat_name}' invalid "
+                                    f"for category '{cat_name}'. Available: {avail}"
+                                )
+                                continue
+                            updates['category_id'] = cat_id
+                            updates['subcategory_id'] = match.id
+
+                        if 'Tags' in field_changes:
+                            selected_tags = _normalize_tag_list(field_changes['Tags'])
+                            unknown = [t for t in selected_tags if t not in tag_name_to_id]
+                            if unknown:
+                                errors.append(f"Row {txn_id}: Unknown tags: {', '.join(unknown)}")
+                                continue
+                            new_tag_ids = [tag_name_to_id[t] for t in selected_tags]
+                            updates['tags'] = (
+                                session.query(Tag).filter(Tag.id.in_(new_tag_ids)).all()
+                                if new_tag_ids else []
+                            )
+
+                        # --- All validation passed – apply atomically ---
+                        for attr, val in updates.items():
+                            setattr(txn, attr, val)
+                        updated_count += 1
+
+                    except Exception as e:
+                        errors.append(f"Row {txn_id}: {str(e)}")
+
+                for err in errors:
+                    st.error(err)
+
+                if updated_count > 0:
+                    try:
+                        session.commit()
+                        st.session_state["_all_txn_flash"] = (
+                            f"✅ Saved {updated_count} change(s)", "success"
+                        )
+                        st.rerun()
+                    except Exception as e:
+                        session.rollback()
+                        st.error(f"Failed to commit: {e}")
+
+        # ---- Handle Delete ----
+        if delete_submitted:
+            delete_ids = [
+                int(row['id'])
+                for _, row in edited_df.iterrows()
+                if pd.notna(row['Delete']) and bool(row['Delete'])
+            ]
+            if delete_ids:
+                deleted = 0
+                for tid in delete_ids:
+                    try:
+                        delete_transaction(session, tid)
+                        deleted += 1
+                    except Exception as e:
+                        st.error(f"Error deleting transaction {tid}: {e}")
+                if deleted > 0:
+                    st.session_state["_all_txn_flash"] = (f"✅ Deleted {deleted} row(s)", "success")
+                    st.rerun()
+            else:
+                st.info("No rows checked for deletion.")
 
     close_session(session)
 
 
 # === PAGE: CUSTOM DATE RANGE ===
-elif page == "Custom Date Range":
-    st.title("📅 Custom Date Range")
+elif page == "Views":
+    st.title("Views")
     
     session = get_db_session()
     
     col1, col2 = st.columns(2)
     
     with col1:
-        start_date = st.date_input("Start Date")
+        start_date = st.date_input("Start Date", value=date(2024, 1, 1))
     
     with col2:
         end_date = st.date_input("End Date")
@@ -613,6 +698,11 @@ elif page == "Custom Date Range":
         tag_names = [t.name for t in all_tags]
         selected_tags = st.multiselect("Tags (optional)", tag_names)
         tag_ids = [t.id for t in all_tags if t.name in selected_tags]
+        tags_match_any = st.checkbox(
+            "Match any tag (OR)",
+            value=False,
+            help="If unchecked (default), transactions must have all selected tags. If checked, transactions with any of the selected tags are included.",
+        )
     
     col1, col2 = st.columns(2)
     
@@ -632,6 +722,7 @@ elif page == "Custom Date Range":
         category_id=category_id,
         subcategory_id=subcategory_id,
         tag_ids=tag_ids if tag_ids else None,
+        tags_match_any=tags_match_any,
         min_amount=min_amount if min_amount > 0 else None,
         max_amount=max_amount if max_amount > 0 else None,
     )
@@ -646,39 +737,76 @@ elif page == "Custom Date Range":
         st.subheader("Summary")
         total = calculate_total(session, filters)
         st.metric("Total", f"${total:.2f}")
-        
         st.divider()
-        
-        # Display tag summary
+
+        # Spending over time (daily totals, exclude Payments and Rent)
+        st.subheader("Spending over time")
+        exclude_subcategories = {"payments", "rent"}
+        daily_txn_rows = [
+            {"date": t.date, "amount": float(t.amount)}
+            for t in transactions
+            if not (t.subcategory and t.subcategory.name and t.subcategory.name.lower() in exclude_subcategories)
+        ]
+        if daily_txn_rows:
+            daily_df = pd.DataFrame(daily_txn_rows).groupby("date", as_index=False)["amount"].sum()
+            daily_df = daily_df.sort_values(by="date")
+            fig_time = px.bar(
+                daily_df, x="date", y="amount",
+                title="Daily spending",
+                labels={"date": "Date", "amount": "Amount ($)"},
+            )
+            fig_time.update_layout(margin=dict(t=40, b=40, l=40, r=40), height=280, xaxis_tickformat="%b %d")
+            st.plotly_chart(fig_time, use_container_width=True, key="views_spending_over_time")
+        st.divider()
+
+        # By Tag: table | pie
         st.subheader("By Tag")
         tag_summary = summarize_by_tag(session, filters)
-        if not tag_summary.empty:
-            st.dataframe(tag_summary, use_container_width=True)
-        else:
-            st.info("No tags assigned to transactions in this range.")
-        
+        col_table, col_chart = st.columns([1, 1])
+        with col_table:
+            if not tag_summary.empty:
+                st.dataframe(tag_summary, use_container_width=True)
+            else:
+                st.info("No tags assigned to transactions in this range.")
+        with col_chart:
+            if not tag_summary.empty:
+                fig = _pie_from_summary(tag_summary, "tag", "Spend by Tag")
+                if fig:
+                    st.plotly_chart(fig, use_container_width=True, key="views_pie_tag")
         st.divider()
-        
-        # Display category summary
+
+        # By Category: table | pie
         st.subheader("By Category")
         category_summary = summarize_by_category(session, filters)
-        if not category_summary.empty:
-            st.dataframe(category_summary, use_container_width=True)
-        else:
-            st.info("No categories assigned to transactions in this range.")
-        
+        col_table, col_chart = st.columns([1, 1])
+        with col_table:
+            if not category_summary.empty:
+                st.dataframe(category_summary, use_container_width=True)
+            else:
+                st.info("No categories assigned to transactions in this range.")
+        with col_chart:
+            if not category_summary.empty:
+                fig = _pie_from_summary(category_summary, "category", "Spend by Category")
+                if fig:
+                    st.plotly_chart(fig, use_container_width=True, key="views_pie_category")
         st.divider()
-        
-        # Display subcategory summary
+
+        # By Subcategory: table | pie
         st.subheader("By Subcategory")
         subcategory_summary = summarize_by_subcategory(session, filters)
-        if not subcategory_summary.empty:
-            st.dataframe(subcategory_summary, use_container_width=True)
-        else:
-            st.info("No subcategories assigned to transactions in this range.")
-        
+        col_table, col_chart = st.columns([1, 1])
+        with col_table:
+            if not subcategory_summary.empty:
+                st.dataframe(subcategory_summary, use_container_width=True)
+            else:
+                st.info("No subcategories assigned to transactions in this range.")
+        with col_chart:
+            if not subcategory_summary.empty:
+                fig = _pie_from_summary(subcategory_summary, "subcategory", "Spend by Subcategory")
+                if fig:
+                    st.plotly_chart(fig, use_container_width=True, key="views_pie_subcategory")
         st.divider()
-        
+
         # Display transactions
         st.subheader("Transactions")
         txn_data = []
@@ -702,135 +830,29 @@ elif page == "Custom Date Range":
 # === PAGE: SUMMARIES ===
 elif page == "Summaries":
     st.title("📊 Summaries")
-    
+
     session = get_db_session()
-    
-    # Predefined date ranges
+
     tab1, tab2, tab3 = st.tabs(["Current Month", "Current Year", "Current Semester"])
-    
+
     with tab1:
         st.subheader("Current Month Summary")
         month_range = get_current_month_range()
         filters = TransactionFilter(start_date=month_range[0], end_date=month_range[1])
-        
-        total = calculate_total(session, filters)
-        st.metric("Total Spend", f"${total:.2f}")
-        
-        st.divider()
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.subheader("By Tag")
-            tag_summary = summarize_by_tag(session, filters)
-            if not tag_summary.empty:
-                st.dataframe(tag_summary, use_container_width=True)
-                
-                if st.button("Export View CSV", key="export_tag_month"):
-                    period_transactions = get_transactions(session, filters=filters)
-                    export_file = export_transactions(period_transactions, "current_month")
-                    st.success(f"✅ Exported to {export_file}")
-            else:
-                st.info("No tagged transactions.")
-        
-        with col2:
-            st.subheader("By Category")
-            category_summary = summarize_by_category(session, filters)
-            if not category_summary.empty:
-                st.dataframe(category_summary, use_container_width=True)
-            else:
-                st.info("No categorized transactions.")
-        
-        with col3:
-            st.subheader("By Subcategory")
-            subcategory_summary = summarize_by_subcategory(session, filters)
-            if not subcategory_summary.empty:
-                st.dataframe(subcategory_summary, use_container_width=True)
-            else:
-                st.info("No subcategorized transactions.")
-    
+        _render_summary_tab(session, filters, "export_tag_month")
+
     with tab2:
         st.subheader("Current Year Summary")
         year_range = get_current_year_range()
         filters = TransactionFilter(start_date=year_range[0], end_date=year_range[1])
-        
-        total = calculate_total(session, filters)
-        st.metric("Total Spend", f"${total:.2f}")
-        
-        st.divider()
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.subheader("By Tag")
-            tag_summary = summarize_by_tag(session, filters)
-            if not tag_summary.empty:
-                st.dataframe(tag_summary, use_container_width=True)
-                
-                if st.button("Export View CSV", key="export_tag_year"):
-                    period_transactions = get_transactions(session, filters=filters)
-                    export_file = export_transactions(period_transactions, "current_year")
-                    st.success(f"✅ Exported to {export_file}")
-            else:
-                st.info("No tagged transactions.")
-        
-        with col2:
-            st.subheader("By Category")
-            category_summary = summarize_by_category(session, filters)
-            if not category_summary.empty:
-                st.dataframe(category_summary, use_container_width=True)
-            else:
-                st.info("No categorized transactions.")
-        
-        with col3:
-            st.subheader("By Subcategory")
-            subcategory_summary = summarize_by_subcategory(session, filters)
-            if not subcategory_summary.empty:
-                st.dataframe(subcategory_summary, use_container_width=True)
-            else:
-                st.info("No subcategorized transactions.")
-    
+        _render_summary_tab(session, filters, "export_tag_year")
+
     with tab3:
         st.subheader("Current Semester Summary")
         semester_range = get_current_semester_range()
         filters = TransactionFilter(start_date=semester_range[0], end_date=semester_range[1])
-        
-        total = calculate_total(session, filters)
-        st.metric("Total Spend", f"${total:.2f}")
-        
-        st.divider()
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.subheader("By Tag")
-            tag_summary = summarize_by_tag(session, filters)
-            if not tag_summary.empty:
-                st.dataframe(tag_summary, use_container_width=True)
-                
-                if st.button("Export View CSV", key="export_tag_semester"):
-                    period_transactions = get_transactions(session, filters=filters)
-                    export_file = export_transactions(period_transactions, "current_semester")
-                    st.success(f"✅ Exported to {export_file}")
-            else:
-                st.info("No tagged transactions.")
-        
-        with col2:
-            st.subheader("By Category")
-            category_summary = summarize_by_category(session, filters)
-            if not category_summary.empty:
-                st.dataframe(category_summary, use_container_width=True)
-            else:
-                st.info("No categorized transactions.")
-        
-        with col3:
-            st.subheader("By Subcategory")
-            subcategory_summary = summarize_by_subcategory(session, filters)
-            if not subcategory_summary.empty:
-                st.dataframe(subcategory_summary, use_container_width=True)
-            else:
-                st.info("No subcategorized transactions.")
-    
+        _render_summary_tab(session, filters, "export_tag_semester")
+
     close_session(session)
 
 

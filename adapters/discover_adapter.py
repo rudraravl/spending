@@ -13,11 +13,13 @@ class DiscoverAdapter(GenericAdapter):
     """Discover card statement adapter."""
     
     def __init__(self):
+        # Discover exports currently use two-digit years like "1/1/26",
+        # so we parse with %y instead of %Y to avoid dropping all rows.
         super().__init__(
             date_col='Trans. Date',
             amount_col='Amount',
             merchant_col='Description',
-            date_format='%m/%d/%Y',
+            date_format='%m/%d/%y',
             has_header=True,
             auto_category='Category',
         )

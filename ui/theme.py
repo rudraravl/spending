@@ -62,6 +62,9 @@ def inject_global_styles() -> None:
             color: #6b7280;
             margin-top: 0.15rem;
         }
+        .sp-section-header {
+            margin-bottom: 0.75rem;
+        }
 
         /* Pills / chips */
         .sp-pill {
@@ -197,6 +200,31 @@ def card(
             self._container.markdown("</div>", unsafe_allow_html=True)
 
     return _CardContext()
+
+
+def section(
+    title: str | None = None,
+    subtitle: str | None = None,
+):
+    """Context manager that renders a section header (title + subtitle) without a card bubble."""
+
+    class _SectionContext:
+        def __enter__(self):
+            self._container = st.container()
+            if title or subtitle:
+                header_html = '<div class="sp-section-header">'
+                if title:
+                    header_html += f'<div class="sp-card-title">{title}</div>'
+                if subtitle:
+                    header_html += f'<div class="sp-card-subtitle">{subtitle}</div>'
+                header_html += "</div>"
+                self._container.markdown(header_html, unsafe_allow_html=True)
+            return self._container
+
+        def __exit__(self, exc_type, exc, tb):
+            pass
+
+    return _SectionContext()
 
 
 def pill(text: str, muted: bool = False) -> None:

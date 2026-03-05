@@ -8,7 +8,7 @@ import pandas as pd
 import plotly.express as px
 import os
 import tempfile
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from sqlalchemy.orm import Session
 
 from db.database import init_db, get_session, close_session
@@ -43,7 +43,7 @@ from utils.semester import (
     get_current_month_range,
     get_current_year_range,
 )
-from ui.theme import inject_global_styles, render_page_header, card, pill
+from ui.theme import inject_global_styles, render_page_header, card, section, pill
 
 
 # === PAGE CONFIG & THEME ===
@@ -229,7 +229,7 @@ if page == "Dashboard":
     session = get_db_session()
     
     # Display overall statistics
-    with card("Overview", "Key totals across your entire history"):
+    with section("Overview", "Key totals across your entire history"):
         col1, col2, col3 = st.columns(3)
 
         # Total spend (all time)
@@ -247,9 +247,9 @@ if page == "Dashboard":
         col3.metric("Total Transactions", total_transactions)
 
     # Headline chart: recent daily spend (last 30 days)
-    with card("Recent trend", "Spending over the last 30 days"):
+    with section("Recent trend", "Spending over the last 30 days"):
         today = date.today()
-        start_30 = today.replace(day=max(1, today.day - 30))
+        start_30 = today - timedelta(days=30)
         trend_filters = TransactionFilter(start_date=start_30, end_date=today)
         trend_txns = get_transactions(session, filters=trend_filters)
 
@@ -264,14 +264,13 @@ if page == "Dashboard":
                 .sum()
                 .sort_values("date")
             )
-            fig = px.area(
+            fig = px.bar(
                 daily_df,
                 x="date",
                 y="amount",
                 title="Daily spending (last 30 days)",
                 labels={"date": "Date", "amount": "Amount ($)"},
             )
-            fig.update_traces(mode="lines", line_shape="spline")
             fig.update_layout(
                 margin=dict(t=40, b=30, l=40, r=20),
                 height=260,
@@ -281,7 +280,7 @@ if page == "Dashboard":
             st.info("No spending yet in the last 30 days.")
 
     # Recent transactions
-    with card("Recent activity", "Last 10 transactions across all accounts"):
+    with section("Recent activity", "Last 10 transactions across all accounts"):
         recent = get_transactions(session, limit=10)
         if recent:
             recent_data = []
@@ -325,7 +324,7 @@ elif page == "Import CSV":
     left_col, right_col = st.columns([1.1, 1.2])
 
     with left_col:
-        with card("Step 1 · Account", "Choose where these transactions should live."):
+        with section("Step 1 · Account", "Choose where these transactions should live."):
             accounts = get_all_accounts(session)
             account_names = [a.name for a in accounts]
 
@@ -337,10 +336,10 @@ elif page == "Import CSV":
                     "No accounts found. Create an account in Settings before importing."
                 )
 
-        with card("Step 2 · Format", "Pick the adapter that matches your CSV layout."):
+        with section("Step 2 · Format", "Pick the adapter that matches your CSV layout."):
             adapter_name = st.selectbox("CSV format", get_available_adapters())
 
-        with card("Step 3 · File", "Upload your CSV and (optionally) map columns."):
+        with section("Step 3 · File", "Upload your CSV and (optionally) map columns."):
             if adapter_name == "generic":
                 uploaded_file = st.file_uploader("Upload CSV", type="csv")
                 if uploaded_file:
@@ -360,7 +359,7 @@ elif page == "Import CSV":
                 uploaded_file = st.file_uploader("Upload CSV", type="csv")
 
     with right_col:
-        with card("Preview & import", "Inspect your file before committing it."):
+        with section("Preview & import", "Inspect your file before committing it."):
             if uploaded_file and account:
                 try:
                     uploaded_file.seek(0)
@@ -474,13 +473,13 @@ elif page == "Add Transaction":
         basic_col, classify_col = st.columns(2)
 
         with basic_col:
-            with card("Basics", "Core details for the transaction."):
+            with section("Basics", "Core details for the transaction."):
                 txn_date = st.date_input("Date", value=date.today())
                 amount = st.number_input("Amount", min_value=0.01, step=0.01)
                 merchant = st.text_input("Merchant")
 
         with classify_col:
-            with card("Classification", "Where does this belong in your budget?"):
+            with section("Classification", "Where does this belong in your budget?"):
                 account = st.selectbox("Account", [a.name for a in accounts])
                 account_id = next((a.id for a in accounts if a.name == account), None)
 
@@ -526,10 +525,9 @@ elif page == "Add Transaction":
                 )
                 tag_ids = [t.id for t in all_tags if t.name in selected_tags]
 
-        with card("Notes", "Add any extra context you want to remember."):
+        with section("Notes", "Add any extra context you want to remember."):
             notes = st.text_area("Notes (optional)")
 
-        with card():
             col_left, col_right = st.columns([3, 1])
             with col_left:
                 pill("Required: category & subcategory", muted=True)
@@ -632,7 +630,7 @@ elif page == "All Transactions":
     filters = None
     if show_only_recent:
         end_d = date.today()
-        start_d = end_d.replace(day=max(1, end_d.day - 90))
+        start_d = end_d - timedelta(days=90)
         filters = TransactionFilter(start_date=start_d, end_date=end_d)
 
     transactions = get_transactions(session, filters=filters)
@@ -945,10 +943,10 @@ elif page == "Views":
     if preset != "Custom":
         today = date.today()
         if preset == "Last 7 days":
-            start_date = today.replace(day=max(1, today.day - 7))
+            start_date = today - timedelta(days=7)
             end_date = today
         elif preset == "Last 30 days":
-            start_date = today.replace(day=max(1, today.day - 30))
+            start_date = today - timedelta(days=30)
             end_date = today
         elif preset == "Year to date":
             start_date = date(today.year, 1, 1)
@@ -1044,7 +1042,7 @@ elif page == "Views":
         top_col1, top_col2 = st.columns([1.1, 1.4])
 
         with top_col1:
-            with card("Summary", "Totals for the current filter set."):
+            with section("Summary", "Totals for the current filter set."):
                 total = calculate_total(session, filters)
                 st.metric("Total", f"${total:.2f}")
                 st.caption(
@@ -1053,7 +1051,7 @@ elif page == "Views":
                 )
 
         with top_col2:
-            with card("Spending over time", "Daily totals (excluding payments and rent)."):
+            with section("Spending over time", "Daily totals (excluding payments and rent)."):
                 exclude_subcategories = {"payments", "rent"}
                 daily_txn_rows = [
                     {"date": t.date, "amount": float(t.amount)}
@@ -1094,7 +1092,7 @@ elif page == "Views":
         tabs = st.tabs(["By tag", "By category", "By subcategory"])
 
         with tabs[0]:
-            with card("By tag"):
+            with section("By tag"):
                 tag_summary = summarize_by_tag(session, filters)
                 col_table, col_chart = st.columns([1, 1])
                 with col_table:
@@ -1113,7 +1111,7 @@ elif page == "Views":
                             )
 
         with tabs[1]:
-            with card("By category"):
+            with section("By category"):
                 category_summary = summarize_by_category(session, filters)
                 col_table, col_chart = st.columns([1, 1])
                 with col_table:
@@ -1134,7 +1132,7 @@ elif page == "Views":
                             )
 
         with tabs[2]:
-            with card("By subcategory"):
+            with section("By subcategory"):
                 subcategory_summary = summarize_by_subcategory(session, filters)
                 col_table, col_chart = st.columns([1, 1])
                 with col_table:

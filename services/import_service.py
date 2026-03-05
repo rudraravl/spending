@@ -142,8 +142,8 @@ def _get_adapter(adapter_name: str, **kwargs) -> BaseAdapter:
     
     adapter_class = ADAPTERS[adapter_name]
     
-    # For generic adapter, require kwargs
-    if adapter_name == 'generic':
+    # For Generic adapter, require kwargs
+    if adapter_name == 'Generic':
         if not kwargs:
             raise ValueError("Generic adapter requires: date_col, amount_col, merchant_col")
         return adapter_class(**kwargs)

@@ -340,7 +340,7 @@ elif page == "Import CSV":
             adapter_name = st.selectbox("CSV format", get_available_adapters())
 
         with section("Step 3 · File", "Upload your CSV and (optionally) map columns."):
-            if adapter_name == "generic":
+            if adapter_name == "Generic":
                 uploaded_file = st.file_uploader("Upload CSV", type="csv")
                 if uploaded_file:
                     sample_df = pd.read_csv(uploaded_file)
@@ -408,7 +408,7 @@ elif page == "Import CSV":
                     )
 
                     if st.button("✅ Confirm import"):
-                        if adapter_name == "generic":
+                        if adapter_name == "Generic":
                             kwargs = {
                                 "date_col": date_col,
                                 "amount_col": amount_col,

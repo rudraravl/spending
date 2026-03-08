@@ -475,7 +475,7 @@ elif page == "Add Transaction":
         with basic_col:
             with section("Basics", "Core details for the transaction."):
                 txn_date = st.date_input("Date", value=date.today())
-                amount = st.number_input("Amount", min_value=0.01, step=0.01)
+                amount = st.number_input("Amount", step=0.01)
                 merchant = st.text_input("Merchant")
 
         with classify_col:

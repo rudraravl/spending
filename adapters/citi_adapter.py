@@ -1,54 +1,28 @@
 """
-Generic Adapter - Accepts manual column mapping.
+Citi Adapter - Parser for Citi CSV exports.
 
-Allows users to specify which columns correspond to date, amount, and merchant.
-Amount sign convention: charges/expenses should be POSITIVE, payments/credits should be NEGATIVE.
-If your CSV uses a different convention, override parse() to flip the sign."""
+Expects columns: Status, Date, Description, Debit, Credit, Member Name
+Citi format: Sign convention valid: positive for charges, negative for payments
+"""
 
 import pandas as pd
-from datetime import datetime
-from adapters.base_adapter import BaseAdapter
+from adapters.generic_adapter import GenericAdapter
 
 
-class GenericAdapter(BaseAdapter):
-    """
-    Generic adapter that accepts manual column mapping.
+class CitiAdapter(GenericAdapter):
+    """Citi Mastercard statement adapter."""
     
-    Usage:
-        adapter = GenericAdapter(
+    def __init__(self):
+        super().__init__(
             date_col='Date',
-            amount_col='Amount',
-            merchant_col='Description'
+            amount_col='Debit',
+            merchant_col='Description',
+            date_format='%m/%d/%Y',
+            has_header=True,
+            auto_category='',
         )
-        normalized_df = adapter.parse(raw_df)
-    """
-    
-    def __init__(
-        self,
-        date_col,
-        amount_col,
-        merchant_col,
-        date_format: str,
-        has_header: bool,
-        auto_category = "",
-        
-    ):
-        """
-        Initialize generic adapter with column mappings.
-        
-        Args:
-            date_col: Name of the date column
-            amount_col: Name of the amount column
-            merchant_col: Name of the merchant/description column
-            date_format: Date format string for parsing dates
-        """
-        self.date_col = date_col
-        self.amount_col = amount_col
-        self.merchant_col = merchant_col
-        self.date_format = date_format
-        self.has_header = has_header
-        self.auto_category = auto_category
-    
+
+
     def parse(self, file_path: str) -> pd.DataFrame:
         """
         Parse and normalize CSV data using specified columns.
@@ -59,8 +33,8 @@ class GenericAdapter(BaseAdapter):
         Returns:
             Normalized DataFrame with columns: date, amount, merchant
         """
-        
         dataframe = pd.read_csv(file_path, header=0 if self.has_header else None)
+        dataframe["debit"] = dataframe["Debit"].fillna(dataframe["Credit"])
 
         # Validate columns exist
         missing_cols = []

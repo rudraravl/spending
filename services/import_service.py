@@ -18,6 +18,7 @@ from adapters.generic_adapter import GenericAdapter
 from adapters.wells_adapter import WellsAdapter
 from adapters.bilt_adapter import BiltAdapter
 from adapters.discover_adapter import DiscoverAdapter
+from adapters.citi_adapter import CitiAdapter
 
 
 # Adapter registry
@@ -26,6 +27,7 @@ ADAPTERS = {
     'Wells': WellsAdapter,
     'Bilt': BiltAdapter,
     'Discover': DiscoverAdapter,
+    'Citi': CitiAdapter,
 }
 
 

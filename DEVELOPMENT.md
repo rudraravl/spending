@@ -348,7 +348,7 @@ ModuleNotFoundError: No module named 'services'
 Solution: Ensure you're running from the project root directory:
 
 ```bash
-cd /Users/rudraraval/College/spending
+cd /path/to/your/repo
 python3 app.py
 ```
 

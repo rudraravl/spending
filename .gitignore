@@ -1,4 +1,33 @@
+# Local data / secrets
 data/
-.env
-*.csv
+db/*.db
 *.db
+*.sqlite
+*.sqlite3
+*.csv
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# OS/editor
+.DS_Store
+.vscode/

@@ -48,7 +48,11 @@ class GenericAdapter(BaseAdapter):
         self.date_format = date_format
         self.has_header = has_header
         self.auto_category = auto_category
-    
+
+    def _preprocess_dataframe(self, dataframe: pd.DataFrame) -> pd.DataFrame:
+        """Override in subclasses to modify the raw dataframe before normalization. Default: no-op."""
+        return dataframe
+
     def parse(self, file_path: str) -> pd.DataFrame:
         """
         Parse and normalize CSV data using specified columns.
@@ -61,6 +65,7 @@ class GenericAdapter(BaseAdapter):
         """
         
         dataframe = pd.read_csv(file_path, header=0 if self.has_header else None)
+        dataframe = self._preprocess_dataframe(dataframe)
 
         # Validate columns exist
         missing_cols = []

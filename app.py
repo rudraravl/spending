@@ -1227,7 +1227,7 @@ elif page == "Settings":
             st.markdown("**Create new account**")
             account_name = st.text_input("Account name")
             account_type = st.selectbox(
-                "Account type", ["credit_card", "checking", "savings"]
+                "Account type", ["checking", "savings", "credit", "cash", "investment"]
             )
 
             if st.button("Create account"):

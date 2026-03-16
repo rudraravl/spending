@@ -11,7 +11,6 @@ Provides:
 
 from datetime import date
 from typing import List, Optional, Dict, Any
-from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session
 from db.models import Transaction, Tag, Account, Category, Subcategory
 from utils.filters import TransactionFilter
@@ -27,6 +26,8 @@ def create_transaction(
     subcategory_id: int,
     notes: Optional[str] = None,
     tag_ids: Optional[List[int]] = None,
+    source: str = "manual",
+    external_id: Optional[str] = None,
 ) -> Transaction:
     """
     Create a new transaction.
@@ -77,6 +78,8 @@ def create_transaction(
         category_id=category_id,
         subcategory_id=subcategory_id,
         notes=notes,
+        source=source,
+        external_id=external_id,
     )
     
     # Add tags if provided
@@ -97,73 +100,89 @@ def create_transaction(
 def update_transaction(
     session: Session,
     transaction_id: int,
-    field: str,
-    value: Any,
+    *,
+    date_: Optional[date] = None,
+    amount: Optional[float] = None,
+    merchant: Optional[str] = None,
+    account_id: Optional[int] = None,
+    category_id: Optional[int] = None,
+    subcategory_id: Optional[int] = None,
+    notes: Optional[Optional[str]] = None,
+    tag_ids: Optional[List[int]] = None,
 ) -> Transaction:
     """
-    Update a single field of a transaction.
-    
-    Args:
-        session: Database session
-        transaction_id: ID of the transaction
-        field: Field name to update (date, amount, merchant, notes, account_id, category_id, subcategory_id)
-        value: New value
-        
-    Returns:
-        Updated Transaction object
-        
-    Raises:
-        ValueError: If transaction doesn't exist, field is invalid, or validation fails
+    Update one or more fields of a transaction, with full validation.
+
+    This aligns with the core design rules:
+    - Every transaction has exactly one account, category, and subcategory
+    - Subcategory must belong to category
+    - Tags are replaced atomically when provided
     """
-    transaction = session.query(Transaction).filter(Transaction.id == transaction_id).first()
+    transaction = (
+        session.query(Transaction).filter(Transaction.id == transaction_id).first()
+    )
     if not transaction:
         raise ValueError(f"Transaction with id {transaction_id} does not exist")
-    
-    # Validate field
-    valid_fields = ['date', 'amount', 'merchant', 'notes', 'account_id', 'category_id', 'subcategory_id']
-    if field not in valid_fields:
-        raise ValueError(f"Invalid field '{field}'. Must be one of {valid_fields}")
-    
-    # Special validation for account_id
-    if field == 'account_id':
-        account = session.query(Account).filter(Account.id == value).first()
-        if not account:
-            raise ValueError(f"Account with id {value} does not exist")
 
-    # Special validation for category_id
-    if field == 'category_id':
-        if value is None:
-            raise ValueError("category_id is required and cannot be None")
-        category = session.query(Category).filter(Category.id == value).first()
-        if not category:
-            raise ValueError(f"Category with id {value} does not exist")
-        # If changing category, validate subcategory still belongs to new category
-        if transaction.subcategory_id:
-            subcategory = session.query(Subcategory).filter(Subcategory.id == transaction.subcategory_id).first()
-            if subcategory and subcategory.category_id != value:
-                raise ValueError(
-                    f"Cannot change category: current subcategory '{subcategory.name}' "
-                    f"belongs to category id {subcategory.category_id}, not {value}"
-                )
-    
-    # Special validation for subcategory_id
-    if field == 'subcategory_id':
-        if value is None:
-            raise ValueError("subcategory_id is required and cannot be None")
-        subcategory = session.query(Subcategory).filter(Subcategory.id == value).first()
-        if not subcategory:
-            raise ValueError(f"Subcategory with id {value} does not exist")
-        # Validate subcategory belongs to transaction's category
-        if transaction.category_id != subcategory.category_id:
-            category = session.query(Category).filter(Category.id == transaction.category_id).first()
-            raise ValueError(
-                f"Subcategory '{subcategory.name}' (id={value}) does not belong to "
-                f"transaction's category '{category.name if category else 'Unknown'}' (id={transaction.category_id})"
-            )
-    
-    setattr(transaction, field, value)
+    # Resolve target values (fall back to current)
+    new_date = date_ if date_ is not None else transaction.date
+    new_amount = amount if amount is not None else transaction.amount
+    new_merchant = merchant if merchant is not None else transaction.merchant
+
+    new_account_id = account_id if account_id is not None else transaction.account_id
+    new_category_id = (
+        category_id if category_id is not None else transaction.category_id
+    )
+    new_subcategory_id = (
+        subcategory_id if subcategory_id is not None else transaction.subcategory_id
+    )
+
+    new_notes = notes if notes is not None else transaction.notes
+
+    # Validate account
+    account = session.query(Account).filter(Account.id == new_account_id).first()
+    if not account:
+        raise ValueError(f"Account with id {new_account_id} does not exist")
+
+    # Validate category
+    category = session.query(Category).filter(Category.id == new_category_id).first()
+    if not category:
+        raise ValueError(f"Category with id {new_category_id} does not exist")
+
+    # Validate subcategory existence and relationship
+    subcategory = (
+        session.query(Subcategory)
+        .filter(Subcategory.id == new_subcategory_id)
+        .first()
+    )
+    if not subcategory:
+        raise ValueError(f"Subcategory with id {new_subcategory_id} does not exist")
+    if subcategory.category_id != new_category_id:
+        raise ValueError(
+            f"Subcategory '{subcategory.name}' (id={new_subcategory_id}) does not belong to "
+            f"category '{category.name}' (id={new_category_id})"
+        )
+
+    # Apply scalar updates
+    transaction.date = new_date
+    transaction.amount = new_amount
+    transaction.merchant = new_merchant
+    transaction.account_id = new_account_id
+    transaction.category_id = new_category_id
+    transaction.subcategory_id = new_subcategory_id
+    transaction.notes = new_notes
+
+    # Update tags if explicitly provided
+    if tag_ids is not None:
+        tags = session.query(Tag).filter(Tag.id.in_(tag_ids)).all()
+        if len(tags) != len(tag_ids):
+            existing_ids = {tag.id for tag in tags}
+            missing_ids = set(tag_ids) - existing_ids
+            raise ValueError(f"Tags with ids {missing_ids} do not exist")
+        transaction.tags = tags
+
     session.commit()
-    
+
     return transaction
 
 

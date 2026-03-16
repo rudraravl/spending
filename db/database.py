@@ -46,7 +46,7 @@ def init_db():
             for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()
         }
 
-        # If we detect legacy tables/columns (e.g., tags.category_id or transactions missing subcategory_id),
+        # If we detect legacy tables/columns (e.g., tags.category_id or transactions missing required columns),
         # drop & recreate the schema to match the required architecture.
         needs_rebuild = False
         if "tags" in existing_tables:
@@ -55,13 +55,27 @@ def init_db():
                 needs_rebuild = True
         if "transactions" in existing_tables:
             txn_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(transactions)")).fetchall()]
-            if "subcategory_id" not in txn_cols:
+            required_txn_cols = {"subcategory_id", "status", "source", "external_id"}
+            if not required_txn_cols.issubset(set(txn_cols)):
+                needs_rebuild = True
+
+        if "accounts" in existing_tables:
+            acct_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(accounts)")).fetchall()]
+            if "currency" not in acct_cols:
                 needs_rebuild = True
 
         if needs_rebuild:
             Base.metadata.drop_all(bind=engine)
 
         Base.metadata.create_all(bind=engine)
+
+        # Ensure external dedupe index exists for imports
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_external_source "
+                "ON transactions (source, external_id)"
+            )
+        )
 
     # Seed required categories/subcategories (idempotent).
     session = get_session()

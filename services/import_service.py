@@ -99,8 +99,14 @@ def import_csv(
     
     for _, row in parsed.iterrows():
         try:
-            # Check for duplicate
-            if _transaction_exists(session, row, account_id):
+            # Source/external_id are optional and adapter-specific; default to simple
+            # "csv" source with no external id when not provided.
+            source = getattr(row, "source", "csv")
+            external_id = getattr(row, "external_id", None)
+
+            # Check for duplicate: prefer external_id+source when both are present,
+            # otherwise fall back to legacy date/amount/merchant/account match.
+            if _transaction_exists(session, row, account_id, source, external_id):
                 skipped.append({
                     'date': row['date'],
                     'amount': row['amount'],
@@ -115,13 +121,17 @@ def import_csv(
             other_subcategory = ensure_subcategory(session, "Uncategorized", other_category.id)
             
             transaction = Transaction(
-                date=pd.to_datetime(row['date']).date() if isinstance(row['date'], str) else row['date'],
+                date=pd.to_datetime(row['date']).date()
+                if isinstance(row['date'], str)
+                else row['date'],
                 amount=float(row['amount']),
                 merchant=str(row['merchant']),
                 account_id=account_id,
                 category_id=other_category.id,
                 subcategory_id=other_subcategory.id,
                 notes=None,
+                source=source,
+                external_id=external_id,
             )
             session.add(transaction)
             num_imported += 1
@@ -160,21 +170,44 @@ def _transaction_exists(
     session: Session,
     row: pd.Series,
     account_id: int,
+    source: str,
+    external_id: Optional[str],
 ) -> bool:
     """
     Check if transaction already exists in database.
-    
-    Checks for identical: date, amount, merchant, account_id
+
+    Preferred dedupe: (source, external_id) when both are present.
+    Fallback dedupe: identical (date, amount, merchant, account_id).
     """
-    transaction_date = pd.to_datetime(row['date']).date() if isinstance(row['date'], str) else row['date']
-    
-    existing = session.query(Transaction).filter(
-        Transaction.date == transaction_date,
-        Transaction.amount == float(row['amount']),
-        Transaction.merchant == str(row['merchant']),
-        Transaction.account_id == account_id,
-    ).first()
-    
+    if external_id:
+        existing = (
+            session.query(Transaction)
+            .filter(
+                Transaction.source == source,
+                Transaction.external_id == external_id,
+            )
+            .first()
+        )
+        if existing:
+            return True
+
+    transaction_date = (
+        pd.to_datetime(row["date"]).date()
+        if isinstance(row["date"], str)
+        else row["date"]
+    )
+
+    existing = (
+        session.query(Transaction)
+        .filter(
+            Transaction.date == transaction_date,
+            Transaction.amount == float(row["amount"]),
+            Transaction.merchant == str(row["merchant"]),
+            Transaction.account_id == account_id,
+        )
+        .first()
+    )
+
     return existing is not None
 
 

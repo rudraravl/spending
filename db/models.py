@@ -22,6 +22,7 @@ from sqlalchemy import (
     ForeignKey,
     Table,
     UniqueConstraint,
+    Index,
     func,
 )
 from sqlalchemy.ext.declarative import declarative_base
@@ -44,7 +45,9 @@ class Account(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, nullable=False)
-    type = Column(String, nullable=False)  # e.g., "credit_card", "checking", "savings"
+    # Allowed values (enforced at UI/service layer): checking, savings, credit, cash, investment
+    type = Column(String, nullable=False)
+    currency = Column(String, nullable=False, server_default="USD")
     created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
 
     # Relationships
@@ -120,6 +123,9 @@ class Transaction(Base):
     category_id = Column(Integer, ForeignKey('categories.id'), nullable=False)
     subcategory_id = Column(Integer, ForeignKey('subcategories.id'), nullable=False)
     notes = Column(Text, nullable=True)
+    status = Column(String, nullable=False, server_default="cleared")
+    source = Column(String, nullable=False, server_default="manual")
+    external_id = Column(String, nullable=True)
     created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
     updated_at = Column(
         DateTime,
@@ -137,6 +143,39 @@ class Transaction(Base):
         secondary=transaction_tags,
         back_populates='transactions',
     )
+    splits = relationship(
+        "TransactionSplit",
+        back_populates="transaction",
+        cascade="all, delete-orphan",
+    )
+
+    # Dedupe support for imports: (source, external_id)
+    __table_args__ = (
+        Index("idx_external_source", "source", "external_id"),
+    )
 
     def __repr__(self):
-        return f"<Transaction(id={self.id}, date={self.date}, amount={self.amount}, merchant='{self.merchant}', account_id={self.account_id})>"
+        return (
+            f"<Transaction(id={self.id}, date={self.date}, amount={self.amount}, "
+            f"merchant='{self.merchant}', account_id={self.account_id}, source='{self.source}')>"
+        )
+
+
+class TransactionSplit(Base):
+    """Represents a future-proof split against a parent transaction."""
+    __tablename__ = "transaction_splits"
+
+    id = Column(Integer, primary_key=True)
+    transaction_id = Column(Integer, ForeignKey("transactions.id"), nullable=False)
+    subcategory_id = Column(Integer, ForeignKey("subcategories.id"), nullable=False)
+    amount = Column(Float, nullable=False)
+    notes = Column(Text, nullable=True)
+
+    transaction = relationship("Transaction", back_populates="splits")
+    subcategory = relationship("Subcategory")
+
+    def __repr__(self):
+        return (
+            f"<TransactionSplit(id={self.id}, transaction_id={self.transaction_id}, "
+            f"subcategory_id={self.subcategory_id}, amount={self.amount})>"
+        )

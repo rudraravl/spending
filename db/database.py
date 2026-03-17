@@ -24,6 +24,9 @@ engine = create_engine(
     connect_args={'check_same_thread': False},  # Required for SQLite
 )
 
+# Bump this when schema changes require a rebuild.
+SCHEMA_VERSION = "2026-03-17-splits-category-id"
+
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -55,7 +58,14 @@ def init_db():
                 needs_rebuild = True
         if "transactions" in existing_tables:
             txn_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(transactions)")).fetchall()]
-            required_txn_cols = {"subcategory_id", "status", "source", "external_id"}
+            required_txn_cols = {
+                "subcategory_id",
+                "status",
+                "source",
+                "external_id",
+                "transfer_group_id",
+                "is_transfer",
+            }
             if not required_txn_cols.issubset(set(txn_cols)):
                 needs_rebuild = True
 
@@ -63,6 +73,21 @@ def init_db():
             acct_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(accounts)")).fetchall()]
             if "currency" not in acct_cols:
                 needs_rebuild = True
+
+        if "transfer_groups" not in existing_tables:
+            needs_rebuild = True
+
+        # Ensure transaction_splits has category_id (split support v2)
+        if "transaction_splits" in existing_tables:
+            split_cols = [
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(transaction_splits)")).fetchall()
+            ]
+            if "category_id" not in split_cols:
+                needs_rebuild = True
+        else:
+            # If the table doesn't exist yet, schema is definitely out of date.
+            needs_rebuild = True
 
         if needs_rebuild:
             Base.metadata.drop_all(bind=engine)

@@ -11,7 +11,7 @@ import tempfile
 from datetime import date, datetime, timedelta
 from sqlalchemy.orm import Session
 
-from db.database import init_db, get_session, close_session
+from db.database import init_db, get_session, close_session, SCHEMA_VERSION
 from db.models import Account, Category, Subcategory, Tag, Transaction
 from services.trasaction_service import (
     create_transaction,
@@ -21,6 +21,7 @@ from services.trasaction_service import (
     get_transaction_by_id,
     delete_transaction,
     count_transactions,
+    set_transaction_splits,
 )
 from services.summary_service import (
     calculate_total,
@@ -56,9 +57,9 @@ st.set_page_config(
 inject_global_styles()
 
 # === INITIALIZE DATABASE ===
-if not st.session_state.get("db_initialized"):
+if st.session_state.get("db_schema_version") != SCHEMA_VERSION:
     init_db()
-    st.session_state.db_initialized = True
+    st.session_state.db_schema_version = SCHEMA_VERSION
 
 
 # === SIDEBAR NAVIGATION ===
@@ -76,6 +77,7 @@ with st.sidebar:
         "Dashboard",
         "Import CSV",
         "Add Transaction",
+        "Transfer",
         "All Transactions",
         "Views",
         "Summaries",
@@ -107,6 +109,7 @@ with st.sidebar:
         "Dashboard": "High-level overview of your spending and the most recent activity.",
         "Import CSV": "Bring in new transactions from your bank or card statements.",
         "Add Transaction": "Quickly record a manual transaction with category and tags.",
+        "Transfer": "Move money between accounts without affecting spending totals.",
         "All Transactions": "Edit, correct, or delete any transaction in your history.",
         "Views": "Explore spending using flexible filters and rich charts.",
         "Summaries": "See fast summaries for this month, year, or semester.",
@@ -251,7 +254,7 @@ if page == "Dashboard":
         today = date.today()
         start_30 = today - timedelta(days=30)
         trend_filters = TransactionFilter(start_date=start_30, end_date=today)
-        trend_txns = get_transactions(session, filters=trend_filters)
+        trend_txns = get_transactions(session, filters=trend_filters, include_transfers=False)
 
         daily_rows = [
             {"date": t.date, "amount": float(t.amount)}
@@ -281,7 +284,7 @@ if page == "Dashboard":
 
     # Recent transactions
     with section("Recent activity", "Last 10 transactions across all accounts"):
-        recent = get_transactions(session, limit=10)
+        recent = get_transactions(session, limit=10, include_transfers=False)
         if recent:
             recent_data = []
             for txn in recent:
@@ -556,6 +559,70 @@ elif page == "Add Transaction":
                             st.error(f"Error: {str(e)}")
     
     close_session(session)
+
+
+# === PAGE: TRANSFER ===
+elif page == "Transfer":
+    render_page_header(
+        "🔁",
+        "Transfer between accounts",
+        "Move money between accounts without affecting your spending totals.",
+    )
+
+    session = get_db_session()
+
+    accounts = get_all_accounts(session)
+    if len(accounts) < 2:
+        st.info("You need at least two accounts to record a transfer.")
+        close_session(session)
+    else:
+        with section("Transfer details", "Create a linked pair of transactions."):
+            col1, col2 = st.columns(2)
+            with col1:
+                from_account_name = st.selectbox(
+                    "From account",
+                    [a.name for a in accounts],
+                    key="transfer_from",
+                )
+            with col2:
+                to_account_name = st.selectbox(
+                    "To account",
+                    [a.name for a in accounts],
+                    key="transfer_to",
+                )
+
+            amount = st.number_input("Amount", min_value=0.01, step=0.01)
+            transfer_date = st.date_input("Date", value=date.today())
+            notes = st.text_area("Notes (optional)")
+
+            from_account_id = next(
+                (a.id for a in accounts if a.name == from_account_name), None
+            )
+            to_account_id = next(
+                (a.id for a in accounts if a.name == to_account_name), None
+            )
+
+            if st.button("Save transfer", type="primary"):
+                try:
+                    if from_account_id == to_account_id:
+                        st.error("From and To accounts must be different.")
+                    else:
+                        from services.trasaction_service import create_transfer
+
+                        create_transfer(
+                            session,
+                            from_account_id=from_account_id,
+                            to_account_id=to_account_id,
+                            amount=amount,
+                            date_=transfer_date,
+                            notes=notes or None,
+                        )
+                        st.success("✅ Transfer recorded!")
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Error creating transfer: {e}")
+
+        close_session(session)
 
 
 # === PAGE: ALL TRANSACTIONS ===
@@ -908,6 +975,116 @@ elif page == "All Transactions":
             else:
                 st.info("No rows checked for deletion.")
 
+        # --- Split editor ---
+        st.subheader("Splits")
+        st.caption(
+            "Edit category splits for a single transaction. "
+            "Enter an ID from the grid above."
+        )
+
+        split_txn_id = st.number_input(
+            "Transaction ID to edit splits",
+            min_value=1,
+            step=1,
+            format="%d",
+        )
+
+        if split_txn_id:
+            txn = get_transaction_by_id(session, int(split_txn_id))
+            if not txn:
+                st.info("No transaction found with that ID.")
+            else:
+                st.write(
+                    f"Parent transaction: {txn.date} · {txn.merchant} · ${float(txn.amount):.2f}"
+                )
+
+                # Load existing splits
+                existing_splits = list(txn.splits or [])
+                split_rows = [
+                    {
+                        "Category": s.category.name if hasattr(s, "category") and s.category else "",
+                        "Subcategory": s.subcategory.name if s.subcategory else "",
+                        "Amount": float(s.amount),
+                        "Notes": s.notes or "",
+                    }
+                    for s in existing_splits
+                ]
+                if not split_rows:
+                    split_rows = [
+                        {"Category": "", "Subcategory": "", "Amount": 0.0, "Notes": ""}
+                    ]
+
+                split_df = pd.DataFrame(split_rows)
+                edited_split_df = st.data_editor(
+                    split_df,
+                    num_rows="dynamic",
+                    use_container_width=True,
+                    key="split_editor",
+                    column_config={
+                        "Category": st.column_config.SelectboxColumn(
+                            "Category",
+                            options=category_names,
+                        ),
+                        "Subcategory": st.column_config.SelectboxColumn(
+                            "Subcategory",
+                            options=subcategory_names,
+                        ),
+                        "Amount": st.column_config.NumberColumn(
+                            "Amount",
+                            format="$%.2f",
+                        ),
+                        "Notes": st.column_config.TextColumn("Notes"),
+                    },
+                )
+
+                if st.button("Save splits"):
+                    try:
+                        categories = get_all_categories(session)
+                        category_by_name = {c.name: c for c in categories}
+
+                        splits_payload = []
+                        for _, row in edited_split_df.iterrows():
+                            cat_name = str(row["Category"]).strip()
+                            subcat_name = str(row["Subcategory"]).strip()
+                            amount = float(row["Amount"])
+                            notes = str(row["Notes"]).strip() or None
+
+                            # Skip empty rows
+                            if not cat_name and not subcat_name and amount == 0:
+                                continue
+
+                            if cat_name not in category_by_name:
+                                raise ValueError(f"Unknown category '{cat_name}'")
+
+                            category = category_by_name[cat_name]
+                            subcats = get_subcategories_by_category(session, category.id)
+                            subcat = next(
+                                (s for s in subcats if s.name == subcat_name),
+                                None,
+                            )
+                            if not subcat:
+                                raise ValueError(
+                                    f"Subcategory '{subcat_name}' not valid for category '{cat_name}'"
+                                )
+
+                            splits_payload.append(
+                                {
+                                    "category_id": category.id,
+                                    "subcategory_id": subcat.id,
+                                    "amount": amount,
+                                    "notes": notes,
+                                }
+                            )
+
+                        set_transaction_splits(session, int(split_txn_id), splits_payload)
+                        st.session_state["_all_txn_flash"] = (
+                            "✅ Splits saved",
+                            "success",
+                        )
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error saving splits: {e}")
+
     close_session(session)
 
 
@@ -1033,8 +1210,8 @@ elif page == "Views":
         max_amount=max_amount if max_amount > 0 else None,
     )
     
-    # Get transactions
-    transactions = get_transactions(session, filters=filters)
+    # Get transactions (exclude transfers from spend views)
+    transactions = get_transactions(session, filters=filters, include_transfers=False)
     
     if not transactions:
         st.info("No transactions found matching filters.")

@@ -23,6 +23,7 @@ from sqlalchemy import (
     Table,
     UniqueConstraint,
     Index,
+    Boolean,
     func,
 )
 from sqlalchemy.ext.declarative import declarative_base
@@ -120,12 +121,15 @@ class Transaction(Base):
     amount = Column(Float, nullable=False)
     merchant = Column(String, nullable=False)
     account_id = Column(Integer, ForeignKey('accounts.id'), nullable=False)
-    category_id = Column(Integer, ForeignKey('categories.id'), nullable=False)
-    subcategory_id = Column(Integer, ForeignKey('subcategories.id'), nullable=False)
+    # For normal spending transactions these are required; for transfers they are NULL.
+    category_id = Column(Integer, ForeignKey('categories.id'), nullable=True)
+    subcategory_id = Column(Integer, ForeignKey('subcategories.id'), nullable=True)
     notes = Column(Text, nullable=True)
     status = Column(String, nullable=False, server_default="cleared")
     source = Column(String, nullable=False, server_default="manual")
     external_id = Column(String, nullable=True)
+    transfer_group_id = Column(Integer, ForeignKey("transfer_groups.id"), nullable=True)
+    is_transfer = Column(Boolean, nullable=False, server_default="0")
     created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
     updated_at = Column(
         DateTime,
@@ -148,6 +152,7 @@ class Transaction(Base):
         back_populates="transaction",
         cascade="all, delete-orphan",
     )
+    transfer_group = relationship("TransferGroup", back_populates="transactions")
 
     # Dedupe support for imports: (source, external_id)
     __table_args__ = (
@@ -167,11 +172,13 @@ class TransactionSplit(Base):
 
     id = Column(Integer, primary_key=True)
     transaction_id = Column(Integer, ForeignKey("transactions.id"), nullable=False)
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
     subcategory_id = Column(Integer, ForeignKey("subcategories.id"), nullable=False)
     amount = Column(Float, nullable=False)
     notes = Column(Text, nullable=True)
 
     transaction = relationship("Transaction", back_populates="splits")
+    category = relationship("Category")
     subcategory = relationship("Subcategory")
 
     def __repr__(self):
@@ -179,3 +186,25 @@ class TransactionSplit(Base):
             f"<TransactionSplit(id={self.id}, transaction_id={self.transaction_id}, "
             f"subcategory_id={self.subcategory_id}, amount={self.amount})>"
         )
+
+
+class TransferGroup(Base):
+    """Logical grouping for transfers between accounts."""
+    __tablename__ = "transfer_groups"
+
+    id = Column(Integer, primary_key=True)
+    created_at = Column(
+        DateTime,
+        server_default=func.current_timestamp(),
+        nullable=False,
+    )
+    notes = Column(Text, nullable=True)
+
+    transactions = relationship(
+        "Transaction",
+        back_populates="transfer_group",
+        cascade="all, delete-orphan",
+    )
+
+    def __repr__(self):
+        return f"<TransferGroup(id={self.id})>"

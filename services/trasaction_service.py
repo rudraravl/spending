@@ -10,10 +10,13 @@ Provides:
 """
 
 from datetime import date
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, cast
 from sqlalchemy.orm import Session
-from db.models import Transaction, Tag, Account, Category, Subcategory
+from db.models import Transaction, Tag, Account, Category, Subcategory, TransferGroup, TransactionSplit
 from utils.filters import TransactionFilter
+
+
+SPLIT_TOLERANCE = .01
 
 
 def create_transaction(
@@ -113,10 +116,10 @@ def update_transaction(
     """
     Update one or more fields of a transaction, with full validation.
 
-    This aligns with the core design rules:
-    - Every transaction has exactly one account, category, and subcategory
-    - Subcategory must belong to category
-    - Tags are replaced atomically when provided
+    For normal spending transactions:
+    - Every transaction has exactly one account, category, and subcategory.
+    - Subcategory must belong to category.
+    Tags are replaced atomically when provided.
     """
     transaction = (
         session.query(Transaction).filter(Transaction.id == transaction_id).first()
@@ -144,24 +147,24 @@ def update_transaction(
     if not account:
         raise ValueError(f"Account with id {new_account_id} does not exist")
 
-    # Validate category
-    category = session.query(Category).filter(Category.id == new_category_id).first()
-    if not category:
-        raise ValueError(f"Category with id {new_category_id} does not exist")
+    # Validate category + subcategory for non-transfer transactions only
+    if not transaction.is_transfer:
+        category = session.query(Category).filter(Category.id == new_category_id).first()
+        if not category:
+            raise ValueError(f"Category with id {new_category_id} does not exist")
 
-    # Validate subcategory existence and relationship
-    subcategory = (
-        session.query(Subcategory)
-        .filter(Subcategory.id == new_subcategory_id)
-        .first()
-    )
-    if not subcategory:
-        raise ValueError(f"Subcategory with id {new_subcategory_id} does not exist")
-    if subcategory.category_id != new_category_id:
-        raise ValueError(
-            f"Subcategory '{subcategory.name}' (id={new_subcategory_id}) does not belong to "
-            f"category '{category.name}' (id={new_category_id})"
+        subcategory = (
+            session.query(Subcategory)
+            .filter(Subcategory.id == new_subcategory_id)
+            .first()
         )
+        if not subcategory:
+            raise ValueError(f"Subcategory with id {new_subcategory_id} does not exist")
+        if subcategory.category_id != new_category_id:
+            raise ValueError(
+                f"Subcategory '{subcategory.name}' (id={new_subcategory_id}) does not belong to "
+                f"category '{category.name}' (id={new_category_id})"
+            )
 
     # Apply scalar updates
     transaction.date = new_date
@@ -226,6 +229,7 @@ def get_transactions(
     filters: Optional[TransactionFilter] = None,
     limit: Optional[int] = None,
     offset: int = 0,
+    include_transfers: bool = True,
 ) -> List[Transaction]:
     """
     Get transactions matching the given filters.
@@ -240,6 +244,8 @@ def get_transactions(
         List of Transaction objects
     """
     query = session.query(Transaction)
+    if not include_transfers:
+        query = query.filter(Transaction.is_transfer.is_(False))
     
     if filters:
         # Apply filters
@@ -319,11 +325,88 @@ def delete_transaction(
     transaction = session.query(Transaction).filter(Transaction.id == transaction_id).first()
     if not transaction:
         return False
-    
+
+    # If this transaction is part of a transfer group, delete the entire group
+    if transaction.transfer_group_id:
+        group = (
+            session.query(TransferGroup)
+            .filter(TransferGroup.id == transaction.transfer_group_id)
+            .first()
+        )
+        if group:
+            session.delete(group)
+            session.commit()
+            return True
+
     session.delete(transaction)
     session.commit()
-    
+
     return True
+
+
+def create_transfer(
+    session: Session,
+    from_account_id: int,
+    to_account_id: int,
+    amount: float,
+    date_: date,
+    notes: Optional[str] = None,
+) -> TransferGroup:
+    """
+    Create a transfer between two accounts as a pair of linked transactions.
+
+    A transfer is represented as:
+    - One negative amount on the source account
+    - One positive amount on the destination account
+    Both rows share a transfer_group_id and are flagged as transfers.
+    """
+    if from_account_id == to_account_id:
+        raise ValueError("from_account and to_account must be different")
+    if amount <= 0:
+        raise ValueError("amount must be greater than zero")
+
+    from_acct = session.query(Account).filter(Account.id == from_account_id).first()
+    to_acct = session.query(Account).filter(Account.id == to_account_id).first()
+    if not from_acct or not to_acct:
+        raise ValueError("Both from_account and to_account must exist")
+
+    group = TransferGroup(notes=notes)
+    session.add(group)
+    session.flush()  # ensure group.id is available
+
+    debit_txn = Transaction(
+        date=date_,
+        amount=-amount,
+        merchant=f"Transfer to {to_acct.name}",
+        account_id=from_account_id,
+        category_id=None,
+        subcategory_id=None,
+        notes=notes,
+        is_transfer=True,
+        transfer_group=group,
+        source="manual",
+        external_id=None,
+    )
+
+    credit_txn = Transaction(
+        date=date_,
+        amount=amount,
+        merchant=f"Transfer from {from_acct.name}",
+        account_id=to_account_id,
+        category_id=None,
+        subcategory_id=None,
+        notes=notes,
+        is_transfer=True,
+        transfer_group=group,
+        source="manual",
+        external_id=None,
+    )
+
+    session.add(debit_txn)
+    session.add(credit_txn)
+    session.commit()
+
+    return group
 
 
 def count_transactions(
@@ -375,3 +458,91 @@ def count_transactions(
             query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
     
     return query.count()
+
+
+def _validate_split_row(
+    session: Session,
+    category_id: int,
+    subcategory_id: int,
+) -> None:
+    """
+    Validate a split row.
+    
+    Args:
+        session: Database session
+        category_id: Category ID
+        subcategory_id: Subcategory ID
+    """
+    category = session.query(Category).filter(Category.id == category_id).first()
+    if not category:
+        raise ValueError(f"Category with id {category_id} does not exist")
+    
+    subcategory = (
+        session.query(Subcategory)
+        .filter(
+            Subcategory.id == subcategory_id,
+            Subcategory.category_id == category_id,
+        )
+        .first()
+    )
+    if not subcategory:
+        raise ValueError(
+            f"Subcategory with id {subcategory_id} either does not exist or does not "
+            f"belong to category '{category.name}' (id={category_id})"
+        )
+
+
+def set_transaction_splits(
+    session: Session,
+    transaction_id: int,
+    splits: list[dict],
+) -> list[TransactionSplit]:
+    """
+    Replace all splits for a transaction.
+
+    splits: list of {"category_id": int, "subcategory_id": int, "amount": float, "notes": Optional[str]}
+    """
+
+    txn = (session.query(Transaction).filter(Transaction.id == transaction_id).first())
+    if not txn:
+        raise ValueError(f"Transaction with id {transaction_id} does not exist")
+
+    if not splits:
+        # clear splits, revert to using parent transaction
+        txn.splits.clear()
+        session.commit()
+        return []
+
+    total_split = 0.0
+    new_splits: list[TransactionSplit] = []
+    for row in splits:
+        category_id = row["category_id"]
+        subcategory_id = row["subcategory_id"]
+        amount = float(row["amount"])
+        notes = row.get("notes")
+
+        _validate_split_row(session, category_id, subcategory_id)
+        total_split += amount
+
+        new_splits.append(
+            TransactionSplit(
+                category_id=category_id,
+                subcategory_id=subcategory_id,
+                amount=amount,
+                notes=notes,
+            )
+        )
+
+    txn_amount = cast(float, txn.amount)
+    if abs(total_split - txn_amount) >= SPLIT_TOLERANCE:
+        raise ValueError(
+            f"Total split amount {total_split} does not match transaction amount {txn_amount}"
+        )
+
+    # Replace existing splits atomically after validation
+    txn.splits.clear()
+    for s in new_splits:
+        txn.splits.append(s)
+
+    session.commit()
+    return list(txn.splits)

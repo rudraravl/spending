@@ -11,8 +11,8 @@ Provides:
 from typing import List, Optional, Dict, Tuple
 import pandas as pd
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_
-from db.models import Transaction, Tag, Category, Subcategory
+from sqlalchemy import func, and_, union_all
+from db.models import Transaction, Tag, Category, Subcategory, TransactionSplit
 from utils.filters import TransactionFilter
 
 
@@ -20,11 +20,100 @@ from utils.filters import TransactionFilter
 PAYMENT_SUBCATEGORY_NAMES = {'payments'}
 
 
-def _exclude_payment_transactions(query):
-    """Exclude transactions in the Payments subcategory from spending aggregates."""
+def _exclude_non_spend_transactions(query):
+    """
+    Exclude non-spending activity from aggregates:
+    - Transfers (is_transfer = TRUE)
+    - Payments subcategory (e.g., card payments)
+    """
+    query = query.filter(Transaction.is_transfer.is_(False))
     return query.filter(
-        ~Transaction.subcategory.has(func.lower(Subcategory.name).in_(list(PAYMENT_SUBCATEGORY_NAMES)))
+        ~Transaction.subcategory.has(
+            func.lower(Subcategory.name).in_(list(PAYMENT_SUBCATEGORY_NAMES))
+        )
     )
+
+
+def _apply_filters_base(query, filters: Optional[TransactionFilter]):
+    """Apply Transaction-based filters (dates, account, tags, category, subcategory, amount)."""
+    if not filters:
+        return query
+
+    if filters.start_date:
+        query = query.filter(Transaction.date >= filters.start_date)
+
+    if filters.end_date:
+        query = query.filter(Transaction.date <= filters.end_date)
+
+    if filters.account_id:
+        query = query.filter(Transaction.account_id == filters.account_id)
+
+    if filters.min_amount is not None:
+        query = query.filter(Transaction.amount >= filters.min_amount)
+
+    if filters.max_amount is not None:
+        query = query.filter(Transaction.amount <= filters.max_amount)
+
+    # Tag filters
+    if filters.tag_ids:
+        if getattr(filters, "tags_match_any", False):
+            query = query.filter(Transaction.tags.any(Tag.id.in_(filters.tag_ids)))
+        else:
+            for tag_id in filters.tag_ids:
+                query = query.filter(Transaction.tags.any(Tag.id == tag_id))
+
+    # Category / subcategory filters (for unsplit transactions)
+    if filters.category_id:
+        query = query.filter(Transaction.category_id == filters.category_id)
+
+    if filters.subcategory_id:
+        query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
+
+    return query
+
+
+def _apply_filters_splits(query, filters: Optional[TransactionFilter]):
+    """
+    Apply filters for split-based queries.
+
+    Date/account/amount/tag filters still apply at the Transaction level.
+    Category/subcategory filters apply at the split level.
+    """
+    if not filters:
+        return query
+
+    # Transaction-level dimensions
+    if filters.start_date:
+        query = query.filter(Transaction.date >= filters.start_date)
+
+    if filters.end_date:
+        query = query.filter(Transaction.date <= filters.end_date)
+
+    if filters.account_id:
+        query = query.filter(Transaction.account_id == filters.account_id)
+
+    if filters.min_amount is not None:
+        query = query.filter(Transaction.amount >= filters.min_amount)
+
+    if filters.max_amount is not None:
+        query = query.filter(Transaction.amount <= filters.max_amount)
+
+    # Tag filters on parent transaction
+    if filters.tag_ids:
+        if getattr(filters, "tags_match_any", False):
+            query = query.filter(Transaction.tags.any(Tag.id.in_(filters.tag_ids)))
+        else:
+            for tag_id in filters.tag_ids:
+                query = query.filter(Transaction.tags.any(Tag.id == tag_id))
+
+    # Category / subcategory filters on splits
+    if filters.category_id:
+        query = query.filter(TransactionSplit.category_id == filters.category_id)
+
+    if filters.subcategory_id:
+        query = query.filter(TransactionSplit.subcategory_id == filters.subcategory_id)
+
+    return query
 
 
 def calculate_total(
@@ -44,7 +133,7 @@ def calculate_total(
         Total amount (sum of matching transaction amounts excluding Payments subcategory)
     """
     query = session.query(func.sum(Transaction.amount))
-    query = _exclude_payment_transactions(query)
+    query = _exclude_non_spend_transactions(query)
     
     if filters:
         if filters.start_date:
@@ -105,7 +194,7 @@ def summarize_by_tag(
         func.sum(Transaction.amount).label('total'),
         func.count(Transaction.id).label('count'),
     ).join(Transaction.tags).group_by(Tag.id, Tag.name)
-    query = _exclude_payment_transactions(query)
+    query = _exclude_non_spend_transactions(query)
     
     # Apply filters
     if filters:
@@ -175,85 +264,67 @@ def summarize_by_category(
     filters: Optional[TransactionFilter] = None,
 ) -> pd.DataFrame:
     """
-    Summarize spending by category (accounting classification).
-    
-    Args:
-        session: Database session
-        filters: TransactionFilter object
-        
-    Returns:
-        DataFrame with columns: category, total, count, percent
+    Summarize spending by category (accounting classification), split-aware.
+
+    If a transaction has splits, its amount is allocated by split rows.
+    Otherwise, the transaction's own category is used.
     """
-    # Group by category_id directly (every transaction has exactly one category)
-    query = session.query(
-        Category.id.label('category_id'),
-        Category.name.label('category'),
-        func.sum(Transaction.amount).label('total'),
-        func.count(Transaction.id).label('count'),
-    ).select_from(Transaction).join(Transaction.category).group_by(Category.id, Category.name)
-    query = _exclude_payment_transactions(query)
-    
-    # Apply filters
-    if filters:
-        if filters.start_date:
-            query = query.filter(Transaction.date >= filters.start_date)
-        
-        if filters.end_date:
-            query = query.filter(Transaction.date <= filters.end_date)
-        
-        if filters.account_id:
-            query = query.filter(Transaction.account_id == filters.account_id)
-        
-        if filters.min_amount is not None:
-            query = query.filter(Transaction.amount >= filters.min_amount)
-        
-        if filters.max_amount is not None:
-            query = query.filter(Transaction.amount <= filters.max_amount)
-        
-        # Filter by tag (AND: all tags required; OR: any tag matches)
-        if filters.tag_ids:
-            if getattr(filters, "tags_match_any", False):
-                query = query.filter(Transaction.tags.any(Tag.id.in_(filters.tag_ids)))
-            else:
-                for tag_id in filters.tag_ids:
-                    query = query.filter(Transaction.tags.any(Tag.id == tag_id))
-        
-        # Filter by category (direct category_id match only)
-        if filters.category_id:
-            query = query.filter(Transaction.category_id == filters.category_id)
-        
-        # Filter by subcategory
-        if filters.subcategory_id:
-            query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
-    
-    results = query.all()
-    
-    # Convert to list of dicts
-    data = []
-    for row in results:
-        data.append({
-            'category': row.category,
-            'total': row.total,
-            'count': row.count,
-        })
-    
-    # Create DataFrame
+    # 1) Rows from splits
+    split_q = (
+        session.query(
+            Category.id.label("category_id"),
+            Category.name.label("category"),
+            TransactionSplit.amount.label("amount"),
+        )
+        .select_from(TransactionSplit)
+        .join(TransactionSplit.category)
+        .join(TransactionSplit.transaction)
+    )
+    split_q = _exclude_non_spend_transactions(split_q)
+    split_q = _apply_filters_splits(split_q, filters)
+
+    # 2) Rows from unsplit transactions (no splits)
+    base_q = (
+        session.query(
+            Category.id.label("category_id"),
+            Category.name.label("category"),
+            Transaction.amount.label("amount"),
+        )
+        .select_from(Transaction)
+        .join(Transaction.category)
+        .filter(~Transaction.splits.any())
+    )
+    base_q = _exclude_non_spend_transactions(base_q)
+    base_q = _apply_filters_base(base_q, filters)
+
+    combined = union_all(split_q, base_q).subquery("cat_rows")
+
+    agg_q = (
+        session.query(
+            combined.c.category,
+            func.sum(combined.c.amount).label("total"),
+            func.count().label("count"),
+        )
+        .group_by(combined.c.category)
+        .order_by(func.sum(combined.c.amount).desc())
+    )
+
+    results = agg_q.all()
+
+    data = [
+        {"category": row.category, "total": row.total, "count": row.count}
+        for row in results
+    ]
+
     df = pd.DataFrame(data)
-    
     if len(df) == 0:
-        return pd.DataFrame(columns=['category', 'total', 'count', 'percent'])
-    
-    # Calculate percentage
-    total = df['total'].sum()
-    if total > 0:
-        df['percent'] = (df['total'] / total * 100).round(2)
-    else:
-        df['percent'] = 0.0
-    
-    # Sort by total descending
-    df = df.sort_values('total', ascending=False).reset_index(drop=True)
-    
-    return df[['category', 'total', 'count', 'percent']]
+        return pd.DataFrame(columns=["category", "total", "count", "percent"])
+
+    total = df["total"].sum()
+    df["percent"] = (df["total"] / total * 100).round(2) if total > 0 else 0.0
+    df = df.sort_values("total", ascending=False).reset_index(drop=True)
+
+    return df[["category", "total", "count", "percent"]]
 
 
 def summarize_by_subcategory(
@@ -261,88 +332,77 @@ def summarize_by_subcategory(
     filters: Optional[TransactionFilter] = None,
 ) -> pd.DataFrame:
     """
-    Summarize spending by subcategory (accounting classification).
-    
-    Args:
-        session: Database session
-        filters: TransactionFilter object
-        
-    Returns:
-        DataFrame with columns: category, subcategory, total, count, percent
+    Summarize spending by subcategory, split-aware.
+
+    If a transaction has splits, its amount is allocated by split rows.
+    Otherwise, the transaction's own subcategory is used.
     """
-    # Group by subcategory_id directly (every transaction has exactly one subcategory)
-    query = session.query(
-        Category.name.label('category'),
-        Subcategory.name.label('subcategory'),
-        func.sum(Transaction.amount).label('total'),
-        func.count(Transaction.id).label('count'),
-    ).select_from(Transaction).join(Transaction.subcategory).join(Subcategory.category).group_by(
-        Category.id, Category.name, Subcategory.id, Subcategory.name
+    # 1) Rows from splits
+    split_q = (
+        session.query(
+            Category.name.label("category"),
+            Subcategory.name.label("subcategory"),
+            TransactionSplit.amount.label("amount"),
+        )
+        .select_from(TransactionSplit)
+        .join(TransactionSplit.category)
+        .join(TransactionSplit.subcategory)
+        .join(TransactionSplit.transaction)
     )
-    query = _exclude_payment_transactions(query)
-    
-    # Apply filters
-    if filters:
-        if filters.start_date:
-            query = query.filter(Transaction.date >= filters.start_date)
-        
-        if filters.end_date:
-            query = query.filter(Transaction.date <= filters.end_date)
-        
-        if filters.account_id:
-            query = query.filter(Transaction.account_id == filters.account_id)
-        
-        if filters.min_amount is not None:
-            query = query.filter(Transaction.amount >= filters.min_amount)
-        
-        if filters.max_amount is not None:
-            query = query.filter(Transaction.amount <= filters.max_amount)
-        
-        # Filter by tag (AND: all tags required; OR: any tag matches)
-        if filters.tag_ids:
-            if getattr(filters, "tags_match_any", False):
-                query = query.filter(Transaction.tags.any(Tag.id.in_(filters.tag_ids)))
-            else:
-                for tag_id in filters.tag_ids:
-                    query = query.filter(Transaction.tags.any(Tag.id == tag_id))
-        
-        # Filter by category (direct category_id match only)
-        if filters.category_id:
-            query = query.filter(Transaction.category_id == filters.category_id)
-        
-        # Filter by subcategory
-        if filters.subcategory_id:
-            query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
-    
-    results = query.all()
-    
-    # Convert to list of dicts
-    data = []
-    for row in results:
-        data.append({
-            'category': row.category,
-            'subcategory': row.subcategory,
-            'total': row.total,
-            'count': row.count,
-        })
-    
-    # Create DataFrame
+    split_q = _exclude_non_spend_transactions(split_q)
+    split_q = _apply_filters_splits(split_q, filters)
+
+    # 2) Rows from unsplit transactions
+    base_q = (
+        session.query(
+            Category.name.label("category"),
+            Subcategory.name.label("subcategory"),
+            Transaction.amount.label("amount"),
+        )
+        .select_from(Transaction)
+        .join(Transaction.subcategory)
+        .join(Subcategory.category)
+        .filter(~Transaction.splits.any())
+    )
+    base_q = _exclude_non_spend_transactions(base_q)
+    base_q = _apply_filters_base(base_q, filters)
+
+    combined = union_all(split_q, base_q).subquery("subcat_rows")
+
+    agg_q = (
+        session.query(
+            combined.c.category,
+            combined.c.subcategory,
+            func.sum(combined.c.amount).label("total"),
+            func.count().label("count"),
+        )
+        .group_by(combined.c.category, combined.c.subcategory)
+        .order_by(func.sum(combined.c.amount).desc())
+    )
+
+    results = agg_q.all()
+
+    data = [
+        {
+            "category": row.category,
+            "subcategory": row.subcategory,
+            "total": row.total,
+            "count": row.count,
+        }
+        for row in results
+    ]
+
     df = pd.DataFrame(data)
-    
     if len(df) == 0:
-        return pd.DataFrame(columns=['category', 'subcategory', 'total', 'count', 'percent'])
-    
-    # Calculate percentage
-    total = df['total'].sum()
-    if total > 0:
-        df['percent'] = (df['total'] / total * 100).round(2)
-    else:
-        df['percent'] = 0.0
-    
-    # Sort by total descending
-    df = df.sort_values('total', ascending=False).reset_index(drop=True)
-    
-    return df[['category', 'subcategory', 'total', 'count', 'percent']]
+        return pd.DataFrame(
+            columns=["category", "subcategory", "total", "count", "percent"]
+        )
+
+    total = df["total"].sum()
+    df["percent"] = (df["total"] / total * 100).round(2) if total > 0 else 0.0
+    df = df.sort_values("total", ascending=False).reset_index(drop=True)
+
+    return df[["category", "subcategory", "total", "count", "percent"]]
 
 
 def export_summary(
@@ -414,3 +474,6 @@ def export_transactions(
     df.to_csv(filename, index=False)
 
     return filename
+
+
+    # NOTE: split-aware behavior is implemented directly in summarize_by_category

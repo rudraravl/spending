@@ -20,6 +20,7 @@ from adapters.bilt_adapter import BiltAdapter
 from adapters.discover_adapter import DiscoverAdapter
 from adapters.citi_adapter import CitiAdapter
 from adapters.chase_adapter import ChaseAdapter
+from services.rule_service import apply_rules_to_transaction
 
 
 # Adapter registry
@@ -134,6 +135,8 @@ def import_csv(
                 external_id=external_id,
             )
             session.add(transaction)
+            # Apply auto-categorization rules during import only.
+            apply_rules_to_transaction(session, transaction)
             num_imported += 1
             
         except Exception as e:

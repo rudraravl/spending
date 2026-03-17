@@ -208,3 +208,28 @@ class TransferGroup(Base):
 
     def __repr__(self):
         return f"<TransferGroup(id={self.id})>"
+
+
+class Rule(Base):
+    """Represents a rule for automatic categorization of transactions."""
+    __tablename__ = "rules"
+
+    id = Column(Integer, primary_key=True)
+    priority = Column(Integer, nullable=False)
+    field = Column(String, nullable=False)
+    operator = Column(String, nullable=False)
+    value = Column(String, nullable=False)
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
+    subcategory_id = Column(Integer, ForeignKey("subcategories.id"), nullable=False)
+    created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
+
+    category = relationship("Category")
+    subcategory = relationship("Subcategory")
+
+    __table_args__ = (
+        Index("idx_rules_priority_id", "priority", "id"),
+    )
+
+
+    def __repr__(self):
+        return f"<Rule(id={self.id}, priority={self.priority}, field='{self.field}', operator='{self.operator}', value='{self.value}', category_id={self.category_id}, subcategory_id={self.subcategory_id})>"

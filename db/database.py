@@ -25,7 +25,7 @@ engine = create_engine(
 )
 
 # Bump this when schema changes require a rebuild.
-SCHEMA_VERSION = "2026-03-17-splits-category-id"
+SCHEMA_VERSION = "2026-03-17-rules-engine"
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -119,14 +119,14 @@ def init_db():
 def _seed_required_data(session: Session) -> None:
     """Seed required categories/subcategories (tags start empty)."""
     categories_seed = ["Food", "Travel", "Leisure", "Bills", "Shopping", "Other"]
-    existing = {c.name: c for c in session.query(Category).all()}
+    existing = {str(c.name): c for c in session.query(Category).all()}
 
     for name in categories_seed:
         if name not in existing:
             session.add(Category(name=name))
     session.flush()
 
-    categories = {c.name: c for c in session.query(Category).all()}
+    categories = {str(c.name): c for c in session.query(Category).all()}
 
     subcategories_seed = {
         "Food": ["Grocery", "Eating Out", "Drinks"],

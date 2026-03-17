@@ -38,6 +38,14 @@ from services.import_service import (
     ensure_subcategory,
     ensure_tag,
 )
+from services.rule_service import (
+    ALLOWED_FIELDS,
+    ALLOWED_OPERATORS,
+    create_rule,
+    delete_rule,
+    list_rules,
+    update_rule,
+)
 from utils.filters import TransactionFilter
 from utils.semester import (
     get_current_semester_range,
@@ -666,7 +674,7 @@ elif page == "All Transactions":
         msg, level = st.session_state.pop("_all_txn_flash")
         (st.success if level == "success" else st.error)(msg)
 
-    # Filters (no card wrapper to avoid large empty blocks)
+    # Filters 
     st.subheader("Filters")
     st.caption("Narrow down the grid to the rows you care about.")
 
@@ -728,26 +736,36 @@ elif page == "All Transactions":
 
         filtered_txns = [t for t in transactions if _matches_ui_filters(t)]
 
-        table_df = pd.DataFrame(
-            [
+        table_rows = []
+        for txn in filtered_txns:
+            has_splits = bool(getattr(txn, "splits", None))
+            if has_splits:
+                category_display = "(split)"
+                subcategory_display = "(split)"
+            else:
+                category_display = txn.category.name if txn.category else ""
+                subcategory_display = txn.subcategory.name if txn.subcategory else ""
+
+            table_rows.append(
                 {
                     "id": txn.id,
                     "Date": txn.date,
                     "Merchant": txn.merchant,
                     "Amount": float(txn.amount),
-                    "Category": txn.category.name if txn.category else "",
-                    "Subcategory": txn.subcategory.name if txn.subcategory else "",
+                    "Category": category_display,
+                    "Subcategory": subcategory_display,
                     "Tags": [t.name for t in txn.tags] if txn.tags else [],
                     "Notes": txn.notes or "",
                     "Acct": txn.account.name if txn.account else "",
+                    "Split": "Split" if has_splits else "",
                     "Delete": False,
                 }
-                for txn in filtered_txns
-            ]
-        )
+            )
+
+        table_df = pd.DataFrame(table_rows)
         transaction_map = {txn.id: txn for txn in transactions}
 
-        # Editor (no extra card shell so it doesn't read as an empty spacer)
+        # Editor 
         st.subheader("Editor")
         st.caption(
             f"{len(filtered_txns)} of {len(transactions)} transactions shown in the grid."
@@ -780,6 +798,12 @@ elif page == "All Transactions":
                     ),
                     "Tags": st.column_config.MultiselectColumn(
                         "Tags", options=tag_names
+                    ),
+                    "Split": st.column_config.TextColumn(
+                        "Split",
+                        help="Shows 'Split' when this transaction has one or more splits.",
+                        disabled=True,
+                        width="small",
                     ),
                     "Delete": st.column_config.CheckboxColumn("Delete"),
                 },
@@ -1098,7 +1122,7 @@ elif page == "Views":
     
     session = get_db_session()
 
-    # Filters (no card wrapper so they don't render as large spacers)
+    # Filters 
     st.subheader("Filters")
     st.caption("Start broad, then refine.")
 
@@ -1333,7 +1357,7 @@ elif page == "Views":
                                 key="views_pie_subcategory",
                             )
 
-        # Transactions table without a surrounding card to avoid a large empty-feeling block
+        # Transactions table 
         st.subheader("Transactions")
         st.caption("Raw rows behind the summaries above.")
         txn_data = []
@@ -1397,175 +1421,363 @@ elif page == "Settings":
     
     session = get_db_session()
 
-    with card("Accounts", "Where your transactions originate."):
-        left, right = st.columns(2)
+    render_page_header(
+        "Accounts",
+        "",
+        "Where your transactions originate.",
+    )
+    left, right = st.columns(2)
 
-        with left:
-            st.markdown("**Create new account**")
-            account_name = st.text_input("Account name")
-            account_type = st.selectbox(
-                "Account type", ["checking", "savings", "credit", "cash", "investment"]
+    with left:
+        st.markdown("**Create new account**")
+        account_name = st.text_input("Account name")
+        account_type = st.selectbox(
+            "Account type", ["checking", "savings", "credit", "cash", "investment"]
+        )
+
+        if st.button("Create account"):
+            try:
+                account = Account(name=account_name, type=account_type)
+                session.add(account)
+                session.commit()
+                st.success(f"✅ Account '{account_name}' created!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error: {str(e)}")
+
+    with right:
+        st.markdown("**Existing accounts**")
+        accounts = get_all_accounts(session)
+        if accounts:
+            for account in accounts:
+                r1, r2 = st.columns([3, 1])
+                with r1:
+                    st.write(f"• {account.name} ({account.type})")
+                with r2:
+                    if st.button(
+                        "Delete",
+                        key=f"delete_account_{account.id}",
+                        help="This will remove the account; transactions will also be affected.",
+                    ):
+                        session.delete(account)
+                        session.commit()
+                        st.rerun()
+        else:
+            st.info("No accounts yet.")
+
+    render_page_header(
+        "Categories",
+        "",
+        "Top-level buckets for your spending.",
+    )
+    left, right = st.columns(2)
+
+    with left:
+        st.markdown("**Create new category**")
+        category_name = st.text_input("Category name", key="new_category")
+
+        if st.button("Create category"):
+            try:
+                category = Category(name=category_name)
+                session.add(category)
+                session.commit()
+                st.success(f"✅ Category '{category_name}' created!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error: {str(e)}")
+
+    with right:
+        st.markdown("**Existing categories**")
+        categories = get_all_categories(session)
+        if categories:
+            for category in categories:
+                r1, r2 = st.columns([3, 1])
+                with r1:
+                    st.write(f"• {category.name}")
+                with r2:
+                    if st.button(
+                        "Delete",
+                        key=f"delete_category_{category.id}",
+                        help="Deleting a category also impacts its subcategories and transactions.",
+                    ):
+                        session.delete(category)
+                        session.commit()
+                        st.rerun()
+        else:
+            st.info("No categories yet.")
+
+    render_page_header(
+        "Subcategories",
+        "",
+        "More granular labels nested under each category.",
+    )
+    left, right = st.columns(2)
+
+    with left:
+        st.markdown("**Create new subcategory**")
+        categories = get_all_categories(session)
+        if categories:
+            selected_category_name = st.selectbox(
+                "Parent category",
+                [c.name for c in categories],
+                key="subcategory_category",
+            )
+            category_id = next(
+                (c.id for c in categories if c.name == selected_category_name), None
+            )
+            subcategory_name = st.text_input(
+                "Subcategory name", key="new_subcategory"
             )
 
-            if st.button("Create account"):
+            if st.button("Create subcategory"):
                 try:
-                    account = Account(name=account_name, type=account_type)
-                    session.add(account)
+                    subcategory = Subcategory(
+                        name=subcategory_name, category_id=category_id
+                    )
+                    session.add(subcategory)
                     session.commit()
-                    st.success(f"✅ Account '{account_name}' created!")
+                    st.success(
+                        f"✅ Subcategory '{subcategory_name}' created under '{selected_category_name}'!"
+                    )
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error: {str(e)}")
+        else:
+            st.info("Create a category first.")
 
-        with right:
-            st.markdown("**Existing accounts**")
-            accounts = get_all_accounts(session)
-            if accounts:
-                for account in accounts:
-                    r1, r2 = st.columns([3, 1])
-                    with r1:
-                        st.write(f"• {account.name} ({account.type})")
-                    with r2:
-                        if st.button(
-                            "Delete",
-                            key=f"delete_account_{account.id}",
-                            help="This will remove the account; transactions will also be affected.",
-                        ):
-                            session.delete(account)
-                            session.commit()
-                            st.rerun()
-            else:
-                st.info("No accounts yet.")
+    with right:
+        st.markdown("**Existing subcategories**")
+        categories = get_all_categories(session)
+        if categories:
+            for category in categories:
+                subcategories = get_subcategories_by_category(session, category.id)
+                if subcategories:
+                    st.write(f"**{category.name}:**")
+                    for subcategory in subcategories:
+                        r1, r2 = st.columns([3, 1])
+                        with r1:
+                            st.write(f"  • {subcategory.name}")
+                        with r2:
+                            if st.button(
+                                "Delete",
+                                key=f"delete_subcategory_{subcategory.id}",
+                            ):
+                                session.delete(subcategory)
+                                session.commit()
+                                st.rerun()
+        else:
+            st.info("No categories yet.")
 
-    with card("Categories", "Top-level buckets for your spending."):
-        left, right = st.columns(2)
+    render_page_header(
+        "Tags",
+        "",
+        "Flat context labels that don’t affect accounting.",
+    )
+    left, right = st.columns(2)
 
-        with left:
-            st.markdown("**Create new category**")
-            category_name = st.text_input("Category name", key="new_category")
+    with left:
+        st.markdown("**Create new tag**")
+        st.caption("Use tags for context like people, courses, or projects.")
 
-            if st.button("Create category"):
-                try:
-                    category = Category(name=category_name)
-                    session.add(category)
-                    session.commit()
-                    st.success(f"✅ Category '{category_name}' created!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error: {str(e)}")
+        tag_name = st.text_input("Tag name", key="new_tag")
 
-        with right:
-            st.markdown("**Existing categories**")
-            categories = get_all_categories(session)
-            if categories:
-                for category in categories:
-                    r1, r2 = st.columns([3, 1])
-                    with r1:
-                        st.write(f"• {category.name}")
-                    with r2:
-                        if st.button(
-                            "Delete",
-                            key=f"delete_category_{category.id}",
-                            help="Deleting a category also impacts its subcategories and transactions.",
-                        ):
-                            session.delete(category)
-                            session.commit()
-                            st.rerun()
-            else:
-                st.info("No categories yet.")
+        if st.button("Create tag"):
+            try:
+                tag = Tag(name=tag_name)
+                session.add(tag)
+                session.commit()
+                st.success(f"✅ Tag '{tag_name}' created!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error: {str(e)}")
 
-    with card("Subcategories", "More granular labels nested under each category."):
-        left, right = st.columns(2)
-
-        with left:
-            st.markdown("**Create new subcategory**")
-            categories = get_all_categories(session)
-            if categories:
-                selected_category_name = st.selectbox(
-                    "Parent category",
-                    [c.name for c in categories],
-                    key="subcategory_category",
-                )
-                category_id = next(
-                    (c.id for c in categories if c.name == selected_category_name), None
-                )
-                subcategory_name = st.text_input(
-                    "Subcategory name", key="new_subcategory"
-                )
-
-                if st.button("Create subcategory"):
-                    try:
-                        subcategory = Subcategory(
-                            name=subcategory_name, category_id=category_id
-                        )
-                        session.add(subcategory)
+    with right:
+        st.markdown("**Existing tags**")
+        all_tags = get_all_tags(session)
+        if all_tags:
+            for tag in all_tags:
+                r1, r2 = st.columns([3, 1])
+                with r1:
+                    st.write(f"• {tag.name}")
+                with r2:
+                    if st.button("Delete", key=f"delete_tag_{tag.id}"):
+                        session.delete(tag)
                         session.commit()
-                        st.success(
-                            f"✅ Subcategory '{subcategory_name}' created under '{selected_category_name}'!"
-                        )
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"Error: {str(e)}")
-            else:
-                st.info("Create a category first.")
+        else:
+            st.info("No tags yet.")
 
-        with right:
-            st.markdown("**Existing subcategories**")
-            categories = get_all_categories(session)
-            if categories:
-                for category in categories:
-                    subcategories = get_subcategories_by_category(session, category.id)
-                    if subcategories:
-                        st.write(f"**{category.name}:**")
-                        for subcategory in subcategories:
-                            r1, r2 = st.columns([3, 1])
-                            with r1:
-                                st.write(f"  • {subcategory.name}")
-                            with r2:
-                                if st.button(
-                                    "Delete",
-                                    key=f"delete_subcategory_{subcategory.id}",
-                                ):
-                                    session.delete(subcategory)
-                                    session.commit()
-                                    st.rerun()
-            else:
-                st.info("No categories yet.")
+    render_page_header(
+        "Rules",
+        "",
+        "Auto-categorize imported transactions (first match wins).",
+    )
+    left, right = st.columns(2)
 
-    with card("Tags", "Flat context labels that don’t affect accounting."):
-        left, right = st.columns(2)
+    categories = get_all_categories(session)
+    category_name_to_id = {c.name: c.id for c in categories}
+    category_names = [c.name for c in categories]
 
-        with left:
-            st.markdown("**Create new tag**")
-            st.caption("Use tags for context like people, courses, or projects.")
+    with left:
+        st.markdown("**Create new rule**")
+        if not categories:
+            st.info("Create categories and subcategories first.")
+        else:
+            rule_priority = st.number_input(
+                "Priority (lower runs first)",
+                min_value=0,
+                value=100,
+                step=1,
+                key="rule_create_priority",
+            )
+            rule_field = st.selectbox(
+                "Field",
+                sorted(list(ALLOWED_FIELDS)),
+                key="rule_create_field",
+            )
+            rule_operator = st.selectbox(
+                "Operator",
+                sorted(list(ALLOWED_OPERATORS)),
+                key="rule_create_operator",
+            )
+            rule_value = st.text_input("Value", key="rule_create_value")
 
-            tag_name = st.text_input("Tag name", key="new_tag")
+            rule_category_name = st.selectbox(
+                "Category",
+                category_names,
+                key="rule_create_category",
+            )
+            rule_category_id = category_name_to_id[rule_category_name]
+            rule_subcategories = get_subcategories_by_category(session, rule_category_id)
+            rule_subcategory_name = st.selectbox(
+                "Subcategory",
+                [s.name for s in rule_subcategories] if rule_subcategories else [],
+                key="rule_create_subcategory",
+            )
+            rule_subcategory_id = next(
+                (s.id for s in rule_subcategories if s.name == rule_subcategory_name),
+                None,
+            )
 
-            if st.button("Create tag"):
+            if st.button("Create rule", key="rule_create_btn", disabled=rule_subcategory_id is None):
                 try:
-                    tag = Tag(name=tag_name)
-                    session.add(tag)
-                    session.commit()
-                    st.success(f"✅ Tag '{tag_name}' created!")
+                    create_rule(
+                        session,
+                        priority=int(rule_priority),
+                        field=rule_field,
+                        operator=rule_operator,
+                        value=rule_value,
+                        category_id=int(rule_category_id),
+                        subcategory_id=int(rule_subcategory_id),
+                    )
+                    st.success("✅ Rule created!")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error: {str(e)}")
 
-        with right:
-            st.markdown("**Existing tags**")
-            all_tags = get_all_tags(session)
-            if all_tags:
-                for tag in all_tags:
-                    r1, r2 = st.columns([3, 1])
-                    with r1:
-                        st.write(f"• {tag.name}")
-                    with r2:
-                        if st.button("Delete", key=f"delete_tag_{tag.id}"):
-                            session.delete(tag)
-                            session.commit()
-                            st.rerun()
-            else:
-                st.info("No tags yet.")
+    with right:
+        st.markdown("**Existing rules (sorted by priority)**")
+        rules = list_rules(session)
+        if not rules:
+            st.info("No rules yet.")
+        else:
+            # Small lookup caches for display.
+            cats = {c.id: c.name for c in categories}
+            subcats = {
+                s.id: (s.name, s.category_id)
+                for c in categories
+                for s in get_subcategories_by_category(session, c.id)
+            }
+
+            for r in rules:
+                cat_name = cats.get(r.category_id, f"Category {r.category_id}")
+                sub_name = subcats.get(r.subcategory_id, ("", None))[0] or f"Subcategory {r.subcategory_id}"
+                label = f"[{r.priority}] {r.field} {r.operator} {r.value} → {cat_name} / {sub_name}"
+                with st.expander(label, expanded=False):
+                    e1, e2 = st.columns(2)
+                    with e1:
+                        new_priority = st.number_input(
+                            "Priority",
+                            min_value=0,
+                            value=int(r.priority),
+                            step=1,
+                            key=f"rule_priority_{r.id}",
+                        )
+                        new_field = st.selectbox(
+                            "Field",
+                            sorted(list(ALLOWED_FIELDS)),
+                            index=sorted(list(ALLOWED_FIELDS)).index(r.field)
+                            if r.field in ALLOWED_FIELDS
+                            else 0,
+                            key=f"rule_field_{r.id}",
+                        )
+                        new_operator = st.selectbox(
+                            "Operator",
+                            sorted(list(ALLOWED_OPERATORS)),
+                            index=sorted(list(ALLOWED_OPERATORS)).index(r.operator)
+                            if r.operator in ALLOWED_OPERATORS
+                            else 0,
+                            key=f"rule_operator_{r.id}",
+                        )
+                        new_value = st.text_input(
+                            "Value",
+                            value=r.value,
+                            key=f"rule_value_{r.id}",
+                        )
+
+                    with e2:
+                        new_category_name = st.selectbox(
+                            "Category",
+                            category_names,
+                            index=category_names.index(cat_name)
+                            if cat_name in category_names
+                            else 0,
+                            key=f"rule_category_{r.id}",
+                        )
+                        new_category_id = category_name_to_id[new_category_name]
+                        new_subcategories = get_subcategories_by_category(session, new_category_id)
+                        new_subcategory_names = [s.name for s in new_subcategories]
+                        # If current subcategory not in this category, default to first.
+                        current_sub_name = sub_name if sub_name in new_subcategory_names else (new_subcategory_names[0] if new_subcategory_names else "")
+                        new_subcategory_name = st.selectbox(
+                            "Subcategory",
+                            new_subcategory_names,
+                            index=new_subcategory_names.index(current_sub_name)
+                            if current_sub_name in new_subcategory_names
+                            else 0,
+                            key=f"rule_subcategory_{r.id}",
+                        )
+                        new_subcategory_id = next(
+                            (s.id for s in new_subcategories if s.name == new_subcategory_name),
+                            None,
+                        )
+
+                    b1, b2 = st.columns([1, 1])
+                    with b1:
+                        if st.button("Save changes", key=f"rule_save_{r.id}", disabled=new_subcategory_id is None):
+                            try:
+                                update_rule(
+                                    session,
+                                    r.id,
+                                    priority=int(new_priority),
+                                    field=new_field,
+                                    operator=new_operator,
+                                    value=new_value,
+                                    category_id=int(new_category_id),
+                                    subcategory_id=int(new_subcategory_id),
+                                )
+                                st.success("✅ Rule updated!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error: {str(e)}")
+                    with b2:
+                        if st.button("Delete rule", key=f"rule_delete_{r.id}"):
+                            try:
+                                delete_rule(session, r.id)
+                                st.success("✅ Rule deleted!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error: {str(e)}")
 
     close_session(session)
 

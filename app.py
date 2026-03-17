@@ -7,11 +7,12 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import os
+import shutil
 import tempfile
 from datetime import date, datetime, timedelta
 from sqlalchemy.orm import Session
 
-from db.database import init_db, get_session, close_session, SCHEMA_VERSION
+from db.database import init_db, get_session, close_session, SCHEMA_VERSION, DB_PATH
 from db.models import Account, Category, Subcategory, Tag, Transaction
 from services.trasaction_service import (
     create_transaction,
@@ -65,6 +66,37 @@ st.set_page_config(
 inject_global_styles()
 
 # === INITIALIZE DATABASE ===
+# Backup DB file on each app run (if it exists)
+if os.path.exists(DB_PATH):
+    db_dir = os.path.dirname(DB_PATH)
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    backup_name = f"db_backup_{timestamp}.db"
+    backup_path = os.path.join(db_dir, backup_name)
+    try:
+        shutil.copy2(DB_PATH, backup_path)
+    except OSError:
+        # Non-fatal; continue without blocking the app
+        pass
+
+    # Cleanup: keep at most 5 backups, delete oldest when above limit
+    backups = []
+    for name in os.listdir(db_dir):
+        if name.startswith("db_backup_") and name.endswith(".db"):
+            path = os.path.join(db_dir, name)
+            if os.path.isfile(path):
+                backups.append(path)
+
+    if len(backups) > 5:
+        # Sort by modification time (oldest first)
+        backups.sort(key=lambda p: os.path.getmtime(p))
+        # Delete all except the 5 most recent
+        for path in backups[:-5]:
+            try:
+                os.remove(path)
+            except OSError:
+                # Best-effort cleanup; ignore failures
+                pass
+
 if st.session_state.get("db_schema_version") != SCHEMA_VERSION:
     init_db()
     st.session_state.db_schema_version = SCHEMA_VERSION

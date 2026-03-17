@@ -14,10 +14,11 @@ class BiltAdapter(GenericAdapter):
     
     def __init__(self):
         super().__init__(
-            date_col='Transaction Date',
-            amount_col='Amount',
-            merchant_col='Merchant Name',
-            date_format='%m/%d/%Y',
+            date_col="Transaction Date",
+            amount_col="Amount",
+            merchant_col="Description",
+            # Bilt CSV exports use ISO dates like 2026-03-16
+            date_format="%Y-%m-%d",
             has_header=True,
-            auto_category='',
+            auto_category="",
         )

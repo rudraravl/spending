@@ -309,6 +309,7 @@ def import_legacy_csv(
                         category_id=category.id,
                         subcategory_id=subcategory.id,
                         notes=notes,
+                        source="legacy",
                     )
                     
                     # Assign context tags
@@ -352,12 +353,12 @@ def import_legacy_csv(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Import legacy Google Sheet CSV into budget database."
+        description="Import legacy spending CSV into budget database."
     )
     parser.add_argument(
         "--csv",
-        default="data/Spending - Spending.csv",
-        help="Path to legacy CSV file",
+        default="data/spending.csv",
+        help="Path to legacy spending CSV file",
     )
     parser.add_argument(
         "--unknown-tags-out",

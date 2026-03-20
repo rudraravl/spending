@@ -66,36 +66,40 @@ st.set_page_config(
 inject_global_styles()
 
 # === INITIALIZE DATABASE ===
-# Backup DB file on each app run (if it exists)
+# Backup DB at most once per day when the app script is run (e.g. via `streamlit run app.py`).
 if os.path.exists(DB_PATH):
     db_dir = os.path.dirname(DB_PATH)
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    backup_name = f"db_backup_{timestamp}.db"
-    backup_path = os.path.join(db_dir, backup_name)
-    try:
-        shutil.copy2(DB_PATH, backup_path)
-    except OSError:
-        # Non-fatal; continue without blocking the app
-        pass
+    today_prefix = f"db_backup_{date.today().isoformat()}_"
+    has_today_backup = any(
+        name.startswith(today_prefix) and name.endswith(".db")
+        for name in os.listdir(db_dir)
+    )
+    if not has_today_backup:
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        backup_name = f"db_backup_{timestamp}.db"
+        backup_path = os.path.join(db_dir, backup_name)
+        try:
+            shutil.copy2(DB_PATH, backup_path)
+        except OSError:
+            # Non-fatal; continue without blocking the app
+            pass
+        else:
+            # Cleanup: keep at most 5 backups, delete oldest when above limit
+            backups = []
+            for name in os.listdir(db_dir):
+                if name.startswith("db_backup_") and name.endswith(".db"):
+                    path = os.path.join(db_dir, name)
+                    if os.path.isfile(path):
+                        backups.append(path)
 
-    # Cleanup: keep at most 5 backups, delete oldest when above limit
-    backups = []
-    for name in os.listdir(db_dir):
-        if name.startswith("db_backup_") and name.endswith(".db"):
-            path = os.path.join(db_dir, name)
-            if os.path.isfile(path):
-                backups.append(path)
-
-    if len(backups) > 5:
-        # Sort by modification time (oldest first)
-        backups.sort(key=lambda p: os.path.getmtime(p))
-        # Delete all except the 5 most recent
-        for path in backups[:-5]:
-            try:
-                os.remove(path)
-            except OSError:
-                # Best-effort cleanup; ignore failures
-                pass
+            if len(backups) > 5:
+                backups.sort(key=lambda p: os.path.getmtime(p))
+                for path in backups[:-5]:
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        # Best-effort cleanup; ignore failures
+                        pass
 
 if st.session_state.get("db_schema_version") != SCHEMA_VERSION:
     init_db()
@@ -1820,3 +1824,44 @@ st.markdown(
     '<div class="sp-footer">Spending • Local SQLite • v0.1</div>',
     unsafe_allow_html=True,
 )
+
+
+def _backup_db():
+    """One-off DB backup utility for manual runs (python app.py)."""
+    if not os.path.exists(DB_PATH):
+        print(f"No database found at {DB_PATH}, nothing to back up.")
+        return
+
+    db_dir = os.path.dirname(DB_PATH)
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    backup_name = f"db_backup_{timestamp}.db"
+    backup_path = os.path.join(db_dir, backup_name)
+
+    try:
+        shutil.copy2(DB_PATH, backup_path)
+        print(f"Created backup: {backup_path}")
+    except OSError as exc:
+        print(f"Failed to create backup: {exc}")
+        return
+
+    # Cleanup: keep at most 5 backups, delete oldest when above limit
+    backups = []
+    for name in os.listdir(db_dir):
+        if name.startswith("db_backup_") and name.endswith(".db"):
+            path = os.path.join(db_dir, name)
+            if os.path.isfile(path):
+                backups.append(path)
+
+    if len(backups) > 5:
+        backups.sort(key=lambda p: os.path.getmtime(p))
+        for path in backups[:-5]:
+            try:
+                os.remove(path)
+                print(f"Deleted old backup: {path}")
+            except OSError:
+                # Best-effort cleanup; ignore failures
+                pass
+
+
+if __name__ == "__main__":
+    _backup_db()

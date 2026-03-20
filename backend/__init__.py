@@ -1,0 +1,2 @@
+"""Spending FastAPI backend package."""
+

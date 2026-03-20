@@ -4,6 +4,8 @@ import PlotlyDefault from 'react-plotly.js'
 import PageHeader from '../components/PageHeader'
 import { apiGet } from '../api/client'
 import { queryKeys } from '../queryKeys'
+import { getAccounts } from '../api/accounts'
+import { getCategories, getSubcategories } from '../api/categories'
 
 // `react-plotly.js` is CJS; depending on bundler interop, the React component can be nested under one or more `default` keys.
 const Plot: any =
@@ -69,11 +71,11 @@ export default function ViewsPage() {
 
   const accountsQuery = useQuery<Account[], Error>({
     queryKey: queryKeys.accounts(),
-    queryFn: () => apiGet<Account[]>('/api/accounts'),
+    queryFn: () => getAccounts(),
   })
   const categoriesQuery = useQuery<Category[], Error>({
     queryKey: queryKeys.categories(),
-    queryFn: () => apiGet<Category[]>('/api/categories'),
+    queryFn: () => getCategories(),
   })
   const tagsQuery = useQuery<Tag[], Error>({
     queryKey: queryKeys.tags(),
@@ -92,7 +94,7 @@ export default function ViewsPage() {
 
   const subcategoriesQuery = useQuery<Subcategory[], Error>({
     queryKey: queryKeys.subcategories(categoryId),
-    queryFn: () => apiGet<Subcategory[]>(`/api/categories/${categoryId}/subcategories`),
+    queryFn: () => getSubcategories(categoryId!),
     enabled: categoryId != null,
   })
 

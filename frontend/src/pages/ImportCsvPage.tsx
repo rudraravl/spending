@@ -3,6 +3,7 @@ import PageHeader from '../components/PageHeader'
 import { apiGet, apiPostForm } from '../api/client'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '../queryKeys'
+import { getAccounts } from '../api/accounts'
 
 type Account = { id: number; name: string; type: string; currency: string }
 
@@ -23,7 +24,7 @@ export default function ImportCsvPage() {
 
   const accountsQuery = useQuery<Account[], Error>({
     queryKey: queryKeys.accounts(),
-    queryFn: () => apiGet<Account[]>('/api/accounts'),
+    queryFn: () => getAccounts(),
   })
   const adaptersQuery = useQuery<string[], Error>({
     queryKey: queryKeys.importAdapters(),

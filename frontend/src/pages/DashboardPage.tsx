@@ -101,9 +101,14 @@ export default function DashboardPage() {
             <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
               <div style={{ overflow: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  {/* Keep header/body column ordering fixed.
+                      The backend object key order isn't guaranteed, so using Object.keys() can misalign columns. */}
+                  {/*
+                    Render <thead>/<tbody> with a stable column list instead.
+                  */}
                   <thead>
                     <tr>
-                      {Object.keys(data.recent_activity[0] ?? {}).map((k) => (
+                      {(['Date', 'Merchant', 'Amount', 'Category', 'Subcategory', 'Tags', 'Notes', 'Acct'] as const).map((k) => (
                         <th key={k} style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>
                           {k}
                         </th>

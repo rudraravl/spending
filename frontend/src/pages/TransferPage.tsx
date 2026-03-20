@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import PageHeader from '../components/PageHeader'
-import { apiGet, apiPostJson } from '../api/client'
+import { apiPostJson } from '../api/client'
 import { queryKeys } from '../queryKeys'
+import { getAccounts } from '../api/accounts'
 
 type Account = { id: number; name: string }
 
@@ -18,7 +19,7 @@ export default function TransferPage() {
   const queryClient = useQueryClient()
   const { data: accounts = [], isLoading, error: queryError } = useQuery<Account[], Error>({
     queryKey: ['accounts'],
-    queryFn: () => apiGet<Account[]>('/api/accounts'),
+    queryFn: () => getAccounts(),
   })
   const [fromAccountId, setFromAccountId] = useState<number | null>(null)
   const [toAccountId, setToAccountId] = useState<number | null>(null)

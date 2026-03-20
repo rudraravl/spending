@@ -3,7 +3,10 @@ import { DataGrid } from '@mui/x-data-grid'
 import type { GridColDef } from '@mui/x-data-grid'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import PageHeader from '../components/PageHeader'
-import { apiDelete, apiGet, apiPatchJson, apiPutJson } from '../api/client'
+import { apiGet } from '../api/client'
+import { getAccounts } from '../api/accounts'
+import { getCategories, getSubcategories } from '../api/categories'
+import { deleteTransaction, getTransactionSplits, getTransactions, patchTransaction, putTransactionSplits } from '../api/transactions'
 import { queryKeys } from '../queryKeys'
 
 type Account = { id: number; name: string }
@@ -82,6 +85,8 @@ export default function AllTransactionsPage() {
   // Data
   const [gridRows, setGridRows] = useState<TransactionRow[]>([])
   const [dirtyIds, setDirtyIds] = useState<Set<number>>(new Set())
+  // MUI's selection model type differs across versions (array vs Set), so we keep it flexible at runtime.
+  // (Runtime bug we hit: `rowSelectionModel` sometimes got set to `undefined` -> DataGrid crashes.)
   const [selectionModel, setSelectionModel] = useState<any>([])
   const [error, setError] = useState<string | null>(null)
 
@@ -93,11 +98,11 @@ export default function AllTransactionsPage() {
   // Meta queries (dropdown data + id/name mapping).
   const accountsQuery = useQuery<Account[], Error>({
     queryKey: queryKeys.accounts(),
-    queryFn: () => apiGet<Account[]>('/api/accounts'),
+    queryFn: () => getAccounts(),
   })
   const categoriesQuery = useQuery<Category[], Error>({
     queryKey: queryKeys.categories(),
-    queryFn: () => apiGet<Category[]>('/api/categories'),
+    queryFn: () => getCategories(),
   })
   const tagsQuery = useQuery<Tag[], Error>({
     queryKey: queryKeys.tags(),
@@ -111,7 +116,7 @@ export default function AllTransactionsPage() {
   const subcategoryQueries = useQueries({
     queries: categories.map((c) => ({
       queryKey: queryKeys.subcategories(c.id),
-      queryFn: () => apiGet<Subcategory[]>(`/api/categories/${c.id}/subcategories`),
+      queryFn: () => getSubcategories(c.id),
     })),
   })
 
@@ -160,15 +165,12 @@ export default function AllTransactionsPage() {
       startDate: recentRange.startDate,
       endDate: recentRange.endDate,
     }),
-    queryFn: async () => {
-      const params = new URLSearchParams()
-      params.set('include_transfers', 'true')
-      if (showOnlyRecent && recentRange.startDate && recentRange.endDate) {
-        params.set('start_date', recentRange.startDate)
-        params.set('end_date', recentRange.endDate)
-      }
-      return apiGet<TransactionOut[]>(`/api/transactions?${params.toString()}`)
-    },
+    queryFn: async () =>
+      getTransactions<TransactionOut[]>({
+        includeTransfers: true,
+        startDate: recentRange.startDate,
+        endDate: recentRange.endDate,
+      }),
   })
 
   const filteredRows = useMemo(() => {
@@ -208,7 +210,7 @@ export default function AllTransactionsPage() {
   // Splits query + editor state sync.
   const splitsQuery = useQuery<SplitOut[], Error>({
     queryKey: queryKeys.splits(splitTxnId),
-    queryFn: () => apiGet<SplitOut[]>(`/api/transactions/${splitTxnId}/splits`),
+    queryFn: () => getTransactionSplits<SplitOut[]>(splitTxnId),
     enabled: splitTxnId > 0 && metaReady,
   })
 
@@ -264,7 +266,7 @@ export default function AllTransactionsPage() {
         const tagIds = tagNames.map((n) => tagNameToId.get(n)).filter((x): x is number => typeof x === 'number')
         payload.tag_ids = tagIds
 
-        await apiPatchJson(`/api/transactions/${id}`, payload)
+        await patchTransaction(id, payload)
       }
     },
     onSuccess: () => {
@@ -283,7 +285,7 @@ export default function AllTransactionsPage() {
   const deleteSelectedMutation = useMutation({
     mutationFn: async (ids: number[]) => {
       for (const id of ids) {
-        await apiDelete(`/api/transactions/${id}`)
+        await deleteTransaction(id)
       }
     },
     onSuccess: () => {
@@ -301,7 +303,7 @@ export default function AllTransactionsPage() {
 
   const saveSplitsMutation = useMutation({
     mutationFn: async () => {
-      await apiPutJson(`/api/transactions/${splitTxnId}/splits`, splitRows)
+      await putTransactionSplits(splitTxnId, splitRows)
     },
     onSuccess: () => {
       setSplitError(null)
@@ -336,12 +338,33 @@ export default function AllTransactionsPage() {
 
   function deleteSelected() {
     setError(null)
-    const selectedIds = Array.isArray(selectionModel)
-      ? selectionModel.map((x: any) => Number(x))
-      : (selectionModel?.ids ?? []).map((x: any) => Number(x))
+    const selectedIds = (() => {
+      if (Array.isArray(selectionModel)) return selectionModel.map((x: unknown) => Number(x))
+
+      const maybeIds = selectionModel?.ids
+      if (Array.isArray(maybeIds)) return maybeIds.map((x: unknown) => Number(x))
+      if (maybeIds && typeof maybeIds.forEach === 'function')
+        return Array.from(maybeIds as Set<unknown>).map((x) => Number(x))
+
+      return []
+    })()
     if (selectedIds.length === 0) return
     if (!metaReady) return
     deleteSelectedMutation.mutate(selectedIds)
+  }
+
+  function getSelectedIds(): number[] {
+    const selectedIds = (() => {
+      if (Array.isArray(selectionModel)) return selectionModel.map((x: unknown) => Number(x))
+
+      const maybeIds = selectionModel?.ids
+      if (Array.isArray(maybeIds)) return maybeIds.map((x: unknown) => Number(x))
+      if (maybeIds && typeof maybeIds.forEach === 'function')
+        return Array.from(maybeIds as Set<unknown>).map((x) => Number(x))
+
+      return []
+    })()
+    return selectedIds
   }
 
   return (
@@ -398,8 +421,8 @@ export default function AllTransactionsPage() {
           checkboxSelection
           editMode="cell"
           disableRowSelectionOnClick
-          rowSelectionModel={selectionModel}
-          onRowSelectionModelChange={(newSel) => setSelectionModel(newSel)}
+          hideFooterSelectedRowCount
+          onRowSelectionModelChange={(newSel) => setSelectionModel(newSel ?? [])}
           processRowUpdate={(newRow) => {
             const updatedRow = newRow as TransactionRow
             setGridRows((prev) => prev.map((r) => (r.id === updatedRow.id ? updatedRow : r)))
@@ -420,7 +443,9 @@ export default function AllTransactionsPage() {
         <button
           style={{ padding: '10px 14px' }}
           onClick={deleteSelected}
-          disabled={Array.isArray(selectionModel) ? selectionModel.length === 0 : (selectionModel?.ids?.length ?? 0) === 0}
+          disabled={(() => {
+            return getSelectedIds().length === 0
+          })()}
         >
           🗑️ Delete selected
         </button>

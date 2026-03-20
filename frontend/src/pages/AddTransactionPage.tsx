@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
 import PageHeader from '../components/PageHeader'
-import { apiGet, apiPostJson } from '../api/client'
+import { apiGet } from '../api/client'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '../queryKeys'
+import { getAccounts } from '../api/accounts'
+import { getCategories, getSubcategories } from '../api/categories'
+import { createTransaction } from '../api/transactions'
 
 type Account = { id: number; name: string }
 type Category = { id: number; name: string }
@@ -36,11 +39,11 @@ export default function AddTransactionPage() {
 
   const accountsQuery = useQuery<Account[], Error>({
     queryKey: queryKeys.accounts(),
-    queryFn: () => apiGet<Account[]>('/api/accounts'),
+    queryFn: () => getAccounts(),
   })
   const categoriesQuery = useQuery<Category[], Error>({
     queryKey: queryKeys.categories(),
-    queryFn: () => apiGet<Category[]>('/api/categories'),
+    queryFn: () => getCategories(),
   })
   const tagsQuery = useQuery<Tag[], Error>({
     queryKey: queryKeys.tags(),
@@ -48,7 +51,7 @@ export default function AddTransactionPage() {
   })
   const subcategoriesQuery = useQuery<Subcategory[], Error>({
     queryKey: queryKeys.subcategories(categoryId),
-    queryFn: () => apiGet<Subcategory[]>(`/api/categories/${categoryId}/subcategories`),
+    queryFn: () => getSubcategories(categoryId!),
     enabled: categoryId != null,
   })
 
@@ -84,7 +87,7 @@ export default function AddTransactionPage() {
   }, [categoryId, subcategoryOptions, subcategoryId])
 
   const createTransactionMutation = useMutation({
-    mutationFn: (payload: CreatePayload) => apiPostJson('/api/transactions', payload),
+    mutationFn: (payload: CreatePayload) => createTransaction(payload),
     onSuccess: () => {
       setMerchant('')
       setNotes('')

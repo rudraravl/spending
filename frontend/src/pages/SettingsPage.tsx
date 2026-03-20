@@ -3,6 +3,15 @@ import PageHeader from '../components/PageHeader'
 import { apiDelete, apiGet, apiPatchJson, apiPostJson } from '../api/client'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '../queryKeys'
+import { createAccount, deleteAccount, getAccounts } from '../api/accounts'
+import {
+  createCategory,
+  createSubcategory,
+  deleteCategory,
+  deleteSubcategory,
+  getCategories,
+  getSubcategories,
+} from '../api/categories'
 
 type Account = { id: number; name: string; type: string; currency: string }
 type Category = { id: number; name: string }
@@ -66,8 +75,8 @@ export default function SettingsPage() {
     queryKey: ['settingsAll'],
     queryFn: async () => {
       const [acct, cat, tag, ruleResp, ruleMetaResp] = await Promise.all([
-        apiGet<Account[]>('/api/accounts'),
-        apiGet<Category[]>('/api/categories'),
+        getAccounts(),
+        getCategories(),
         apiGet<Tag[]>('/api/tags'),
         apiGet<Rule[]>('/api/rules'),
         apiGet<RuleMeta>('/api/rules/meta'),
@@ -90,13 +99,13 @@ export default function SettingsPage() {
 
   const createSubsQuery = useQuery<Subcategory[], Error>({
     queryKey: queryKeys.subcategories(subcategoryParentCategoryId),
-    queryFn: () => apiGet<Subcategory[]>(`/api/categories/${subcategoryParentCategoryId}/subcategories`),
+    queryFn: () => getSubcategories(subcategoryParentCategoryId!),
     enabled: subcategoryParentCategoryId != null,
   })
 
   const ruleSubsQuery = useQuery<Subcategory[], Error>({
     queryKey: queryKeys.subcategories(ruleCategoryId),
-    queryFn: () => apiGet<Subcategory[]>(`/api/categories/${ruleCategoryId}/subcategories`),
+    queryFn: () => getSubcategories(ruleCategoryId!),
     enabled: ruleCategoryId != null,
   })
 
@@ -135,23 +144,23 @@ export default function SettingsPage() {
   }, [ruleCategoryId, ruleSubsQuery.data, ruleSubcategoryId])
 
   const createAccountMutation = useMutation({
-    mutationFn: (payload: { name: string; type: string; currency: string }) => apiPostJson('/api/accounts', payload),
+    mutationFn: (payload: { name: string; type: string; currency: string }) => createAccount(payload),
   })
 
   const deleteAccountMutation = useMutation({
-    mutationFn: (id: number) => apiDelete(`/api/accounts/${id}`),
+    mutationFn: (id: number) => deleteAccount(id),
   })
 
   const createCategoryMutation = useMutation({
-    mutationFn: (payload: { name: string }) => apiPostJson('/api/categories', payload),
+    mutationFn: (payload: { name: string }) => createCategory(payload),
   })
 
   const deleteCategoryMutation = useMutation({
-    mutationFn: (id: number) => apiDelete(`/api/categories/${id}`),
+    mutationFn: (id: number) => deleteCategory(id),
   })
 
   const createSubcategoryMutation = useMutation({
-    mutationFn: (payload: { category_id: number; name: string }) => apiPostJson('/api/subcategories', payload),
+    mutationFn: (payload: { category_id: number; name: string }) => createSubcategory(payload),
   })
 
   const createTagMutation = useMutation({
@@ -536,11 +545,11 @@ function SubcategoriesList({
 }) {
   const { data: subs = [] } = useQuery<Subcategory[], Error>({
     queryKey: queryKeys.subcategories(categoryId),
-    queryFn: () => apiGet<Subcategory[]>(`/api/categories/${categoryId}/subcategories`),
+    queryFn: () => getSubcategories(categoryId),
   })
 
   const deleteSubcategoryMutation = useMutation({
-    mutationFn: (id: number) => apiDelete(`/api/subcategories/${id}`),
+    mutationFn: (id: number) => deleteSubcategory(id),
   })
 
   async function remove(id: number) {

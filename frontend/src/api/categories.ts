@@ -1,8 +1,10 @@
 import { apiDelete, apiGet, apiPostJson } from './client'
 
-export type Category = { id: number; name: string }
+import type { CategoryOut, SubcategoryOut } from '../types'
 
-export type Subcategory = { id: number; name: string; category_id: number }
+export type Category = CategoryOut
+
+export type Subcategory = SubcategoryOut
 
 export const getCategories = () => apiGet<Category[]>('/api/categories')
 

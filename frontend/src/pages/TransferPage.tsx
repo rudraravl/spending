@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
+import { Button, MenuItem, TextField } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import PageHeader from '../components/PageHeader'
 import { apiPostJson } from '../api/client'
 import { queryKeys } from '../queryKeys'
 import { getAccounts } from '../api/accounts'
 
-type Account = { id: number; name: string }
+import type { AccountOut } from '../types'
 
 type TransferPayload = {
   from_account_id: number
@@ -17,7 +18,7 @@ type TransferPayload = {
 
 export default function TransferPage() {
   const queryClient = useQueryClient()
-  const { data: accounts = [], isLoading, error: queryError } = useQuery<Account[], Error>({
+  const { data: accounts = [], isLoading, error: queryError } = useQuery<AccountOut[], Error>({
     queryKey: ['accounts'],
     queryFn: () => getAccounts(),
   })
@@ -74,72 +75,70 @@ export default function TransferPage() {
       ) : (
         <div style={{ maxWidth: 800 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <label>
-              From account
-              <select
-                value={fromAccountId ?? ''}
-                onChange={(e) => setFromAccountId(Number(e.target.value))}
-                style={{ width: '100%', padding: 10, marginTop: 4 }}
-              >
-                {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              To account
-              <select
-                value={toAccountId ?? ''}
-                onChange={(e) => setToAccountId(Number(e.target.value))}
-                style={{ width: '100%', padding: 10, marginTop: 4 }}
-              >
-                {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <TextField
+              select
+              label="From account"
+              value={fromAccountId ?? ''}
+              onChange={(e) => setFromAccountId(Number(e.target.value))}
+              fullWidth
+            >
+              {accounts.map((a) => (
+                <MenuItem key={a.id} value={a.id}>
+                  {a.name}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label="To account"
+              value={toAccountId ?? ''}
+              onChange={(e) => setToAccountId(Number(e.target.value))}
+              fullWidth
+            >
+              {accounts.map((a) => (
+                <MenuItem key={a.id} value={a.id}>
+                  {a.name}
+                </MenuItem>
+              ))}
+            </TextField>
           </div>
 
           <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <label>
-              Amount
-              <input
-                type="number"
-                step="0.01"
-                value={amount}
-                onChange={(e) => setAmount(Number(e.target.value))}
-                style={{ width: '100%', padding: 10, marginTop: 4 }}
-              />
-            </label>
-            <label>
-              Date
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                style={{ width: '100%', padding: 10, marginTop: 4 }}
-              />
-            </label>
+            <TextField
+              label="Amount"
+              type="number"
+              inputProps={{ step: '0.01' }}
+              value={amount}
+              onChange={(e) => setAmount(Number(e.target.value))}
+              fullWidth
+            />
+            <TextField
+              label="Date"
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+            />
           </div>
 
           <div style={{ marginTop: 16 }}>
             <div style={{ fontWeight: 600, marginBottom: 8 }}>Notes (optional)</div>
-            <textarea
+            <TextField
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              style={{ width: '100%', minHeight: 90, padding: 10 }}
+              fullWidth
+              multiline
+              minRows={3}
             />
           </div>
 
           {error ? <div style={{ marginTop: 12, color: 'crimson' }}>{error}</div> : null}
           {ok ? <div style={{ marginTop: 12, color: 'green' }}>{ok}</div> : null}
 
-          <button
-            style={{ marginTop: 12, padding: '10px 14px' }}
+          <Button
+            variant="contained"
+            sx={{ marginTop: 1.5 }}
             onClick={async () => {
               if (!fromAccountId || !toAccountId) return
               if (fromAccountId === toAccountId) {
@@ -159,7 +158,7 @@ export default function TransferPage() {
             disabled={transferMutation.isPending}
           >
             Save transfer
-          </button>
+          </Button>
         </div>
       )}
     </div>

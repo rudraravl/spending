@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Button, Checkbox, FormControlLabel, MenuItem, TextField } from '@mui/material'
 import { DataGrid } from '@mui/x-data-grid'
 import type { GridColDef } from '@mui/x-data-grid'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -9,10 +10,15 @@ import { getCategories, getSubcategories } from '../api/categories'
 import { deleteTransaction, getTransactionSplits, getTransactions, patchTransaction, putTransactionSplits } from '../api/transactions'
 import { queryKeys } from '../queryKeys'
 
-type Account = { id: number; name: string }
-type Category = { id: number; name: string }
-type Tag = { id: number; name: string }
-type Subcategory = { id: number; name: string; category_id: number }
+import type {
+  AccountOut,
+  CategoryOut,
+  SubcategoryOut,
+  TagOut,
+  TransactionOut,
+  TransactionSplitIn,
+  TransactionSplitOut,
+} from '../types'
 
 type TransactionRow = {
   id: number
@@ -25,41 +31,6 @@ type TransactionRow = {
   Notes: string
   Acct: string
   Split: string
-}
-
-type TransactionOut = {
-  id: number
-  date: string
-  amount: number
-  merchant: string
-  notes: string | null
-  account_id: number | null
-  account_name: string | null
-  category_id: number | null
-  category_name: string | null
-  subcategory_id: number | null
-  subcategory_name: string | null
-  tag_ids: number[]
-  tag_names: string[]
-  is_transfer: boolean
-  has_splits: boolean
-}
-
-type SplitOut = {
-  id: number
-  category_id: number
-  category_name: string | null
-  subcategory_id: number
-  subcategory_name: string | null
-  amount: number
-  notes: string | null
-}
-
-type SplitIn = {
-  category_id: number
-  subcategory_id: number
-  amount: number
-  notes: string | null
 }
 
 export default function AllTransactionsPage() {
@@ -87,26 +58,27 @@ export default function AllTransactionsPage() {
   const [dirtyIds, setDirtyIds] = useState<Set<number>>(new Set())
   // MUI's selection model type differs across versions (array vs Set), so we keep it flexible at runtime.
   // (Runtime bug we hit: `rowSelectionModel` sometimes got set to `undefined` -> DataGrid crashes.)
-  const [selectionModel, setSelectionModel] = useState<any>([])
+  /** MUI DataGrid selection shape varies by version (array vs object with `ids`). */
+  const [selectionModel, setSelectionModel] = useState<unknown>([])
   const [error, setError] = useState<string | null>(null)
 
   // Split editor
   const [splitTxnId, setSplitTxnId] = useState<number>(0)
-  const [splitRows, setSplitRows] = useState<SplitIn[]>([])
+  const [splitRows, setSplitRows] = useState<TransactionSplitIn[]>([])
   const [splitError, setSplitError] = useState<string | null>(null)
 
   // Meta queries (dropdown data + id/name mapping).
-  const accountsQuery = useQuery<Account[], Error>({
+  const accountsQuery = useQuery<AccountOut[], Error>({
     queryKey: queryKeys.accounts(),
     queryFn: () => getAccounts(),
   })
-  const categoriesQuery = useQuery<Category[], Error>({
+  const categoriesQuery = useQuery<CategoryOut[], Error>({
     queryKey: queryKeys.categories(),
     queryFn: () => getCategories(),
   })
-  const tagsQuery = useQuery<Tag[], Error>({
+  const tagsQuery = useQuery<TagOut[], Error>({
     queryKey: queryKeys.tags(),
-    queryFn: () => apiGet<Tag[]>('/api/tags'),
+    queryFn: () => apiGet<TagOut[]>('/api/tags'),
   })
 
   const accounts = accountsQuery.data ?? []
@@ -121,7 +93,7 @@ export default function AllTransactionsPage() {
   })
 
   const subcategoriesByCategory = useMemo(() => {
-    const subsMap: Record<number, Subcategory[]> = {}
+    const subsMap: Record<number, SubcategoryOut[]> = {}
     for (let i = 0; i < categories.length; i++) {
       const c = categories[i]
       const q = subcategoryQueries[i]
@@ -208,9 +180,9 @@ export default function AllTransactionsPage() {
   }, [filteredRows, metaLoading, transactionsQuery.isPending])
 
   // Splits query + editor state sync.
-  const splitsQuery = useQuery<SplitOut[], Error>({
+  const splitsQuery = useQuery<TransactionSplitOut[], Error>({
     queryKey: queryKeys.splits(splitTxnId),
-    queryFn: () => getTransactionSplits<SplitOut[]>(splitTxnId),
+    queryFn: () => getTransactionSplits<TransactionSplitOut[]>(splitTxnId),
     enabled: splitTxnId > 0 && metaReady,
   })
 
@@ -339,11 +311,11 @@ export default function AllTransactionsPage() {
   function deleteSelected() {
     setError(null)
     const selectedIds = (() => {
-      if (Array.isArray(selectionModel)) return selectionModel.map((x: unknown) => Number(x))
+      if (Array.isArray(selectionModel)) return selectionModel.map((x) => Number(x))
 
-      const maybeIds = selectionModel?.ids
+      const maybeIds = (selectionModel as { ids?: unknown }).ids
       if (Array.isArray(maybeIds)) return maybeIds.map((x: unknown) => Number(x))
-      if (maybeIds && typeof maybeIds.forEach === 'function')
+      if (maybeIds && typeof (maybeIds as Set<unknown>).forEach === 'function')
         return Array.from(maybeIds as Set<unknown>).map((x) => Number(x))
 
       return []
@@ -355,11 +327,11 @@ export default function AllTransactionsPage() {
 
   function getSelectedIds(): number[] {
     const selectedIds = (() => {
-      if (Array.isArray(selectionModel)) return selectionModel.map((x: unknown) => Number(x))
+      if (Array.isArray(selectionModel)) return selectionModel.map((x) => Number(x))
 
-      const maybeIds = selectionModel?.ids
+      const maybeIds = (selectionModel as { ids?: unknown }).ids
       if (Array.isArray(maybeIds)) return maybeIds.map((x: unknown) => Number(x))
-      if (maybeIds && typeof maybeIds.forEach === 'function')
+      if (maybeIds && typeof (maybeIds as Set<unknown>).forEach === 'function')
         return Array.from(maybeIds as Set<unknown>).map((x) => Number(x))
 
       return []
@@ -377,41 +349,33 @@ export default function AllTransactionsPage() {
 
       {error ? <div style={{ color: 'crimson', marginBottom: 10 }}>{error}</div> : null}
 
-      <div style={{ marginBottom: 16, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12 }}>
-        <label>
-          Merchant / notes search
-          <input
-            value={merchantSearch}
-            onChange={(e) => setMerchantSearch(e.target.value)}
-            style={{ width: '100%', padding: 10, marginTop: 4 }}
-          />
-        </label>
-        <label>
-          Category
-          <select value={fCategory} onChange={(e) => setFCategory(e.target.value)} style={{ width: '100%', padding: 10, marginTop: 4 }}>
-            <option value="All">All</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.name}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Tag
-          <select value={fTag} onChange={(e) => setFTag(e.target.value)} style={{ width: '100%', padding: 10, marginTop: 4 }}>
-            <option value="All">All</option>
-            {tags.map((t) => (
-              <option key={t.id} value={t.name}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Limit to last 90 days
-          <input type="checkbox" checked={showOnlyRecent} onChange={(e) => setShowOnlyRecent(e.target.checked)} style={{ marginLeft: 10 }} />
-        </label>
+      <div style={{ marginBottom: 16, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, alignItems: 'flex-start' }}>
+        <TextField
+          label="Merchant / notes search"
+          value={merchantSearch}
+          onChange={(e) => setMerchantSearch(e.target.value)}
+          fullWidth
+        />
+        <TextField select label="Category" value={fCategory} onChange={(e) => setFCategory(e.target.value)} fullWidth>
+          <MenuItem value="All">All</MenuItem>
+          {categories.map((c) => (
+            <MenuItem key={c.id} value={c.name}>
+              {c.name}
+            </MenuItem>
+          ))}
+        </TextField>
+        <TextField select label="Tag" value={fTag} onChange={(e) => setFTag(e.target.value)} fullWidth>
+          <MenuItem value="All">All</MenuItem>
+          {tags.map((t) => (
+            <MenuItem key={t.id} value={t.name}>
+              {t.name}
+            </MenuItem>
+          ))}
+        </TextField>
+        <FormControlLabel
+          control={<Checkbox checked={showOnlyRecent} onChange={(e) => setShowOnlyRecent(e.target.checked)} />}
+          label="Limit to last 90 days"
+        />
       </div>
 
       <div style={{ height: 520, width: '100%', border: '1px solid var(--border)', borderRadius: 14 }}>
@@ -437,30 +401,25 @@ export default function AllTransactionsPage() {
       </div>
 
       <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
-        <button style={{ padding: '10px 14px' }} onClick={saveDirtyEdits}>
-          💾 Save edits
-        </button>
-        <button
-          style={{ padding: '10px 14px' }}
-          onClick={deleteSelected}
-          disabled={(() => {
-            return getSelectedIds().length === 0
-          })()}
-        >
-          🗑️ Delete selected
-        </button>
+        <Button variant="contained" onClick={saveDirtyEdits}>
+          Save edits
+        </Button>
+        <Button variant="outlined" color="error" onClick={deleteSelected} disabled={getSelectedIds().length === 0}>
+          Delete selected
+        </Button>
       </div>
 
       <div style={{ marginTop: 22 }}>
         <div style={{ fontWeight: 700, marginBottom: 8 }}>Splits</div>
-        <div style={{ marginBottom: 8 }}>
-          Enter a Transaction ID to edit splits:
-          <input
+        <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span>Enter a Transaction ID to edit splits:</span>
+          <TextField
             type="number"
             value={splitTxnId}
-            min={0}
+            inputProps={{ min: 0 }}
             onChange={(e) => setSplitTxnId(Number(e.target.value))}
-            style={{ marginLeft: 10, padding: 10 }}
+            size="small"
+            sx={{ width: 140 }}
           />
         </div>
 
@@ -477,7 +436,8 @@ export default function AllTransactionsPage() {
                   key={`${splitTxnId}-${idx}`}
                   style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 0.8fr 1.2fr auto', gap: 8, marginBottom: 8 }}
                 >
-                  <select
+                  <TextField
+                    select
                     value={sr.category_id}
                     onChange={(e) => {
                       const nextCat = Number(e.target.value)
@@ -495,63 +455,65 @@ export default function AllTransactionsPage() {
                         ),
                       )
                     }}
-                    style={{ padding: 10 }}
+                    size="small"
+                    fullWidth
                   >
                     {categories.map((c) => (
-                      <option key={c.id} value={c.id}>
+                      <MenuItem key={c.id} value={c.id}>
                         {c.name}
-                      </option>
+                      </MenuItem>
                     ))}
-                  </select>
+                  </TextField>
 
-                  <select
+                  <TextField
+                    select
                     value={sr.subcategory_id}
                     onChange={(e) => {
                       const nextSub = Number(e.target.value)
                       setSplitRows((prev) => prev.map((r, i) => (i === idx ? { ...r, subcategory_id: nextSub } : r)))
                     }}
-                    style={{ padding: 10 }}
+                    size="small"
+                    fullWidth
                   >
                     {subs.map((s) => (
-                      <option key={s.id} value={s.id}>
+                      <MenuItem key={s.id} value={s.id}>
                         {s.name}
-                      </option>
+                      </MenuItem>
                     ))}
-                  </select>
+                  </TextField>
 
-                  <input
+                  <TextField
                     type="number"
-                    step="0.01"
+                    inputProps={{ step: '0.01' }}
                     value={sr.amount}
                     onChange={(e) => {
                       const v = Number(e.target.value)
                       setSplitRows((prev) => prev.map((r, i) => (i === idx ? { ...r, amount: v } : r)))
                     }}
-                    style={{ padding: 10 }}
+                    size="small"
+                    fullWidth
                   />
 
-                  <input
+                  <TextField
                     value={sr.notes ?? ''}
                     onChange={(e) => {
                       const v = e.target.value
                       setSplitRows((prev) => prev.map((r, i) => (i === idx ? { ...r, notes: v ? v : null } : r)))
                     }}
                     placeholder="Notes"
-                    style={{ padding: 10 }}
+                    size="small"
+                    fullWidth
                   />
 
-                  <button
-                    onClick={() => setSplitRows((prev) => prev.filter((_, i) => i !== idx))}
-                    style={{ padding: '10px 14px' }}
-                  >
+                  <Button color="error" variant="outlined" onClick={() => setSplitRows((prev) => prev.filter((_, i) => i !== idx))}>
                     Remove
-                  </button>
+                  </Button>
                 </div>
               )
             })}
 
-            <button
-              style={{ padding: '10px 14px' }}
+            <Button
+              variant="outlined"
               onClick={() => {
                 const catId = categories[0]?.id
                 if (!catId) return
@@ -565,10 +527,11 @@ export default function AllTransactionsPage() {
               }}
             >
               Add split row
-            </button>
+            </Button>
 
-            <button
-              style={{ padding: '10px 14px', marginLeft: 10 }}
+            <Button
+              variant="contained"
+              sx={{ marginLeft: 1 }}
               onClick={() => {
                 setSplitError(null)
                 if (!metaReady) return
@@ -577,7 +540,7 @@ export default function AllTransactionsPage() {
               disabled={saveSplitsMutation.isPending || !metaReady}
             >
               Save splits
-            </button>
+            </Button>
           </div>
         ) : null}
       </div>

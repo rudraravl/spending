@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
+import { Button, MenuItem, TextField } from '@mui/material'
 import PageHeader from '../components/PageHeader'
+import FeedbackDialog from '../components/FeedbackDialog'
 import { apiGet } from '../api/client'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '../queryKeys'
@@ -7,10 +9,7 @@ import { getAccounts } from '../api/accounts'
 import { getCategories, getSubcategories } from '../api/categories'
 import { createTransaction } from '../api/transactions'
 
-type Account = { id: number; name: string }
-type Category = { id: number; name: string }
-type Tag = { id: number; name: string }
-type Subcategory = { id: number; name: string; category_id: number }
+import type { AccountOut, CategoryOut, SubcategoryOut, TagOut } from '../types'
 
 type CreatePayload = {
   date: string
@@ -37,19 +36,23 @@ export default function AddTransactionPage() {
   const [notes, setNotes] = useState<string>('')
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
 
-  const accountsQuery = useQuery<Account[], Error>({
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [feedbackTitle, setFeedbackTitle] = useState('')
+  const [feedbackMessage, setFeedbackMessage] = useState('')
+
+  const accountsQuery = useQuery<AccountOut[], Error>({
     queryKey: queryKeys.accounts(),
     queryFn: () => getAccounts(),
   })
-  const categoriesQuery = useQuery<Category[], Error>({
+  const categoriesQuery = useQuery<CategoryOut[], Error>({
     queryKey: queryKeys.categories(),
     queryFn: () => getCategories(),
   })
-  const tagsQuery = useQuery<Tag[], Error>({
+  const tagsQuery = useQuery<TagOut[], Error>({
     queryKey: queryKeys.tags(),
-    queryFn: () => apiGet<Tag[]>('/api/tags'),
+    queryFn: () => apiGet<TagOut[]>('/api/tags'),
   })
-  const subcategoriesQuery = useQuery<Subcategory[], Error>({
+  const subcategoriesQuery = useQuery<SubcategoryOut[], Error>({
     queryKey: queryKeys.subcategories(categoryId),
     queryFn: () => getSubcategories(categoryId!),
     enabled: categoryId != null,
@@ -92,14 +95,18 @@ export default function AddTransactionPage() {
       setMerchant('')
       setNotes('')
       setSelectedTagIds([])
-      alert('✅ Transaction added!')
+      setFeedbackTitle('Transaction added')
+      setFeedbackMessage('✅ Transaction added!')
+      setFeedbackOpen(true)
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['views'] })
       queryClient.invalidateQueries({ queryKey: ['summaries'] })
     },
     onError: (e: unknown) => {
-      alert(`Error: ${e instanceof Error ? e.message : 'Failed to create transaction'}`)
+      setFeedbackTitle('Failed to add transaction')
+      setFeedbackMessage(e instanceof Error ? e.message : 'Failed to create transaction')
+      setFeedbackOpen(true)
     },
   })
 
@@ -115,112 +122,122 @@ export default function AddTransactionPage() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           <div>
             <div style={{ marginBottom: 8 }}>Basics</div>
-            <label style={{ display: 'block', marginBottom: 8 }}>
-              Date
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                style={{ width: '100%', padding: 10, marginTop: 4 }}
-              />
-            </label>
-            <label style={{ display: 'block', marginBottom: 8 }}>
-              Amount
-              <input
-                type="number"
-                step="0.01"
-                value={amount}
-                onChange={(e) => setAmount(Number(e.target.value))}
-                style={{ width: '100%', padding: 10, marginTop: 4 }}
-              />
-            </label>
-            <label style={{ display: 'block', marginBottom: 8 }}>
-              Merchant
-              <input
-                value={merchant}
-                onChange={(e) => setMerchant(e.target.value)}
-                style={{ width: '100%', padding: 10, marginTop: 4 }}
-              />
-            </label>
+            <TextField
+              label="Date"
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+              sx={{ marginBottom: 2 }}
+            />
+            <TextField
+              label="Amount"
+              type="number"
+              inputProps={{ step: '0.01' }}
+              value={amount}
+              onChange={(e) => setAmount(Number(e.target.value))}
+              fullWidth
+              sx={{ marginBottom: 2 }}
+            />
+            <TextField
+              label="Merchant"
+              value={merchant}
+              onChange={(e) => setMerchant(e.target.value)}
+              fullWidth
+              sx={{ marginBottom: 2 }}
+            />
           </div>
 
           <div>
             <div style={{ marginBottom: 8 }}>Classification</div>
-            <label style={{ display: 'block', marginBottom: 8 }}>
-              Account
-              <select
-                value={accountId ?? ''}
-                onChange={(e) => setAccountId(Number(e.target.value))}
-                style={{ width: '100%', padding: 10, marginTop: 4 }}
-              >
-                {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label style={{ display: 'block', marginBottom: 8 }}>
-              Category
-              <select
-                value={categoryId ?? ''}
-                onChange={(e) => setCategoryId(Number(e.target.value))}
-                style={{ width: '100%', padding: 10, marginTop: 4 }}
-              >
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label style={{ display: 'block', marginBottom: 8 }}>
-              Subcategory
-              <select
-                value={subcategoryId ?? ''}
-                onChange={(e) => setSubcategoryId(Number(e.target.value))}
-                style={{ width: '100%', padding: 10, marginTop: 4 }}
-              >
-                {subcategoryOptions.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label style={{ display: 'block', marginBottom: 8 }}>
-              Tags (optional)
-              <select
-                multiple
-                value={selectedTagIds.map(String)}
-                onChange={(e) => {
-                  const selected = Array.from(e.target.selectedOptions).map((o) => Number(o.value))
-                  setSelectedTagIds(selected)
-                }}
-                style={{ width: '100%', padding: 10, marginTop: 4, minHeight: 90 }}
-              >
-                {tags.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <TextField
+              select
+              label="Account"
+              value={accountId ?? ''}
+              onChange={(e) => setAccountId(Number(e.target.value))}
+              fullWidth
+              sx={{ marginBottom: 2 }}
+            >
+              {accounts.map((a) => (
+                <MenuItem key={a.id} value={a.id}>
+                  {a.name}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label="Category"
+              value={categoryId ?? ''}
+              onChange={(e) => setCategoryId(Number(e.target.value))}
+              fullWidth
+              sx={{ marginBottom: 2 }}
+            >
+              {categories.map((c) => (
+                <MenuItem key={c.id} value={c.id}>
+                  {c.name}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label="Subcategory"
+              value={subcategoryId ?? ''}
+              onChange={(e) => setSubcategoryId(Number(e.target.value))}
+              fullWidth
+              sx={{ marginBottom: 2 }}
+            >
+              {subcategoryOptions.map((s) => (
+                <MenuItem key={s.id} value={s.id}>
+                  {s.name}
+                </MenuItem>
+              ))}
+            </TextField>
+
+            <TextField
+              select
+              label="Tags (optional)"
+              value={selectedTagIds}
+              onChange={(e) => {
+                const raw = e.target.value as unknown
+                const arr = Array.isArray(raw) ? raw : [raw]
+                setSelectedTagIds(arr.map((v) => Number(v)))
+              }}
+              SelectProps={{
+                multiple: true,
+                renderValue: (selected) => {
+                  const ids = selected as number[]
+                  return ids
+                    .map((id) => tags.find((t) => t.id === id)?.name ?? String(id))
+                    .join(', ')
+                },
+              }}
+              fullWidth
+              sx={{ marginBottom: 2 }}
+            >
+              {tags.map((t) => (
+                <MenuItem key={t.id} value={t.id}>
+                  {t.name}
+                </MenuItem>
+              ))}
+            </TextField>
           </div>
         </div>
 
         <div style={{ marginTop: 16 }}>
           <div style={{ marginBottom: 8, fontWeight: 600 }}>Notes</div>
-          <textarea
+          <TextField
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            style={{ width: '100%', minHeight: 90, padding: 10 }}
+            fullWidth
+            multiline
+            minRows={3}
           />
         </div>
 
         <div style={{ marginTop: 12 }}>
-          <button
-            style={{ padding: '10px 14px' }}
+          <Button
+            variant="contained"
             onClick={() => {
               if (!accountId || !categoryId || !subcategoryId) return
               const payload: CreatePayload = {
@@ -238,9 +255,16 @@ export default function AddTransactionPage() {
             disabled={createTransactionMutation.isPending}
           >
             Save transaction
-          </button>
+          </Button>
         </div>
       </div>
+
+      <FeedbackDialog
+        open={feedbackOpen}
+        title={feedbackTitle}
+        message={feedbackMessage}
+        onClose={() => setFeedbackOpen(false)}
+      />
     </div>
   )
 }

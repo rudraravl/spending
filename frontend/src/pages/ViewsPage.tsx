@@ -6,6 +6,7 @@ import { apiGet } from '../api/client'
 import { queryKeys } from '../queryKeys'
 import { getAccounts } from '../api/accounts'
 import { getCategories, getSubcategories } from '../api/categories'
+import type { AccountOut, CategoryOut, SubcategoryOut, TagOut } from '../types'
 
 // `react-plotly.js` is CJS; depending on bundler interop, the React component can be nested under one or more `default` keys.
 const Plot: any =
@@ -45,11 +46,6 @@ function Pie({
   )
 }
 
-type Account = { id: number; name: string }
-type Category = { id: number; name: string }
-type Subcategory = { id: number; name: string; category_id: number }
-type Tag = { id: number; name: string }
-
 type ViewsResponse = {
   start_date: string
   end_date: string
@@ -69,30 +65,30 @@ export default function ViewsPage() {
   const [startDate, setStartDate] = useState(() => '2024-01-01')
   const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10))
 
-  const accountsQuery = useQuery<Account[], Error>({
+  const accountsQuery = useQuery<AccountOut[], Error>({
     queryKey: queryKeys.accounts(),
     queryFn: () => getAccounts(),
   })
-  const categoriesQuery = useQuery<Category[], Error>({
+  const categoriesQuery = useQuery<CategoryOut[], Error>({
     queryKey: queryKeys.categories(),
     queryFn: () => getCategories(),
   })
-  const tagsQuery = useQuery<Tag[], Error>({
+  const tagsQuery = useQuery<TagOut[], Error>({
     queryKey: queryKeys.tags(),
-    queryFn: () => apiGet<Tag[]>('/api/tags'),
+    queryFn: () => apiGet<TagOut[]>('/api/tags'),
   })
 
   const accounts = accountsQuery.data ?? []
   const categories = categoriesQuery.data ?? []
   const tags = tagsQuery.data ?? []
 
-  const [subcategories, setSubcategories] = useState<Subcategory[]>([])
+  const [subcategories, setSubcategories] = useState<SubcategoryOut[]>([])
 
   const [accountId, setAccountId] = useState<number | null>(null)
   const [categoryId, setCategoryId] = useState<number | null>(null)
   const [subcategoryId, setSubcategoryId] = useState<number | null>(null)
 
-  const subcategoriesQuery = useQuery<Subcategory[], Error>({
+  const subcategoriesQuery = useQuery<SubcategoryOut[], Error>({
     queryKey: queryKeys.subcategories(categoryId),
     queryFn: () => getSubcategories(categoryId!),
     enabled: categoryId != null,

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Button, MenuItem, TextField } from '@mui/material'
 import PageHeader from '../components/PageHeader'
+import ConfirmDialog from '../components/ConfirmDialog'
 import { apiDelete, apiGet, apiPatchJson, apiPostJson } from '../api/client'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '../queryKeys'
@@ -13,10 +15,7 @@ import {
   getSubcategories,
 } from '../api/categories'
 
-type Account = { id: number; name: string; type: string; currency: string }
-type Category = { id: number; name: string }
-type Subcategory = { id: number; name: string; category_id: number }
-type Tag = { id: number; name: string }
+import type { AccountOut, CategoryOut, SubcategoryOut, TagOut } from '../types'
 
 type RuleMeta = { allowed_fields: string[]; allowed_operators: string[] }
 type Rule = {
@@ -31,13 +30,23 @@ type Rule = {
 
 const ACCOUNT_TYPES = ['checking', 'savings', 'credit', 'cash', 'investment'] as const
 
+function catName(categoryId: number, list: CategoryOut[]) {
+  return list.find((c) => c.id === categoryId)?.name ?? `Category ${categoryId}`
+}
+
 export default function SettingsPage() {
   const queryClient = useQueryClient()
-  const [accounts, setAccounts] = useState<Account[]>([])
-  const [categories, setCategories] = useState<Category[]>([])
-  const [tags, setTags] = useState<Tag[]>([])
+  const [accounts, setAccounts] = useState<AccountOut[]>([])
+  const [categories, setCategories] = useState<CategoryOut[]>([])
+  const [tags, setTags] = useState<TagOut[]>([])
   const [rules, setRules] = useState<Rule[]>([])
   const [meta, setMeta] = useState<RuleMeta | null>(null)
+
+  const [confirmState, setConfirmState] = useState<{
+    title: string
+    message: string
+    action: () => Promise<void>
+  } | null>(null)
 
   // Form: account
   const [accountName, setAccountName] = useState('')
@@ -49,7 +58,7 @@ export default function SettingsPage() {
   // Form: subcategory
   const [subcategoryParentCategoryId, setSubcategoryParentCategoryId] = useState<number | null>(null)
   const [subcategoryName, setSubcategoryName] = useState('')
-  const [subcategoriesForCreate, setSubcategoriesForCreate] = useState<Subcategory[]>([])
+  const [subcategoriesForCreate, setSubcategoriesForCreate] = useState<SubcategoryOut[]>([])
 
   // Form: tag
   const [tagName, setTagName] = useState('')
@@ -62,7 +71,7 @@ export default function SettingsPage() {
   const [ruleValue, setRuleValue] = useState<string>('')
   const [ruleCategoryId, setRuleCategoryId] = useState<number | null>(null)
   const [ruleSubcategoryId, setRuleSubcategoryId] = useState<number | null>(null)
-  const [subcategoriesForRule, setSubcategoriesForRule] = useState<Subcategory[]>([])
+  const [subcategoriesForRule, setSubcategoriesForRule] = useState<SubcategoryOut[]>([])
 
   const subcategoryNameById = useMemo(() => {
     const map = new Map<number, string>()
@@ -77,7 +86,7 @@ export default function SettingsPage() {
       const [acct, cat, tag, ruleResp, ruleMetaResp] = await Promise.all([
         getAccounts(),
         getCategories(),
-        apiGet<Tag[]>('/api/tags'),
+        apiGet<TagOut[]>('/api/tags'),
         apiGet<Rule[]>('/api/rules'),
         apiGet<RuleMeta>('/api/rules/meta'),
       ])
@@ -97,13 +106,13 @@ export default function SettingsPage() {
     await queryClient.refetchQueries({ queryKey: ['settingsAll'] })
   }
 
-  const createSubsQuery = useQuery<Subcategory[], Error>({
+  const createSubsQuery = useQuery<SubcategoryOut[], Error>({
     queryKey: queryKeys.subcategories(subcategoryParentCategoryId),
     queryFn: () => getSubcategories(subcategoryParentCategoryId!),
     enabled: subcategoryParentCategoryId != null,
   })
 
-  const ruleSubsQuery = useQuery<Subcategory[], Error>({
+  const ruleSubsQuery = useQuery<SubcategoryOut[], Error>({
     queryKey: queryKeys.subcategories(ruleCategoryId),
     queryFn: () => getSubcategories(ruleCategoryId!),
     enabled: ruleCategoryId != null,
@@ -203,30 +212,46 @@ export default function SettingsPage() {
         subtitle="Manage accounts, categories, subcategories, tags, and rules."
       />
 
+      <ConfirmDialog
+        open={confirmState != null}
+        title={confirmState?.title ?? ''}
+        message={confirmState?.message ?? ''}
+        onCancel={() => setConfirmState(null)}
+        onConfirm={async () => {
+          if (!confirmState) return
+          const fn = confirmState.action
+          setConfirmState(null)
+          await fn()
+        }}
+      />
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>Accounts</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <input
-              placeholder="Account name"
+            <TextField
+              label="Account name"
               value={accountName}
               onChange={(e) => setAccountName(e.target.value)}
-              style={{ padding: 10 }}
+              fullWidth
             />
-            <select
+            <TextField
+              select
+              label="Type"
               value={accountType}
               onChange={(e) => setAccountType(e.target.value as (typeof ACCOUNT_TYPES)[number])}
-              style={{ padding: 10 }}
+              fullWidth
             >
               {ACCOUNT_TYPES.map((t) => (
-                <option key={t} value={t}>
+                <MenuItem key={t} value={t}>
                   {t}
-                </option>
+                </MenuItem>
               ))}
-            </select>
+            </TextField>
           </div>
-          <button
-            style={{ marginTop: 8, padding: '10px 14px' }}
+          <Button
+            variant="contained"
+            sx={{ marginTop: 1 }}
             onClick={async () => {
               await createAccountMutation.mutateAsync({
                 name: accountName,
@@ -238,7 +263,7 @@ export default function SettingsPage() {
             }}
           >
             Create account
-          </button>
+          </Button>
 
           <div style={{ marginTop: 16 }}>
             {accounts.map((a) => (
@@ -247,28 +272,35 @@ export default function SettingsPage() {
                   <div style={{ fontWeight: 600 }}>{a.name}</div>
                   <div style={{ opacity: 0.7, fontSize: 12 }}>{a.type}</div>
                 </div>
-                <button
-                  onClick={async () => {
-                    await deleteAccountMutation.mutateAsync(a.id)
-                    await reloadAll()
-                  }}
+                <Button
+                  color="error"
+                  onClick={() =>
+                    setConfirmState({
+                      title: 'Delete account?',
+                      message: `Remove "${a.name}"? This cannot be undone.`,
+                      action: async () => {
+                        await deleteAccountMutation.mutateAsync(a.id)
+                        await reloadAll()
+                      },
+                    })
+                  }
                 >
                   Delete
-                </button>
+                </Button>
               </div>
             ))}
           </div>
 
           <div style={{ fontWeight: 700, margin: '24px 0 8px' }}>Categories</div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              placeholder="Category name"
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <TextField
+              label="Category name"
               value={categoryName}
               onChange={(e) => setCategoryName(e.target.value)}
-              style={{ padding: 10, flex: 1 }}
+              sx={{ flex: 1 }}
             />
-            <button
-              style={{ padding: '10px 14px' }}
+            <Button
+              variant="contained"
               onClick={async () => {
                 await createCategoryMutation.mutateAsync({ name: categoryName })
                 setCategoryName('')
@@ -276,7 +308,7 @@ export default function SettingsPage() {
               }}
             >
               Create category
-            </button>
+            </Button>
           </div>
 
           <div style={{ marginTop: 16 }}>
@@ -284,14 +316,21 @@ export default function SettingsPage() {
               <div key={c.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, marginBottom: 12 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
                   <div style={{ fontWeight: 700 }}>{c.name}</div>
-                  <button
-                    onClick={async () => {
-                      await deleteCategoryMutation.mutateAsync(c.id)
-                      await reloadAll()
-                    }}
+                  <Button
+                    color="error"
+                    onClick={() =>
+                      setConfirmState({
+                        title: 'Delete category?',
+                        message: `Remove "${c.name}" and its subcategory links? This cannot be undone.`,
+                        action: async () => {
+                          await deleteCategoryMutation.mutateAsync(c.id)
+                          await reloadAll()
+                        },
+                      })
+                    }
                   >
                     Delete
-                  </button>
+                  </Button>
                 </div>
                 <div style={{ marginTop: 10 }}>
                   <div style={{ fontWeight: 600, marginBottom: 6 }}>Subcategories</div>
@@ -305,26 +344,29 @@ export default function SettingsPage() {
         <div>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>Add Subcategory</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <select
+            <TextField
+              select
+              label="Parent category"
               value={subcategoryParentCategoryId ?? ''}
               onChange={(e) => setSubcategoryParentCategoryId(Number(e.target.value))}
-              style={{ padding: 10 }}
+              fullWidth
             >
               {categories.map((c) => (
-                <option key={c.id} value={c.id}>
+                <MenuItem key={c.id} value={c.id}>
                   {c.name}
-                </option>
+                </MenuItem>
               ))}
-            </select>
-            <input
-              placeholder="Subcategory name"
+            </TextField>
+            <TextField
+              label="Subcategory name"
               value={subcategoryName}
               onChange={(e) => setSubcategoryName(e.target.value)}
-              style={{ padding: 10 }}
+              fullWidth
             />
           </div>
-          <button
-            style={{ marginTop: 8, padding: '10px 14px' }}
+          <Button
+            variant="contained"
+            sx={{ marginTop: 1 }}
             onClick={async () => {
               if (!subcategoryParentCategoryId) return
               await createSubcategoryMutation.mutateAsync({
@@ -336,18 +378,13 @@ export default function SettingsPage() {
             }}
           >
             Create subcategory
-          </button>
+          </Button>
 
           <div style={{ fontWeight: 700, margin: '24px 0 8px' }}>Tags</div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              placeholder="Tag name"
-              value={tagName}
-              onChange={(e) => setTagName(e.target.value)}
-              style={{ padding: 10, flex: 1 }}
-            />
-            <button
-              style={{ padding: '10px 14px' }}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <TextField label="Tag name" value={tagName} onChange={(e) => setTagName(e.target.value)} sx={{ flex: 1 }} />
+            <Button
+              variant="contained"
               onClick={async () => {
                 await createTagMutation.mutateAsync({ name: tagName })
                 setTagName('')
@@ -355,21 +392,28 @@ export default function SettingsPage() {
               }}
             >
               Create tag
-            </button>
+            </Button>
           </div>
 
           <div style={{ marginTop: 16 }}>
             {tags.map((t) => (
               <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
                 <div style={{ fontWeight: 600 }}>{t.name}</div>
-                <button
-                  onClick={async () => {
-                    await deleteTagMutation.mutateAsync(t.id)
-                    await reloadAll()
-                  }}
+                <Button
+                  color="error"
+                  onClick={() =>
+                    setConfirmState({
+                      title: 'Delete tag?',
+                      message: `Remove tag "${t.name}"?`,
+                      action: async () => {
+                        await deleteTagMutation.mutateAsync(t.id)
+                        await reloadAll()
+                      },
+                    })
+                  }
                 >
                   Delete
-                </button>
+                </Button>
               </div>
             ))}
           </div>
@@ -381,88 +425,70 @@ export default function SettingsPage() {
             ) : (
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <label>
-                    Priority
-                    <input
-                      type="number"
-                      value={rulePriority}
-                      onChange={(e) => setRulePriority(Number(e.target.value))}
-                      style={{ width: '100%', padding: 10, marginTop: 4 }}
-                    />
-                  </label>
-                  <label>
-                    Field
-                    <select
-                      value={ruleField}
-                      onChange={(e) => setRuleField(e.target.value)}
-                      style={{ width: '100%', padding: 10, marginTop: 4 }}
-                    >
-                      {meta.allowed_fields.map((f) => (
-                        <option key={f} value={f}>
-                          {f}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <TextField
+                    label="Priority"
+                    type="number"
+                    value={rulePriority}
+                    onChange={(e) => setRulePriority(Number(e.target.value))}
+                    fullWidth
+                  />
+                  <TextField select label="Field" value={ruleField} onChange={(e) => setRuleField(e.target.value)} fullWidth>
+                    {meta.allowed_fields.map((f) => (
+                      <MenuItem key={f} value={f}>
+                        {f}
+                      </MenuItem>
+                    ))}
+                  </TextField>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
-                  <label>
-                    Operator
-                    <select
-                      value={ruleOperator}
-                      onChange={(e) => setRuleOperator(e.target.value)}
-                      style={{ width: '100%', padding: 10, marginTop: 4 }}
-                    >
-                      {meta.allowed_operators.map((op) => (
-                        <option key={op} value={op}>
-                          {op}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Value
-                    <input
-                      value={ruleValue}
-                      onChange={(e) => setRuleValue(e.target.value)}
-                      style={{ width: '100%', padding: 10, marginTop: 4 }}
-                    />
-                  </label>
+                  <TextField
+                    select
+                    label="Operator"
+                    value={ruleOperator}
+                    onChange={(e) => setRuleOperator(e.target.value)}
+                    fullWidth
+                  >
+                    {meta.allowed_operators.map((op) => (
+                      <MenuItem key={op} value={op}>
+                        {op}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <TextField label="Value" value={ruleValue} onChange={(e) => setRuleValue(e.target.value)} fullWidth />
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
-                  <label>
-                    Category
-                    <select
-                      value={ruleCategoryId ?? ''}
-                      onChange={(e) => setRuleCategoryId(Number(e.target.value))}
-                      style={{ width: '100%', padding: 10, marginTop: 4 }}
-                    >
-                      {categories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Subcategory
-                    <select
-                      value={ruleSubcategoryId ?? ''}
-                      onChange={(e) => setRuleSubcategoryId(Number(e.target.value))}
-                      style={{ width: '100%', padding: 10, marginTop: 4 }}
-                    >
-                      {subcategoriesForRule.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <TextField
+                    select
+                    label="Category"
+                    value={ruleCategoryId ?? ''}
+                    onChange={(e) => setRuleCategoryId(Number(e.target.value))}
+                    fullWidth
+                  >
+                    {categories.map((c) => (
+                      <MenuItem key={c.id} value={c.id}>
+                        {c.name}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <TextField
+                    select
+                    label="Subcategory"
+                    value={ruleSubcategoryId ?? ''}
+                    onChange={(e) => setRuleSubcategoryId(Number(e.target.value))}
+                    fullWidth
+                  >
+                    {subcategoriesForRule.map((s) => (
+                      <MenuItem key={s.id} value={s.id}>
+                        {s.name}
+                      </MenuItem>
+                    ))}
+                  </TextField>
                 </div>
 
-                <button
-                  style={{ marginTop: 12, padding: '10px 14px' }}
+                <Button
+                  variant="contained"
+                  sx={{ marginTop: 1.5 }}
                   onClick={async () => {
                     if (!ruleCategoryId || !ruleSubcategoryId) return
                     const base = {
@@ -480,17 +506,11 @@ export default function SettingsPage() {
                   }}
                 >
                   {editingRuleId ? 'Save changes' : 'Create rule'}
-                </button>
+                </Button>
                 {editingRuleId ? (
-                  <button
-                    style={{ marginTop: 8, padding: '10px 14px', marginLeft: 8 }}
-                    onClick={() => {
-                      setEditingRuleId(null)
-                      setRuleValue('')
-                    }}
-                  >
+                  <Button sx={{ marginLeft: 1 }} onClick={() => { setEditingRuleId(null); setRuleValue('') }}>
                     Cancel
-                  </button>
+                  </Button>
                 ) : null}
               </>
             )}
@@ -504,22 +524,26 @@ export default function SettingsPage() {
                 {rules.map((r) => (
                   <div key={r.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, marginBottom: 12 }}>
                     <div style={{ fontWeight: 700 }}>
-                      [{r.priority}] {r.field} {r.operator} {r.value} → {catName(r.category_id, categories)} / {subcategoryNameById.get(r.subcategory_id) ?? r.subcategory_id}
+                      [{r.priority}] {r.field} {r.operator} {r.value} → {catName(r.category_id, categories)} /{' '}
+                      {subcategoryNameById.get(r.subcategory_id) ?? r.subcategory_id}
                     </div>
                     <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-                      <button
-                        onClick={() => loadRuleIntoEditor(r)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={async () => {
-                          await deleteRuleMutation.mutateAsync(r.id)
-                          await reloadAll()
-                        }}
+                      <Button onClick={() => loadRuleIntoEditor(r)}>Edit</Button>
+                      <Button
+                        color="error"
+                        onClick={() =>
+                          setConfirmState({
+                            title: 'Delete rule?',
+                            message: 'Remove this categorization rule?',
+                            action: async () => {
+                              await deleteRuleMutation.mutateAsync(r.id)
+                              await reloadAll()
+                            },
+                          })
+                        }
                       >
                         Delete
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 ))}
@@ -530,10 +554,6 @@ export default function SettingsPage() {
       </div>
     </div>
   )
-
-  function catName(categoryId: number, list: Category[]) {
-    return list.find((c) => c.id === categoryId)?.name ?? `Category ${categoryId}`
-  }
 }
 
 function SubcategoriesList({
@@ -543,7 +563,13 @@ function SubcategoriesList({
   categoryId: number
   onReload: () => Promise<void>
 }) {
-  const { data: subs = [] } = useQuery<Subcategory[], Error>({
+  const [confirmState, setConfirmState] = useState<{
+    title: string
+    message: string
+    action: () => Promise<void>
+  } | null>(null)
+
+  const { data: subs = [] } = useQuery<SubcategoryOut[], Error>({
     queryKey: queryKeys.subcategories(categoryId),
     queryFn: () => getSubcategories(categoryId),
   })
@@ -552,21 +578,42 @@ function SubcategoriesList({
     mutationFn: (id: number) => deleteSubcategory(id),
   })
 
-  async function remove(id: number) {
-    await deleteSubcategoryMutation.mutateAsync(id)
-    await onReload()
-  }
-
   return (
     <div>
+      <ConfirmDialog
+        open={confirmState != null}
+        title={confirmState?.title ?? ''}
+        message={confirmState?.message ?? ''}
+        onCancel={() => setConfirmState(null)}
+        onConfirm={async () => {
+          if (!confirmState) return
+          const fn = confirmState.action
+          setConfirmState(null)
+          await fn()
+        }}
+      />
       {subs.length === 0 ? <div style={{ opacity: 0.7, fontSize: 13 }}>No subcategories.</div> : null}
       {subs.map((s) => (
         <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
           <div style={{ paddingLeft: 10 }}>• {s.name}</div>
-          <button onClick={() => remove(s.id)}>Delete</button>
+          <Button
+            color="error"
+            size="small"
+            onClick={() =>
+              setConfirmState({
+                title: 'Delete subcategory?',
+                message: `Remove "${s.name}"?`,
+                action: async () => {
+                  await deleteSubcategoryMutation.mutateAsync(s.id)
+                  await onReload()
+                },
+              })
+            }
+          >
+            Delete
+          </Button>
         </div>
       ))}
     </div>
   )
 }
-

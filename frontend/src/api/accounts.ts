@@ -1,11 +1,8 @@
 import { apiDelete, apiGet, apiPostJson } from './client'
 
-export type Account = {
-  id: number
-  name: string
-  type: string
-  currency: string
-}
+import type { AccountOut } from '../types'
+
+export type Account = AccountOut
 
 export const getAccounts = () => apiGet<Account[]>('/api/accounts')
 

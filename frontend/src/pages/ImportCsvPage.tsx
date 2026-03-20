@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Button, MenuItem, TextField } from '@mui/material'
 import PageHeader from '../components/PageHeader'
+import FeedbackDialog from '../components/FeedbackDialog'
 import { apiGet, apiPostForm } from '../api/client'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '../queryKeys'
 import { getAccounts } from '../api/accounts'
 
-type Account = { id: number; name: string; type: string; currency: string }
+import type { AccountOut } from '../types'
 
 type CsvPreview = {
   rows_detected: number
@@ -22,7 +24,7 @@ type CsvImportResult = {
 export default function ImportCsvPage() {
   const queryClient = useQueryClient()
 
-  const accountsQuery = useQuery<Account[], Error>({
+  const accountsQuery = useQuery<AccountOut[], Error>({
     queryKey: queryKeys.accounts(),
     queryFn: () => getAccounts(),
   })
@@ -38,8 +40,10 @@ export default function ImportCsvPage() {
   const [adapterName, setAdapterName] = useState<string>('Wells')
 
   const [file, setFile] = useState<File | null>(null)
-  const [importError, setImportError] = useState<string | null>(null)
-  const [importSuccess, setImportSuccess] = useState<string | null>(null)
+
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [feedbackTitle, setFeedbackTitle] = useState('')
+  const [feedbackMessage, setFeedbackMessage] = useState('')
 
   // Generic mapping
   const [genericDateCol, setGenericDateCol] = useState<string | null>(null)
@@ -89,23 +93,14 @@ export default function ImportCsvPage() {
   useEffect(() => {
     if (accountId != null) return
     if (accounts.length === 0) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAccountId(accounts[0].id)
   }, [accounts, accountId])
 
   useEffect(() => {
     if (adapters.includes('Generic')) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAdapterName('Generic')
     }
   }, [adapters])
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setImportError(null)
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setImportSuccess(null)
-  }, [previewSignature])
 
   const importMutation = useMutation({
     mutationFn: async (): Promise<CsvImportResult> => {
@@ -131,16 +126,20 @@ export default function ImportCsvPage() {
       return apiPostForm<CsvImportResult>('/api/import/csv', form)
     },
     onSuccess: (res) => {
-      setImportSuccess(`✅ Imported ${res.num_imported} transactions`)
-      setImportError(res.skipped.length > 0 ? `⚠️ Skipped ${res.skipped.length} duplicate rows` : null)
+      const lines = [`Imported ${res.num_imported} transactions.`]
+      if (res.skipped.length > 0) lines.push(`Skipped ${res.skipped.length} duplicate rows.`)
+      setFeedbackTitle('Import complete')
+      setFeedbackMessage(lines.join('\n'))
+      setFeedbackOpen(true)
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['views'] })
       queryClient.invalidateQueries({ queryKey: ['summaries'] })
     },
     onError: (e: unknown) => {
-      setImportSuccess(null)
-      setImportError(e instanceof Error ? e.message : 'Import failed')
+      setFeedbackTitle('Import failed')
+      setFeedbackMessage(e instanceof Error ? e.message : 'Import failed')
+      setFeedbackOpen(true)
     },
   })
 
@@ -155,93 +154,101 @@ export default function ImportCsvPage() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>Step 1 · Account</div>
-          <select
+          <TextField
+            select
+            label="Account"
             value={accountId ?? ''}
             onChange={(e) => setAccountId(Number(e.target.value))}
-            style={{ width: '100%', padding: 10 }}
+            fullWidth
+            sx={{ marginBottom: 2 }}
           >
             {accounts.map((a) => (
-              <option key={a.id} value={a.id}>
+              <MenuItem key={a.id} value={a.id}>
                 {a.name}
-              </option>
+              </MenuItem>
             ))}
-          </select>
+          </TextField>
 
           <div style={{ fontWeight: 700, margin: '16px 0 8px' }}>Step 2 · Format</div>
-          <select
+          <TextField
+            select
+            label="Adapter"
             value={adapterName}
             onChange={(e) => setAdapterName(e.target.value)}
-            style={{ width: '100%', padding: 10 }}
+            fullWidth
+            sx={{ marginBottom: 2 }}
           >
             {adapters.map((a) => (
-              <option key={a} value={a}>
+              <MenuItem key={a} value={a}>
                 {a}
-              </option>
+              </MenuItem>
             ))}
-          </select>
+          </TextField>
 
           <div style={{ fontWeight: 700, margin: '16px 0 8px' }}>Step 3 · File</div>
-          <input
-            type="file"
-            accept=".csv"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          />
+          <Button component="label" variant="outlined" sx={{ display: 'block', mb: 1 }}>
+            Choose CSV file
+            <input
+              type="file"
+              accept=".csv"
+              hidden
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            />
+          </Button>
+          {file ? <div style={{ fontSize: 14, opacity: 0.85 }}>{file.name}</div> : null}
 
           {isGeneric && preview && preview.raw_columns.length > 0 ? (
             <div style={{ marginTop: 12 }}>
               <div style={{ fontWeight: 600, marginBottom: 6 }}>Generic column mapping</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                <label>
-                  Date column
-                  <select
-                    value={genericDateCol ?? ''}
-                    onChange={(e) => setGenericDateCol(e.target.value)}
-                    style={{ width: '100%', padding: 10 }}
-                  >
-                    <option value="" disabled>
-                      Select
-                    </option>
-                    {genericColumns.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Amount column
-                  <select
-                    value={genericAmountCol ?? ''}
-                    onChange={(e) => setGenericAmountCol(e.target.value)}
-                    style={{ width: '100%', padding: 10 }}
-                  >
-                    <option value="" disabled>
-                      Select
-                    </option>
-                    {genericColumns.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Merchant column
-                  <select
-                    value={genericMerchantCol ?? ''}
-                    onChange={(e) => setGenericMerchantCol(e.target.value)}
-                    style={{ width: '100%', padding: 10 }}
-                  >
-                    <option value="" disabled>
-                      Select
-                    </option>
-                    {genericColumns.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <TextField
+                  select
+                  label="Date column"
+                  value={genericDateCol ?? ''}
+                  onChange={(e) => setGenericDateCol(e.target.value || null)}
+                  fullWidth
+                >
+                  <MenuItem value="" disabled>
+                    Select
+                  </MenuItem>
+                  {genericColumns.map((c) => (
+                    <MenuItem key={c} value={c}>
+                      {c}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  select
+                  label="Amount column"
+                  value={genericAmountCol ?? ''}
+                  onChange={(e) => setGenericAmountCol(e.target.value || null)}
+                  fullWidth
+                >
+                  <MenuItem value="" disabled>
+                    Select
+                  </MenuItem>
+                  {genericColumns.map((c) => (
+                    <MenuItem key={c} value={c}>
+                      {c}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  select
+                  label="Merchant column"
+                  value={genericMerchantCol ?? ''}
+                  onChange={(e) => setGenericMerchantCol(e.target.value || null)}
+                  fullWidth
+                >
+                  <MenuItem value="" disabled>
+                    Select
+                  </MenuItem>
+                  {genericColumns.map((c) => (
+                    <MenuItem key={c} value={c}>
+                      {c}
+                    </MenuItem>
+                  ))}
+                </TextField>
               </div>
             </div>
           ) : null}
@@ -298,30 +305,30 @@ export default function ImportCsvPage() {
               </div>
 
               {accountId ? (
-                <button
-                  style={{ marginTop: 12, padding: '10px 14px' }}
-                  onClick={() => {
-                    setImportError(null)
-                    setImportSuccess(null)
-                    importMutation.mutate()
-                  }}
+                <Button
+                  variant="contained"
+                  sx={{ marginTop: 1.5 }}
+                  onClick={() => importMutation.mutate()}
                   disabled={importMutation.isPending}
                 >
-                  ✅ Confirm import
-                </button>
+                  Confirm import
+                </Button>
               ) : (
                 <div style={{ marginTop: 10 }}>Create/select an account first.</div>
               )}
-
-              {importError ? <div style={{ marginTop: 10, color: 'crimson' }}>{importError}</div> : null}
-              {importSuccess ? <div style={{ marginTop: 10, color: 'green' }}>{importSuccess}</div> : null}
             </div>
           ) : (
             <div>Choose an account, format, and file to see a live preview here.</div>
           )}
         </div>
       </div>
+
+      <FeedbackDialog
+        open={feedbackOpen}
+        title={feedbackTitle}
+        message={feedbackMessage}
+        onClose={() => setFeedbackOpen(false)}
+      />
     </div>
   )
 }
-

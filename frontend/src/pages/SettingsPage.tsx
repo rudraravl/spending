@@ -16,7 +16,7 @@ import {
   getSubcategories,
 } from '../api/categories'
 
-import type { AccountOut, CategoryOut, SubcategoryOut, TagOut } from '../types'
+import type { CategoryOut, SubcategoryOut, TagOut } from '../types'
 
 type RuleMeta = { allowed_fields: string[]; allowed_operators: string[] }
 type Rule = {
@@ -45,11 +45,6 @@ function catName(categoryId: number, list: CategoryOut[]) {
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
-  const [accounts, setAccounts] = useState<AccountOut[]>([])
-  const [categories, setCategories] = useState<CategoryOut[]>([])
-  const [tags, setTags] = useState<TagOut[]>([])
-  const [rules, setRules] = useState<Rule[]>([])
-  const [meta, setMeta] = useState<RuleMeta | null>(null)
 
   const [confirmState, setConfirmState] = useState<{
     title: string
@@ -67,8 +62,6 @@ export default function SettingsPage() {
   // Form: subcategory
   const [subcategoryParentCategoryId, setSubcategoryParentCategoryId] = useState<number | null>(null)
   const [subcategoryName, setSubcategoryName] = useState('')
-  const [subcategoriesForCreate, setSubcategoriesForCreate] = useState<SubcategoryOut[]>([])
-
   // Form: tag
   const [tagName, setTagName] = useState('')
 
@@ -86,17 +79,9 @@ export default function SettingsPage() {
   const { control: ruleControl, watch: watchRule, setValue: setRuleValueForm, handleSubmit: handleRuleSubmit } = ruleForm
   const ruleCategoryId = watchRule('category_id')
   const ruleSubcategoryId = watchRule('subcategory_id')
-  const [subcategoriesForRule, setSubcategoriesForRule] = useState<SubcategoryOut[]>([])
-
-  const subcategoryNameById = useMemo(() => {
-    const map = new Map<number, string>()
-    for (const s of subcategoriesForCreate) map.set(s.id, s.name)
-    for (const s of subcategoriesForRule) map.set(s.id, s.name)
-    return map
-  }, [subcategoriesForCreate, subcategoriesForRule])
 
   const settingsAllQuery = useQuery({
-    queryKey: ['settingsAll'],
+    queryKey: queryKeys.settingsAll(),
     queryFn: async () => {
       const [acct, cat, tag, ruleResp, ruleMetaResp] = await Promise.all([
         getAccounts(),
@@ -118,7 +103,7 @@ export default function SettingsPage() {
     queryClient.invalidateQueries({ queryKey: ['dashboard'] })
     queryClient.invalidateQueries({ queryKey: ['views'] })
     queryClient.invalidateQueries({ queryKey: ['summaries'] })
-    await queryClient.refetchQueries({ queryKey: ['settingsAll'] })
+    await queryClient.refetchQueries({ queryKey: queryKeys.settingsAll() })
   }
 
   const createSubsQuery = useQuery<SubcategoryOut[], Error>({
@@ -133,36 +118,35 @@ export default function SettingsPage() {
     enabled: ruleCategoryId != null,
   })
 
-  useEffect(() => {
-    const data = settingsAllQuery.data
-    if (!data) return
-    setAccounts(data.acct)
-    setCategories(data.cat)
-    setTags(data.tag)
-    setRules(data.ruleResp)
-    setMeta(data.ruleMetaResp)
-    if (data.cat.length > 0) {
-      setSubcategoryParentCategoryId(data.cat[0].id)
-      setRuleValueForm('category_id', data.cat[0].id)
-    }
-  }, [settingsAllQuery.data, setRuleValueForm])
+  const accounts = settingsAllQuery.data?.acct ?? []
+  const categories = settingsAllQuery.data?.cat ?? []
+  const tags = settingsAllQuery.data?.tag ?? []
+  const rules = settingsAllQuery.data?.ruleResp ?? []
+  const meta = settingsAllQuery.data?.ruleMetaResp ?? null
+
+  const subcategoriesForCreate =
+    subcategoryParentCategoryId == null ? [] : (createSubsQuery.data ?? [])
+  const subcategoriesForRule = ruleCategoryId == null ? [] : (ruleSubsQuery.data ?? [])
+
+  const subcategoryNameById = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const s of subcategoriesForCreate) map.set(s.id, s.name)
+    for (const s of subcategoriesForRule) map.set(s.id, s.name)
+    return map
+  }, [subcategoriesForCreate, subcategoriesForRule])
 
   useEffect(() => {
-    if (subcategoryParentCategoryId == null) {
-      setSubcategoriesForCreate([])
-      return
-    }
-    setSubcategoriesForCreate(createSubsQuery.data ?? [])
-  }, [subcategoryParentCategoryId, createSubsQuery.data])
+    const cat = settingsAllQuery.data?.cat
+    if (!cat?.length) return
+    setSubcategoryParentCategoryId((prev) => prev ?? cat[0].id)
+    if (ruleCategoryId == null) setRuleValueForm('category_id', cat[0].id)
+  }, [settingsAllQuery.data, ruleCategoryId, setRuleValueForm])
 
   useEffect(() => {
-    if (ruleCategoryId == null) {
-      setSubcategoriesForRule([])
-      return
-    }
+    if (ruleCategoryId == null) return
     const subs = ruleSubsQuery.data ?? []
-    setSubcategoriesForRule(subs)
-    if (!subs.find((s) => s.id === ruleSubcategoryId)) {
+    if (!subs.length) return
+    if (!subs.some((s) => s.id === ruleSubcategoryId)) {
       setRuleValueForm('subcategory_id', subs[0]?.id ?? null)
     }
   }, [ruleCategoryId, ruleSubsQuery.data, ruleSubcategoryId, setRuleValueForm])

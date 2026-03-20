@@ -24,6 +24,9 @@ export const queryKeys = {
 
   importAdapters: () => ['import', 'adapters'] as const,
   csvPreview: (signature: string) => ['csvPreview', signature] as const,
+
+  /** Bundled settings payload (accounts, categories, tags, rules, rule meta). */
+  settingsAll: () => ['settingsAll'] as const,
 }
 
 export function normalizeNumberArrayKey(ids: number[] | null | undefined): string {

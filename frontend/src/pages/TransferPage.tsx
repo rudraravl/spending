@@ -28,7 +28,7 @@ type TransferFormValues = {
 export default function TransferPage() {
   const queryClient = useQueryClient()
   const { data: accounts = [], isLoading, error: queryError } = useQuery<AccountOut[], Error>({
-    queryKey: ['accounts'],
+    queryKey: queryKeys.accounts(),
     queryFn: () => getAccounts(),
   })
   const { control, watch, setValue, handleSubmit, reset } = useForm<TransferFormValues>({

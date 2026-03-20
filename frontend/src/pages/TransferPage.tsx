@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Button, MenuItem, TextField } from '@mui/material'
+import { Controller, useForm } from 'react-hook-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import PageHeader from '../components/PageHeader'
 import { apiPostJson } from '../api/client'
@@ -16,18 +17,31 @@ type TransferPayload = {
   notes: string | null
 }
 
+type TransferFormValues = {
+  from_account_id: number | null
+  to_account_id: number | null
+  amount: number
+  date: string
+  notes: string
+}
+
 export default function TransferPage() {
   const queryClient = useQueryClient()
   const { data: accounts = [], isLoading, error: queryError } = useQuery<AccountOut[], Error>({
     queryKey: ['accounts'],
     queryFn: () => getAccounts(),
   })
-  const [fromAccountId, setFromAccountId] = useState<number | null>(null)
-  const [toAccountId, setToAccountId] = useState<number | null>(null)
-
-  const [amount, setAmount] = useState<number>(0)
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [notes, setNotes] = useState<string>('')
+  const { control, watch, setValue, handleSubmit, reset } = useForm<TransferFormValues>({
+    defaultValues: {
+      from_account_id: null,
+      to_account_id: null,
+      amount: 0,
+      date: new Date().toISOString().slice(0, 10),
+      notes: '',
+    },
+  })
+  const fromAccountId = watch('from_account_id')
+  const toAccountId = watch('to_account_id')
   const [error, setError] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
 
@@ -35,16 +49,23 @@ export default function TransferPage() {
     if (accounts.length < 2) return
     // Only set defaults once; don’t overwrite user input on subsequent refetches.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setFromAccountId((prev) => prev ?? accounts[0].id)
+    if (fromAccountId == null) setValue('from_account_id', accounts[0].id)
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setToAccountId((prev) => prev ?? accounts[1].id)
-  }, [accounts])
+    if (toAccountId == null) setValue('to_account_id', accounts[1].id)
+  }, [accounts, fromAccountId, toAccountId, setValue])
 
   const transferMutation = useMutation({
     mutationFn: (payload: TransferPayload) => apiPostJson('/api/transfers', payload),
     onSuccess: () => {
       setOk('✅ Transfer recorded!')
       setError(null)
+      reset({
+        from_account_id: fromAccountId,
+        to_account_id: toAccountId,
+        amount: 0,
+        date: new Date().toISOString().slice(0, 10),
+        notes: '',
+      })
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard() })
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
       queryClient.invalidateQueries({ queryKey: ['splits'] })
@@ -75,61 +96,89 @@ export default function TransferPage() {
       ) : (
         <div style={{ maxWidth: 800 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <TextField
-              select
-              label="From account"
-              value={fromAccountId ?? ''}
-              onChange={(e) => setFromAccountId(Number(e.target.value))}
-              fullWidth
-            >
-              {accounts.map((a) => (
-                <MenuItem key={a.id} value={a.id}>
-                  {a.name}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              select
-              label="To account"
-              value={toAccountId ?? ''}
-              onChange={(e) => setToAccountId(Number(e.target.value))}
-              fullWidth
-            >
-              {accounts.map((a) => (
-                <MenuItem key={a.id} value={a.id}>
-                  {a.name}
-                </MenuItem>
-              ))}
-            </TextField>
+            <Controller
+              control={control}
+              name="from_account_id"
+              render={({ field }) => (
+                <TextField
+                  select
+                  label="From account"
+                  value={field.value ?? ''}
+                  onChange={(e) => field.onChange(Number(e.target.value))}
+                  fullWidth
+                >
+                  {accounts.map((a) => (
+                    <MenuItem key={a.id} value={a.id}>
+                      {a.name}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              )}
+            />
+            <Controller
+              control={control}
+              name="to_account_id"
+              render={({ field }) => (
+                <TextField
+                  select
+                  label="To account"
+                  value={field.value ?? ''}
+                  onChange={(e) => field.onChange(Number(e.target.value))}
+                  fullWidth
+                >
+                  {accounts.map((a) => (
+                    <MenuItem key={a.id} value={a.id}>
+                      {a.name}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              )}
+            />
           </div>
 
           <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <TextField
-              label="Amount"
-              type="number"
-              inputProps={{ step: '0.01' }}
-              value={amount}
-              onChange={(e) => setAmount(Number(e.target.value))}
-              fullWidth
+            <Controller
+              control={control}
+              name="amount"
+              render={({ field }) => (
+                <TextField
+                  label="Amount"
+                  type="number"
+                  inputProps={{ step: '0.01' }}
+                  value={field.value}
+                  onChange={(e) => field.onChange(Number(e.target.value))}
+                  fullWidth
+                />
+              )}
             />
-            <TextField
-              label="Date"
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              fullWidth
-              InputLabelProps={{ shrink: true }}
+            <Controller
+              control={control}
+              name="date"
+              render={({ field }) => (
+                <TextField
+                  label="Date"
+                  type="date"
+                  {...field}
+                  fullWidth
+                  InputLabelProps={{ shrink: true }}
+                />
+              )}
             />
           </div>
 
           <div style={{ marginTop: 16 }}>
             <div style={{ fontWeight: 600, marginBottom: 8 }}>Notes (optional)</div>
-            <TextField
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              fullWidth
-              multiline
-              minRows={3}
+            <Controller
+              control={control}
+              name="notes"
+              render={({ field }) => (
+                <TextField
+                  {...field}
+                  fullWidth
+                  multiline
+                  minRows={3}
+                />
+              )}
             />
           </div>
 
@@ -139,22 +188,22 @@ export default function TransferPage() {
           <Button
             variant="contained"
             sx={{ marginTop: 1.5 }}
-            onClick={async () => {
-              if (!fromAccountId || !toAccountId) return
-              if (fromAccountId === toAccountId) {
+            onClick={handleSubmit((values) => {
+              if (!values.from_account_id || !values.to_account_id) return
+              if (values.from_account_id === values.to_account_id) {
                 setError('From and To accounts must be different.')
                 return
               }
               setError(null)
               setOk(null)
               transferMutation.mutate({
-                from_account_id: fromAccountId,
-                to_account_id: toAccountId,
-                amount,
-                date,
-                notes: notes ? notes : null,
+                from_account_id: values.from_account_id,
+                to_account_id: values.to_account_id,
+                amount: values.amount,
+                date: values.date,
+                notes: values.notes ? values.notes : null,
               })
-            }}
+            })}
             disabled={transferMutation.isPending}
           >
             Save transfer

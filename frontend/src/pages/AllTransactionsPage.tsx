@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Checkbox, FormControlLabel, MenuItem, TextField } from '@mui/material'
+import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { DataGrid } from '@mui/x-data-grid'
 import type { GridColDef } from '@mui/x-data-grid'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -32,6 +33,10 @@ type TransactionRow = {
   Acct: string
   Split: string
 }
+type SplitsFormValues = {
+  splitTxnId: number
+  splitRows: TransactionSplitIn[]
+}
 
 export default function AllTransactionsPage() {
   const queryClient = useQueryClient()
@@ -63,8 +68,19 @@ export default function AllTransactionsPage() {
   const [error, setError] = useState<string | null>(null)
 
   // Split editor
-  const [splitTxnId, setSplitTxnId] = useState<number>(0)
-  const [splitRows, setSplitRows] = useState<TransactionSplitIn[]>([])
+  const splitsForm = useForm<SplitsFormValues>({
+    defaultValues: {
+      splitTxnId: 0,
+      splitRows: [],
+    },
+  })
+  const { control: splitsControl, watch: watchSplits, setValue: setSplitsValue } = splitsForm
+  const { fields: splitFields, remove: removeSplitRow, append: appendSplitRow, replace: replaceSplitRows } = useFieldArray({
+    control: splitsControl,
+    name: 'splitRows',
+  })
+  const splitTxnId = watchSplits('splitTxnId')
+  const splitRows = watchSplits('splitRows')
   const [splitError, setSplitError] = useState<string | null>(null)
 
   // Meta queries (dropdown data + id/name mapping).
@@ -191,7 +207,7 @@ export default function AllTransactionsPage() {
   useEffect(() => {
     if (!splitsQuery.data) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSplitRows(
+    replaceSplitRows(
       splitsQuery.data.map((s) => ({
         category_id: s.category_id,
         subcategory_id: s.subcategory_id,
@@ -199,7 +215,7 @@ export default function AllTransactionsPage() {
         notes: s.notes ?? null,
       })),
     )
-  }, [splitsQuery.data])
+  }, [splitsQuery.data, replaceSplitRows])
 
   useEffect(() => {
     if (!splitsQuery.error) return
@@ -413,13 +429,19 @@ export default function AllTransactionsPage() {
         <div style={{ fontWeight: 700, marginBottom: 8 }}>Splits</div>
         <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span>Enter a Transaction ID to edit splits:</span>
-          <TextField
-            type="number"
-            value={splitTxnId}
-            inputProps={{ min: 0 }}
-            onChange={(e) => setSplitTxnId(Number(e.target.value))}
-            size="small"
-            sx={{ width: 140 }}
+          <Controller
+            control={splitsControl}
+            name="splitTxnId"
+            render={({ field }) => (
+              <TextField
+                type="number"
+                value={field.value}
+                inputProps={{ min: 0 }}
+                onChange={(e) => field.onChange(Number(e.target.value))}
+                size="small"
+                sx={{ width: 140 }}
+              />
+            )}
           />
         </div>
 
@@ -429,83 +451,90 @@ export default function AllTransactionsPage() {
         {splitTxnId > 0 && !splitsLoading && metaReady ? (
           <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
             <div style={{ marginBottom: 8, fontWeight: 600 }}>Edit splits</div>
-            {splitRows.map((sr, idx) => {
+            {splitFields.map((sf, idx) => {
+              const sr = splitRows[idx] ?? sf
               const subs = subcategoriesByCategory[sr.category_id] ?? []
               return (
                 <div
                   key={`${splitTxnId}-${idx}`}
                   style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 0.8fr 1.2fr auto', gap: 8, marginBottom: 8 }}
                 >
-                  <TextField
-                    select
-                    value={sr.category_id}
-                    onChange={(e) => {
-                      const nextCat = Number(e.target.value)
-                      const nextSubs = subcategoriesByCategory[nextCat] ?? []
-                      const nextSub = nextSubs.find((s) => s.id === sr.subcategory_id)?.id ?? nextSubs[0]?.id
-                      setSplitRows((prev) =>
-                        prev.map((r, i) =>
-                          i === idx
-                            ? {
-                                ...r,
-                                category_id: nextCat,
-                                subcategory_id: nextSub ?? r.subcategory_id,
-                              }
-                            : r,
-                        ),
-                      )
-                    }}
-                    size="small"
-                    fullWidth
-                  >
-                    {categories.map((c) => (
-                      <MenuItem key={c.id} value={c.id}>
-                        {c.name}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-
-                  <TextField
-                    select
-                    value={sr.subcategory_id}
-                    onChange={(e) => {
-                      const nextSub = Number(e.target.value)
-                      setSplitRows((prev) => prev.map((r, i) => (i === idx ? { ...r, subcategory_id: nextSub } : r)))
-                    }}
-                    size="small"
-                    fullWidth
-                  >
-                    {subs.map((s) => (
-                      <MenuItem key={s.id} value={s.id}>
-                        {s.name}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-
-                  <TextField
-                    type="number"
-                    inputProps={{ step: '0.01' }}
-                    value={sr.amount}
-                    onChange={(e) => {
-                      const v = Number(e.target.value)
-                      setSplitRows((prev) => prev.map((r, i) => (i === idx ? { ...r, amount: v } : r)))
-                    }}
-                    size="small"
-                    fullWidth
+                  <Controller
+                    control={splitsControl}
+                    name={`splitRows.${idx}.category_id`}
+                    render={({ field }) => (
+                      <TextField
+                        select
+                        value={field.value}
+                        onChange={(e) => {
+                          const nextCat = Number(e.target.value)
+                          const nextSubs = subcategoriesByCategory[nextCat] ?? []
+                          const nextSub = nextSubs.find((s) => s.id === sr.subcategory_id)?.id ?? nextSubs[0]?.id
+                          field.onChange(nextCat)
+                          setSplitsValue(`splitRows.${idx}.subcategory_id`, nextSub ?? sr.subcategory_id)
+                        }}
+                        size="small"
+                        fullWidth
+                      >
+                        {categories.map((c) => (
+                          <MenuItem key={c.id} value={c.id}>
+                            {c.name}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    )}
                   />
 
-                  <TextField
-                    value={sr.notes ?? ''}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      setSplitRows((prev) => prev.map((r, i) => (i === idx ? { ...r, notes: v ? v : null } : r)))
-                    }}
-                    placeholder="Notes"
-                    size="small"
-                    fullWidth
+                  <Controller
+                    control={splitsControl}
+                    name={`splitRows.${idx}.subcategory_id`}
+                    render={({ field }) => (
+                      <TextField
+                        select
+                        value={field.value}
+                        onChange={(e) => field.onChange(Number(e.target.value))}
+                        size="small"
+                        fullWidth
+                      >
+                        {subs.map((s) => (
+                          <MenuItem key={s.id} value={s.id}>
+                            {s.name}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    )}
                   />
 
-                  <Button color="error" variant="outlined" onClick={() => setSplitRows((prev) => prev.filter((_, i) => i !== idx))}>
+                  <Controller
+                    control={splitsControl}
+                    name={`splitRows.${idx}.amount`}
+                    render={({ field }) => (
+                      <TextField
+                        type="number"
+                        inputProps={{ step: '0.01' }}
+                        value={field.value}
+                        onChange={(e) => field.onChange(Number(e.target.value))}
+                        size="small"
+                        fullWidth
+                      />
+                    )}
+                  />
+
+                  <Controller
+                    control={splitsControl}
+                    name={`splitRows.${idx}.notes`}
+                    render={({ field }) => (
+                      <TextField
+                        value={field.value ?? ''}
+                        onChange={(e) => field.onChange(e.target.value ? e.target.value : null)}
+                        placeholder="Notes"
+                        size="small"
+                        fullWidth
+                      />
+                    )}
+                  />
+
+                  <Button color="error" variant="outlined" onClick={() => removeSplitRow(idx)}>
                     Remove
                   </Button>
                 </div>
@@ -520,10 +549,7 @@ export default function AllTransactionsPage() {
                 const subs = subcategoriesByCategory[catId] ?? []
                 const subId = subs[0]?.id
                 if (!subId) return
-                setSplitRows((prev) => [
-                  ...prev,
-                  { category_id: catId, subcategory_id: subId, amount: 0, notes: null },
-                ])
+                appendSplitRow({ category_id: catId, subcategory_id: subId, amount: 0, notes: null })
               }}
             >
               Add split row

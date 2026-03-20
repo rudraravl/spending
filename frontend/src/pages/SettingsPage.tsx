@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Button, MenuItem, TextField } from '@mui/material'
+import { Controller, useForm } from 'react-hook-form'
 import PageHeader from '../components/PageHeader'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { apiDelete, apiGet, apiPatchJson, apiPostJson } from '../api/client'
@@ -26,6 +27,14 @@ type Rule = {
   value: string
   category_id: number
   subcategory_id: number
+}
+type RuleFormValues = {
+  priority: number
+  field: string
+  operator: string
+  value: string
+  category_id: number | null
+  subcategory_id: number | null
 }
 
 const ACCOUNT_TYPES = ['checking', 'savings', 'credit', 'cash', 'investment'] as const
@@ -63,14 +72,20 @@ export default function SettingsPage() {
   // Form: tag
   const [tagName, setTagName] = useState('')
 
-  // Form: rules create/update
   const [editingRuleId, setEditingRuleId] = useState<number | null>(null)
-  const [rulePriority, setRulePriority] = useState<number>(100)
-  const [ruleField, setRuleField] = useState<string>('merchant')
-  const [ruleOperator, setRuleOperator] = useState<string>('contains')
-  const [ruleValue, setRuleValue] = useState<string>('')
-  const [ruleCategoryId, setRuleCategoryId] = useState<number | null>(null)
-  const [ruleSubcategoryId, setRuleSubcategoryId] = useState<number | null>(null)
+  const ruleForm = useForm<RuleFormValues>({
+    defaultValues: {
+      priority: 100,
+      field: 'merchant',
+      operator: 'contains',
+      value: '',
+      category_id: null,
+      subcategory_id: null,
+    },
+  })
+  const { control: ruleControl, watch: watchRule, setValue: setRuleValueForm, handleSubmit: handleRuleSubmit } = ruleForm
+  const ruleCategoryId = watchRule('category_id')
+  const ruleSubcategoryId = watchRule('subcategory_id')
   const [subcategoriesForRule, setSubcategoriesForRule] = useState<SubcategoryOut[]>([])
 
   const subcategoryNameById = useMemo(() => {
@@ -128,9 +143,9 @@ export default function SettingsPage() {
     setMeta(data.ruleMetaResp)
     if (data.cat.length > 0) {
       setSubcategoryParentCategoryId(data.cat[0].id)
-      setRuleCategoryId(data.cat[0].id)
+      setRuleValueForm('category_id', data.cat[0].id)
     }
-  }, [settingsAllQuery.data])
+  }, [settingsAllQuery.data, setRuleValueForm])
 
   useEffect(() => {
     if (subcategoryParentCategoryId == null) {
@@ -148,9 +163,9 @@ export default function SettingsPage() {
     const subs = ruleSubsQuery.data ?? []
     setSubcategoriesForRule(subs)
     if (!subs.find((s) => s.id === ruleSubcategoryId)) {
-      setRuleSubcategoryId(subs[0]?.id ?? null)
+      setRuleValueForm('subcategory_id', subs[0]?.id ?? null)
     }
-  }, [ruleCategoryId, ruleSubsQuery.data, ruleSubcategoryId])
+  }, [ruleCategoryId, ruleSubsQuery.data, ruleSubcategoryId, setRuleValueForm])
 
   const createAccountMutation = useMutation({
     mutationFn: (payload: { name: string; type: string; currency: string }) => createAccount(payload),
@@ -196,12 +211,12 @@ export default function SettingsPage() {
 
   function loadRuleIntoEditor(r: Rule) {
     setEditingRuleId(r.id)
-    setRulePriority(r.priority)
-    setRuleField(r.field)
-    setRuleOperator(r.operator)
-    setRuleValue(r.value)
-    setRuleCategoryId(r.category_id)
-    setRuleSubcategoryId(r.subcategory_id)
+    setRuleValueForm('priority', r.priority)
+    setRuleValueForm('field', r.field)
+    setRuleValueForm('operator', r.operator)
+    setRuleValueForm('value', r.value)
+    setRuleValueForm('category_id', r.category_id)
+    setRuleValueForm('subcategory_id', r.subcategory_id)
   }
 
   return (
@@ -425,90 +440,124 @@ export default function SettingsPage() {
             ) : (
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <TextField
-                    label="Priority"
-                    type="number"
-                    value={rulePriority}
-                    onChange={(e) => setRulePriority(Number(e.target.value))}
-                    fullWidth
+                  <Controller
+                    control={ruleControl}
+                    name="priority"
+                    render={({ field }) => (
+                      <TextField
+                        label="Priority"
+                        type="number"
+                        value={field.value}
+                        onChange={(e) => field.onChange(Number(e.target.value))}
+                        fullWidth
+                      />
+                    )}
                   />
-                  <TextField select label="Field" value={ruleField} onChange={(e) => setRuleField(e.target.value)} fullWidth>
-                    {meta.allowed_fields.map((f) => (
-                      <MenuItem key={f} value={f}>
-                        {f}
-                      </MenuItem>
-                    ))}
-                  </TextField>
+                  <Controller
+                    control={ruleControl}
+                    name="field"
+                    render={({ field }) => (
+                      <TextField select label="Field" value={field.value} onChange={field.onChange} fullWidth>
+                        {meta.allowed_fields.map((f) => (
+                          <MenuItem key={f} value={f}>
+                            {f}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    )}
+                  />
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
-                  <TextField
-                    select
-                    label="Operator"
-                    value={ruleOperator}
-                    onChange={(e) => setRuleOperator(e.target.value)}
-                    fullWidth
-                  >
-                    {meta.allowed_operators.map((op) => (
-                      <MenuItem key={op} value={op}>
-                        {op}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                  <TextField label="Value" value={ruleValue} onChange={(e) => setRuleValue(e.target.value)} fullWidth />
+                  <Controller
+                    control={ruleControl}
+                    name="operator"
+                    render={({ field }) => (
+                      <TextField
+                        select
+                        label="Operator"
+                        value={field.value}
+                        onChange={field.onChange}
+                        fullWidth
+                      >
+                        {meta.allowed_operators.map((op) => (
+                          <MenuItem key={op} value={op}>
+                            {op}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    )}
+                  />
+                  <Controller
+                    control={ruleControl}
+                    name="value"
+                    render={({ field }) => <TextField label="Value" value={field.value} onChange={field.onChange} fullWidth />}
+                  />
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
-                  <TextField
-                    select
-                    label="Category"
-                    value={ruleCategoryId ?? ''}
-                    onChange={(e) => setRuleCategoryId(Number(e.target.value))}
-                    fullWidth
-                  >
-                    {categories.map((c) => (
-                      <MenuItem key={c.id} value={c.id}>
-                        {c.name}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                  <TextField
-                    select
-                    label="Subcategory"
-                    value={ruleSubcategoryId ?? ''}
-                    onChange={(e) => setRuleSubcategoryId(Number(e.target.value))}
-                    fullWidth
-                  >
-                    {subcategoriesForRule.map((s) => (
-                      <MenuItem key={s.id} value={s.id}>
-                        {s.name}
-                      </MenuItem>
-                    ))}
-                  </TextField>
+                  <Controller
+                    control={ruleControl}
+                    name="category_id"
+                    render={({ field }) => (
+                      <TextField
+                        select
+                        label="Category"
+                        value={field.value ?? ''}
+                        onChange={(e) => field.onChange(Number(e.target.value))}
+                        fullWidth
+                      >
+                        {categories.map((c) => (
+                          <MenuItem key={c.id} value={c.id}>
+                            {c.name}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    )}
+                  />
+                  <Controller
+                    control={ruleControl}
+                    name="subcategory_id"
+                    render={({ field }) => (
+                      <TextField
+                        select
+                        label="Subcategory"
+                        value={field.value ?? ''}
+                        onChange={(e) => field.onChange(Number(e.target.value))}
+                        fullWidth
+                      >
+                        {subcategoriesForRule.map((s) => (
+                          <MenuItem key={s.id} value={s.id}>
+                            {s.name}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    )}
+                  />
                 </div>
 
                 <Button
                   variant="contained"
                   sx={{ marginTop: 1.5 }}
-                  onClick={async () => {
-                    if (!ruleCategoryId || !ruleSubcategoryId) return
+                  onClick={handleRuleSubmit(async (values) => {
+                    if (!values.category_id || !values.subcategory_id) return
                     const base = {
-                      priority: rulePriority,
-                      field: ruleField,
-                      operator: ruleOperator,
-                      value: ruleValue,
-                      category_id: ruleCategoryId,
-                      subcategory_id: ruleSubcategoryId,
+                      priority: values.priority,
+                      field: values.field,
+                      operator: values.operator,
+                      value: values.value,
+                      category_id: values.category_id,
+                      subcategory_id: values.subcategory_id,
                     }
                     await upsertRuleMutation.mutateAsync({ editingRuleId, base })
                     setEditingRuleId(null)
-                    setRuleValue('')
+                    setRuleValueForm('value', '')
                     await reloadAll()
-                  }}
+                  })}
                 >
                   {editingRuleId ? 'Save changes' : 'Create rule'}
                 </Button>
                 {editingRuleId ? (
-                  <Button sx={{ marginLeft: 1 }} onClick={() => { setEditingRuleId(null); setRuleValue('') }}>
+                  <Button sx={{ marginLeft: 1 }} onClick={() => { setEditingRuleId(null); setRuleValueForm('value', '') }}>
                     Cancel
                   </Button>
                 ) : null}

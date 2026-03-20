@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Button, MenuItem, TextField } from '@mui/material'
+import { Controller, useForm } from 'react-hook-form'
 import PageHeader from '../components/PageHeader'
 import FeedbackDialog from '../components/FeedbackDialog'
 import { apiGet, apiPostForm } from '../api/client'
@@ -21,6 +22,14 @@ type CsvImportResult = {
   skipped: Array<{ date?: string; amount?: number; merchant?: string; reason?: string }>
 }
 
+type ImportCsvFormValues = {
+  account_id: number | null
+  adapter_name: string
+  generic_date_col: string
+  generic_amount_col: string
+  generic_merchant_col: string
+}
+
 export default function ImportCsvPage() {
   const queryClient = useQueryClient()
 
@@ -36,8 +45,20 @@ export default function ImportCsvPage() {
   const accounts = accountsQuery.data ?? []
   const adapters = adaptersQuery.data ?? []
 
-  const [accountId, setAccountId] = useState<number | null>(null)
-  const [adapterName, setAdapterName] = useState<string>('Wells')
+  const { control, watch, setValue } = useForm<ImportCsvFormValues>({
+    defaultValues: {
+      account_id: null,
+      adapter_name: 'Wells',
+      generic_date_col: '',
+      generic_amount_col: '',
+      generic_merchant_col: '',
+    },
+  })
+  const accountId = watch('account_id')
+  const adapterName = watch('adapter_name')
+  const genericDateCol = watch('generic_date_col')
+  const genericAmountCol = watch('generic_amount_col')
+  const genericMerchantCol = watch('generic_merchant_col')
 
   const [file, setFile] = useState<File | null>(null)
 
@@ -45,20 +66,15 @@ export default function ImportCsvPage() {
   const [feedbackTitle, setFeedbackTitle] = useState('')
   const [feedbackMessage, setFeedbackMessage] = useState('')
 
-  // Generic mapping
-  const [genericDateCol, setGenericDateCol] = useState<string | null>(null)
-  const [genericAmountCol, setGenericAmountCol] = useState<string | null>(null)
-  const [genericMerchantCol, setGenericMerchantCol] = useState<string | null>(null)
-
   const isGeneric = adapterName === 'Generic'
 
   const fileSignature = file ? `${file.name}|${file.size}|${file.lastModified}` : ''
   const previewSignature = fileSignature
-    ? `${fileSignature}|${adapterName}|${genericDateCol ?? ''}|${genericAmountCol ?? ''}|${genericMerchantCol ?? ''}`
+    ? `${fileSignature}|${adapterName}|${genericDateCol}|${genericAmountCol}|${genericMerchantCol}`
     : ''
 
   const previewEnabled =
-    Boolean(file) && (!isGeneric || (genericDateCol != null && genericAmountCol != null && genericMerchantCol != null))
+    Boolean(file) && (!isGeneric || (Boolean(genericDateCol) && Boolean(genericAmountCol) && Boolean(genericMerchantCol)))
 
   const previewQuery = useQuery<CsvPreview, Error>({
     queryKey: queryKeys.csvPreview(previewSignature),
@@ -75,9 +91,9 @@ export default function ImportCsvPage() {
       form.append('file', file)
       form.append('adapter_name', adapterName)
       if (isGeneric) {
-        form.append('date_col', genericDateCol!)
-        form.append('amount_col', genericAmountCol!)
-        form.append('merchant_col', genericMerchantCol!)
+        form.append('date_col', genericDateCol)
+        form.append('amount_col', genericAmountCol)
+        form.append('merchant_col', genericMerchantCol)
       }
 
       return apiPostForm<CsvPreview>('/api/import/preview', form)
@@ -93,14 +109,14 @@ export default function ImportCsvPage() {
   useEffect(() => {
     if (accountId != null) return
     if (accounts.length === 0) return
-    setAccountId(accounts[0].id)
-  }, [accounts, accountId])
+    setValue('account_id', accounts[0].id)
+  }, [accounts, accountId, setValue])
 
   useEffect(() => {
     if (adapters.includes('Generic')) {
-      setAdapterName('Generic')
+      setValue('adapter_name', 'Generic')
     }
-  }, [adapters])
+  }, [adapters, setValue])
 
   const importMutation = useMutation({
     mutationFn: async (): Promise<CsvImportResult> => {
@@ -118,9 +134,9 @@ export default function ImportCsvPage() {
       form.append('account_id', String(accountId))
       form.append('adapter_name', adapterName)
       if (isGeneric) {
-        form.append('date_col', genericDateCol!)
-        form.append('amount_col', genericAmountCol!)
-        form.append('merchant_col', genericMerchantCol!)
+        form.append('date_col', genericDateCol)
+        form.append('amount_col', genericAmountCol)
+        form.append('merchant_col', genericMerchantCol)
       }
 
       return apiPostForm<CsvImportResult>('/api/import/csv', form)
@@ -154,36 +170,48 @@ export default function ImportCsvPage() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>Step 1 · Account</div>
-          <TextField
-            select
-            label="Account"
-            value={accountId ?? ''}
-            onChange={(e) => setAccountId(Number(e.target.value))}
-            fullWidth
-            sx={{ marginBottom: 2 }}
-          >
-            {accounts.map((a) => (
-              <MenuItem key={a.id} value={a.id}>
-                {a.name}
-              </MenuItem>
-            ))}
-          </TextField>
+          <Controller
+            control={control}
+            name="account_id"
+            render={({ field }) => (
+              <TextField
+                select
+                label="Account"
+                value={field.value ?? ''}
+                onChange={(e) => field.onChange(Number(e.target.value))}
+                fullWidth
+                sx={{ marginBottom: 2 }}
+              >
+                {accounts.map((a) => (
+                  <MenuItem key={a.id} value={a.id}>
+                    {a.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
+          />
 
           <div style={{ fontWeight: 700, margin: '16px 0 8px' }}>Step 2 · Format</div>
-          <TextField
-            select
-            label="Adapter"
-            value={adapterName}
-            onChange={(e) => setAdapterName(e.target.value)}
-            fullWidth
-            sx={{ marginBottom: 2 }}
-          >
-            {adapters.map((a) => (
-              <MenuItem key={a} value={a}>
-                {a}
-              </MenuItem>
-            ))}
-          </TextField>
+          <Controller
+            control={control}
+            name="adapter_name"
+            render={({ field }) => (
+              <TextField
+                select
+                label="Adapter"
+                value={field.value}
+                onChange={field.onChange}
+                fullWidth
+                sx={{ marginBottom: 2 }}
+              >
+                {adapters.map((a) => (
+                  <MenuItem key={a} value={a}>
+                    {a}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
+          />
 
           <div style={{ fontWeight: 700, margin: '16px 0 8px' }}>Step 3 · File</div>
           <Button component="label" variant="outlined" sx={{ display: 'block', mb: 1 }}>
@@ -201,54 +229,72 @@ export default function ImportCsvPage() {
             <div style={{ marginTop: 12 }}>
               <div style={{ fontWeight: 600, marginBottom: 6 }}>Generic column mapping</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                <TextField
-                  select
-                  label="Date column"
-                  value={genericDateCol ?? ''}
-                  onChange={(e) => setGenericDateCol(e.target.value || null)}
-                  fullWidth
-                >
-                  <MenuItem value="" disabled>
-                    Select
-                  </MenuItem>
-                  {genericColumns.map((c) => (
-                    <MenuItem key={c} value={c}>
-                      {c}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <TextField
-                  select
-                  label="Amount column"
-                  value={genericAmountCol ?? ''}
-                  onChange={(e) => setGenericAmountCol(e.target.value || null)}
-                  fullWidth
-                >
-                  <MenuItem value="" disabled>
-                    Select
-                  </MenuItem>
-                  {genericColumns.map((c) => (
-                    <MenuItem key={c} value={c}>
-                      {c}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <TextField
-                  select
-                  label="Merchant column"
-                  value={genericMerchantCol ?? ''}
-                  onChange={(e) => setGenericMerchantCol(e.target.value || null)}
-                  fullWidth
-                >
-                  <MenuItem value="" disabled>
-                    Select
-                  </MenuItem>
-                  {genericColumns.map((c) => (
-                    <MenuItem key={c} value={c}>
-                      {c}
-                    </MenuItem>
-                  ))}
-                </TextField>
+                <Controller
+                  control={control}
+                  name="generic_date_col"
+                  render={({ field }) => (
+                    <TextField
+                      select
+                      label="Date column"
+                      value={field.value}
+                      onChange={field.onChange}
+                      fullWidth
+                    >
+                      <MenuItem value="" disabled>
+                        Select
+                      </MenuItem>
+                      {genericColumns.map((c) => (
+                        <MenuItem key={c} value={c}>
+                          {c}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  )}
+                />
+                <Controller
+                  control={control}
+                  name="generic_amount_col"
+                  render={({ field }) => (
+                    <TextField
+                      select
+                      label="Amount column"
+                      value={field.value}
+                      onChange={field.onChange}
+                      fullWidth
+                    >
+                      <MenuItem value="" disabled>
+                        Select
+                      </MenuItem>
+                      {genericColumns.map((c) => (
+                        <MenuItem key={c} value={c}>
+                          {c}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  )}
+                />
+                <Controller
+                  control={control}
+                  name="generic_merchant_col"
+                  render={({ field }) => (
+                    <TextField
+                      select
+                      label="Merchant column"
+                      value={field.value}
+                      onChange={field.onChange}
+                      fullWidth
+                    >
+                      <MenuItem value="" disabled>
+                        Select
+                      </MenuItem>
+                      {genericColumns.map((c) => (
+                        <MenuItem key={c} value={c}>
+                          {c}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  )}
+                />
               </div>
             </div>
           ) : null}

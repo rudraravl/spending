@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Button, MenuItem, TextField } from '@mui/material'
+import { Controller, useForm } from 'react-hook-form'
 import PageHeader from '../components/PageHeader'
 import FeedbackDialog from '../components/FeedbackDialog'
 import { apiGet } from '../api/client'
@@ -22,19 +23,35 @@ type CreatePayload = {
   tag_ids?: number[] | null
 }
 
+type AddTransactionFormValues = {
+  date: string
+  amount: number
+  merchant: string
+  account_id: number | null
+  category_id: number | null
+  subcategory_id: number | null
+  notes: string
+  tag_ids: number[]
+}
+
 export default function AddTransactionPage() {
   const queryClient = useQueryClient()
-
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [amount, setAmount] = useState<number>(0)
-  const [merchant, setMerchant] = useState('')
-
-  const [accountId, setAccountId] = useState<number | null>(null)
-  const [categoryId, setCategoryId] = useState<number | null>(null)
-  const [subcategoryId, setSubcategoryId] = useState<number | null>(null)
-
-  const [notes, setNotes] = useState<string>('')
-  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
+  const form = useForm<AddTransactionFormValues>({
+    defaultValues: {
+      date: new Date().toISOString().slice(0, 10),
+      amount: 0,
+      merchant: '',
+      account_id: null,
+      category_id: null,
+      subcategory_id: null,
+      notes: '',
+      tag_ids: [],
+    },
+  })
+  const { control, handleSubmit, setValue, watch, reset } = form
+  const accountId = watch('account_id')
+  const categoryId = watch('category_id')
+  const subcategoryId = watch('subcategory_id')
 
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [feedbackTitle, setFeedbackTitle] = useState('')
@@ -67,34 +84,41 @@ export default function AddTransactionPage() {
   useEffect(() => {
     if (accountId != null) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (accounts.length > 0) setAccountId(accounts[0].id)
-  }, [accounts, accountId])
+    if (accounts.length > 0) setValue('account_id', accounts[0].id)
+  }, [accounts, accountId, setValue])
 
   useEffect(() => {
     if (categoryId != null) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (categories.length > 0) setCategoryId(categories[0].id)
-  }, [categories, categoryId])
+    if (categories.length > 0) setValue('category_id', categories[0].id)
+  }, [categories, categoryId, setValue])
 
   useEffect(() => {
     if (categoryId == null) return
     if (subcategoryOptions.length === 0) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSubcategoryId(null)
+      setValue('subcategory_id', null)
       return
     }
     if (subcategoryId == null || !subcategoryOptions.some((s) => s.id === subcategoryId)) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSubcategoryId(subcategoryOptions[0].id)
+      setValue('subcategory_id', subcategoryOptions[0].id)
     }
-  }, [categoryId, subcategoryOptions, subcategoryId])
+  }, [categoryId, subcategoryOptions, subcategoryId, setValue])
 
   const createTransactionMutation = useMutation({
     mutationFn: (payload: CreatePayload) => createTransaction(payload),
     onSuccess: () => {
-      setMerchant('')
-      setNotes('')
-      setSelectedTagIds([])
+      reset({
+        date: new Date().toISOString().slice(0, 10),
+        amount: 0,
+        merchant: '',
+        account_id: accountId,
+        category_id: categoryId,
+        subcategory_id: subcategoryId,
+        notes: '',
+        tag_ids: [],
+      })
       setFeedbackTitle('Transaction added')
       setFeedbackMessage('✅ Transaction added!')
       setFeedbackOpen(true)
@@ -122,136 +146,181 @@ export default function AddTransactionPage() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           <div>
             <div style={{ marginBottom: 8 }}>Basics</div>
-            <TextField
-              label="Date"
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              fullWidth
-              InputLabelProps={{ shrink: true }}
-              sx={{ marginBottom: 2 }}
+            <Controller
+              control={control}
+              name="date"
+              render={({ field }) => (
+                <TextField
+                  label="Date"
+                  type="date"
+                  {...field}
+                  fullWidth
+                  InputLabelProps={{ shrink: true }}
+                  sx={{ marginBottom: 2 }}
+                />
+              )}
             />
-            <TextField
-              label="Amount"
-              type="number"
-              inputProps={{ step: '0.01' }}
-              value={amount}
-              onChange={(e) => setAmount(Number(e.target.value))}
-              fullWidth
-              sx={{ marginBottom: 2 }}
+            <Controller
+              control={control}
+              name="amount"
+              render={({ field }) => (
+                <TextField
+                  label="Amount"
+                  type="number"
+                  inputProps={{ step: '0.01' }}
+                  value={field.value}
+                  onChange={(e) => field.onChange(Number(e.target.value))}
+                  fullWidth
+                  sx={{ marginBottom: 2 }}
+                />
+              )}
             />
-            <TextField
-              label="Merchant"
-              value={merchant}
-              onChange={(e) => setMerchant(e.target.value)}
-              fullWidth
-              sx={{ marginBottom: 2 }}
+            <Controller
+              control={control}
+              name="merchant"
+              render={({ field }) => (
+                <TextField
+                  label="Merchant"
+                  {...field}
+                  fullWidth
+                  sx={{ marginBottom: 2 }}
+                />
+              )}
             />
           </div>
 
           <div>
             <div style={{ marginBottom: 8 }}>Classification</div>
-            <TextField
-              select
-              label="Account"
-              value={accountId ?? ''}
-              onChange={(e) => setAccountId(Number(e.target.value))}
-              fullWidth
-              sx={{ marginBottom: 2 }}
-            >
-              {accounts.map((a) => (
-                <MenuItem key={a.id} value={a.id}>
-                  {a.name}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              select
-              label="Category"
-              value={categoryId ?? ''}
-              onChange={(e) => setCategoryId(Number(e.target.value))}
-              fullWidth
-              sx={{ marginBottom: 2 }}
-            >
-              {categories.map((c) => (
-                <MenuItem key={c.id} value={c.id}>
-                  {c.name}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              select
-              label="Subcategory"
-              value={subcategoryId ?? ''}
-              onChange={(e) => setSubcategoryId(Number(e.target.value))}
-              fullWidth
-              sx={{ marginBottom: 2 }}
-            >
-              {subcategoryOptions.map((s) => (
-                <MenuItem key={s.id} value={s.id}>
-                  {s.name}
-                </MenuItem>
-              ))}
-            </TextField>
+            <Controller
+              control={control}
+              name="account_id"
+              render={({ field }) => (
+                <TextField
+                  select
+                  label="Account"
+                  value={field.value ?? ''}
+                  onChange={(e) => field.onChange(Number(e.target.value))}
+                  fullWidth
+                  sx={{ marginBottom: 2 }}
+                >
+                  {accounts.map((a) => (
+                    <MenuItem key={a.id} value={a.id}>
+                      {a.name}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              )}
+            />
+            <Controller
+              control={control}
+              name="category_id"
+              render={({ field }) => (
+                <TextField
+                  select
+                  label="Category"
+                  value={field.value ?? ''}
+                  onChange={(e) => field.onChange(Number(e.target.value))}
+                  fullWidth
+                  sx={{ marginBottom: 2 }}
+                >
+                  {categories.map((c) => (
+                    <MenuItem key={c.id} value={c.id}>
+                      {c.name}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              )}
+            />
+            <Controller
+              control={control}
+              name="subcategory_id"
+              render={({ field }) => (
+                <TextField
+                  select
+                  label="Subcategory"
+                  value={field.value ?? ''}
+                  onChange={(e) => field.onChange(Number(e.target.value))}
+                  fullWidth
+                  sx={{ marginBottom: 2 }}
+                >
+                  {subcategoryOptions.map((s) => (
+                    <MenuItem key={s.id} value={s.id}>
+                      {s.name}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              )}
+            />
 
-            <TextField
-              select
-              label="Tags (optional)"
-              value={selectedTagIds}
-              onChange={(e) => {
-                const raw = e.target.value as unknown
-                const arr = Array.isArray(raw) ? raw : [raw]
-                setSelectedTagIds(arr.map((v) => Number(v)))
-              }}
-              SelectProps={{
-                multiple: true,
-                renderValue: (selected) => {
-                  const ids = selected as number[]
-                  return ids
-                    .map((id) => tags.find((t) => t.id === id)?.name ?? String(id))
-                    .join(', ')
-                },
-              }}
-              fullWidth
-              sx={{ marginBottom: 2 }}
-            >
-              {tags.map((t) => (
-                <MenuItem key={t.id} value={t.id}>
-                  {t.name}
-                </MenuItem>
-              ))}
-            </TextField>
+            <Controller
+              control={control}
+              name="tag_ids"
+              render={({ field }) => (
+                <TextField
+                  select
+                  label="Tags (optional)"
+                  value={field.value}
+                  onChange={(e) => {
+                    const raw = e.target.value as unknown
+                    const arr = Array.isArray(raw) ? raw : [raw]
+                    field.onChange(arr.map((v) => Number(v)))
+                  }}
+                  SelectProps={{
+                    multiple: true,
+                    renderValue: (selected) => {
+                      const ids = selected as number[]
+                      return ids
+                        .map((id) => tags.find((t) => t.id === id)?.name ?? String(id))
+                        .join(', ')
+                    },
+                  }}
+                  fullWidth
+                  sx={{ marginBottom: 2 }}
+                >
+                  {tags.map((t) => (
+                    <MenuItem key={t.id} value={t.id}>
+                      {t.name}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              )}
+            />
           </div>
         </div>
 
         <div style={{ marginTop: 16 }}>
           <div style={{ marginBottom: 8, fontWeight: 600 }}>Notes</div>
-          <TextField
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            fullWidth
-            multiline
-            minRows={3}
+          <Controller
+            control={control}
+            name="notes"
+            render={({ field }) => (
+              <TextField
+                {...field}
+                fullWidth
+                multiline
+                minRows={3}
+              />
+            )}
           />
         </div>
 
         <div style={{ marginTop: 12 }}>
           <Button
             variant="contained"
-            onClick={() => {
-              if (!accountId || !categoryId || !subcategoryId) return
+            onClick={handleSubmit((values) => {
+              if (!values.account_id || !values.category_id || !values.subcategory_id) return
               const payload: CreatePayload = {
-                date,
-                amount: amount,
-                merchant,
-                account_id: accountId,
-                category_id: categoryId,
-                subcategory_id: subcategoryId,
-                notes: notes ? notes : null,
-                tag_ids: selectedTagIds.length ? selectedTagIds : null,
+                date: values.date,
+                amount: values.amount,
+                merchant: values.merchant,
+                account_id: values.account_id,
+                category_id: values.category_id,
+                subcategory_id: values.subcategory_id,
+                notes: values.notes ? values.notes : null,
+                tag_ids: values.tag_ids.length ? values.tag_ids : null,
               }
               createTransactionMutation.mutate(payload)
-            }}
+            })}
             disabled={createTransactionMutation.isPending}
           >
             Save transaction

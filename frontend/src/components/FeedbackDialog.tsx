@@ -1,4 +1,12 @@
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle } from '@mui/material'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 export type FeedbackDialogProps = {
   open: boolean
@@ -16,15 +24,16 @@ export default function FeedbackDialog({
   actionLabel = 'OK',
 }: FeedbackDialogProps) {
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle>{title}</DialogTitle>
-      <DialogContent>{message}</DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} variant="contained">
-          {actionLabel}
-        </Button>
-      </DialogActions>
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription className="whitespace-pre-wrap">{message}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button onClick={onClose}>{actionLabel}</Button>
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
   )
 }
-

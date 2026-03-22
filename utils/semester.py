@@ -113,3 +113,14 @@ def get_current_year_range() -> Tuple[date, date]:
     """
     today = date.today()
     return date(today.year, 1, 1), today
+
+
+def get_last_month_range() -> Tuple[date, date]:
+    """
+    First and last calendar day of the month before today's month.
+    """
+    today = date.today()
+    first_this_month = date(today.year, today.month, 1)
+    end_prev = first_this_month - timedelta(days=1)
+    start_prev = date(end_prev.year, end_prev.month, 1)
+    return start_prev, end_prev

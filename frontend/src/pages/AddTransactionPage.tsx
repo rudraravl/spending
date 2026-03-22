@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
-import { Button, MenuItem, TextField } from '@mui/material'
+import { useEffect, useMemo, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
-import PageHeader from '../components/PageHeader'
+import { motion } from 'framer-motion'
 import FeedbackDialog from '../components/FeedbackDialog'
 import { apiGet } from '../api/client'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -9,6 +8,19 @@ import { queryKeys } from '../queryKeys'
 import { getAccounts } from '../api/accounts'
 import { getCategories, getSubcategories } from '../api/categories'
 import { createTransaction } from '../api/transactions'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 
 import type { AccountOut, CategoryOut, SubcategoryOut, TagOut } from '../types'
 
@@ -34,6 +46,14 @@ type AddTransactionFormValues = {
   tag_ids: number[]
 }
 
+/** Radix Select must stay controlled; avoid `undefined` value (uncontrolled) then a string (controlled). */
+const SELECT_NONE = '__none__'
+
+function selectIdValue(id: number | null | undefined, options: { id: number }[]): string {
+  if (id != null && options.some((o) => o.id === id)) return String(id)
+  return SELECT_NONE
+}
+
 export default function AddTransactionPage() {
   const queryClient = useQueryClient()
   const form = useForm<AddTransactionFormValues>({
@@ -52,6 +72,7 @@ export default function AddTransactionPage() {
   const accountId = watch('account_id')
   const categoryId = watch('category_id')
   const subcategoryId = watch('subcategory_id')
+  const tagIds = watch('tag_ids')
 
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [feedbackTitle, setFeedbackTitle] = useState('')
@@ -75,34 +96,31 @@ export default function AddTransactionPage() {
     enabled: categoryId != null,
   })
 
-  const accounts = accountsQuery.data ?? []
-  const categories = categoriesQuery.data ?? []
-  const tags = tagsQuery.data ?? []
-  const subcategoryOptions = subcategoriesQuery.data ?? []
+  // Stabilize `[]` when data is undefined — a fresh `[]` each render breaks useEffect deps and can loop on setValue.
+  const accounts = useMemo(() => accountsQuery.data ?? [], [accountsQuery.data])
+  const categories = useMemo(() => categoriesQuery.data ?? [], [categoriesQuery.data])
+  const tags = useMemo(() => tagsQuery.data ?? [], [tagsQuery.data])
+  const subcategoryOptions = useMemo(() => subcategoriesQuery.data ?? [], [subcategoriesQuery.data])
 
-  // Default selections once data arrives.
   useEffect(() => {
     if (accountId != null) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (accounts.length > 0) setValue('account_id', accounts[0].id)
   }, [accounts, accountId, setValue])
 
   useEffect(() => {
     if (categoryId != null) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (categories.length > 0) setValue('category_id', categories[0].id)
   }, [categories, categoryId, setValue])
 
   useEffect(() => {
     if (categoryId == null) return
     if (subcategoryOptions.length === 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setValue('subcategory_id', null)
+      if (subcategoryId != null) setValue('subcategory_id', null)
       return
     }
+    const first = subcategoryOptions[0].id
     if (subcategoryId == null || !subcategoryOptions.some((s) => s.id === subcategoryId)) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setValue('subcategory_id', subcategoryOptions[0].id)
+      if (subcategoryId !== first) setValue('subcategory_id', first)
     }
   }, [categoryId, subcategoryOptions, subcategoryId, setValue])
 
@@ -120,7 +138,7 @@ export default function AddTransactionPage() {
         tag_ids: [],
       })
       setFeedbackTitle('Transaction added')
-      setFeedbackMessage('✅ Transaction added!')
+      setFeedbackMessage('Transaction added successfully.')
       setFeedbackOpen(true)
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
@@ -134,179 +152,188 @@ export default function AddTransactionPage() {
     },
   })
 
+  function toggleTag(id: number, checked: boolean) {
+    const next = new Set(tagIds)
+    if (checked) next.add(id)
+    else next.delete(id)
+    setValue('tag_ids', Array.from(next))
+  }
+
   return (
-    <div className="sp-page">
-      <PageHeader
-        icon="➕"
-        title="Add transaction"
-        subtitle="Capture a single purchase or transfer with full context."
-      />
+    <div className="p-6 lg:p-8 max-w-4xl mx-auto">
+      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+        <h1 className="text-2xl font-semibold mb-1">Add transaction</h1>
+        <p className="text-muted-foreground mb-8">Capture a single purchase or income with full context.</p>
 
-      <div style={{ maxWidth: 900 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <div>
-            <div style={{ marginBottom: 8 }}>Basics</div>
-            <Controller
-              control={control}
-              name="date"
-              render={({ field }) => (
-                <TextField
-                  label="Date"
-                  type="date"
-                  {...field}
-                  fullWidth
-                  InputLabelProps={{ shrink: true }}
-                  sx={{ marginBottom: 2 }}
-                />
-              )}
-            />
-            <Controller
-              control={control}
-              name="amount"
-              render={({ field }) => (
-                <TextField
-                  label="Amount"
-                  type="number"
-                  inputProps={{ step: '0.01' }}
-                  value={field.value}
-                  onChange={(e) => field.onChange(Number(e.target.value))}
-                  fullWidth
-                  sx={{ marginBottom: 2 }}
-                />
-              )}
-            />
-            <Controller
-              control={control}
-              name="merchant"
-              render={({ field }) => (
-                <TextField
-                  label="Merchant"
-                  {...field}
-                  fullWidth
-                  sx={{ marginBottom: 2 }}
-                />
-              )}
-            />
-          </div>
-
-          <div>
-            <div style={{ marginBottom: 8 }}>Classification</div>
-            <Controller
-              control={control}
-              name="account_id"
-              render={({ field }) => (
-                <TextField
-                  select
-                  label="Account"
-                  value={field.value ?? ''}
-                  onChange={(e) => field.onChange(Number(e.target.value))}
-                  fullWidth
-                  sx={{ marginBottom: 2 }}
-                >
-                  {accounts.map((a) => (
-                    <MenuItem key={a.id} value={a.id}>
-                      {a.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              )}
-            />
-            <Controller
-              control={control}
-              name="category_id"
-              render={({ field }) => (
-                <TextField
-                  select
-                  label="Category"
-                  value={field.value ?? ''}
-                  onChange={(e) => field.onChange(Number(e.target.value))}
-                  fullWidth
-                  sx={{ marginBottom: 2 }}
-                >
-                  {categories.map((c) => (
-                    <MenuItem key={c.id} value={c.id}>
-                      {c.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              )}
-            />
-            <Controller
-              control={control}
-              name="subcategory_id"
-              render={({ field }) => (
-                <TextField
-                  select
-                  label="Subcategory"
-                  value={field.value ?? ''}
-                  onChange={(e) => field.onChange(Number(e.target.value))}
-                  fullWidth
-                  sx={{ marginBottom: 2 }}
-                >
-                  {subcategoryOptions.map((s) => (
-                    <MenuItem key={s.id} value={s.id}>
-                      {s.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              )}
-            />
-
-            <Controller
-              control={control}
-              name="tag_ids"
-              render={({ field }) => (
-                <TextField
-                  select
-                  label="Tags (optional)"
-                  value={field.value}
-                  onChange={(e) => {
-                    const raw = e.target.value as unknown
-                    const arr = Array.isArray(raw) ? raw : [raw]
-                    field.onChange(arr.map((v) => Number(v)))
-                  }}
-                  SelectProps={{
-                    multiple: true,
-                    renderValue: (selected) => {
-                      const ids = selected as number[]
-                      return ids
-                        .map((id) => tags.find((t) => t.id === id)?.name ?? String(id))
-                        .join(', ')
-                    },
-                  }}
-                  fullWidth
-                  sx={{ marginBottom: 2 }}
-                >
-                  {tags.map((t) => (
-                    <MenuItem key={t.id} value={t.id}>
-                      {t.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              )}
-            />
-          </div>
-        </div>
-
-        <div style={{ marginTop: 16 }}>
-          <div style={{ marginBottom: 8, fontWeight: 600 }}>Notes</div>
-          <Controller
-            control={control}
-            name="notes"
-            render={({ field }) => (
-              <TextField
-                {...field}
-                fullWidth
-                multiline
-                minRows={3}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Card className="shadow-card">
+            <CardHeader>
+              <CardTitle className="text-base">Basics</CardTitle>
+              <CardDescription>When, how much, and where.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Controller
+                control={control}
+                name="date"
+                render={({ field }) => (
+                  <div className="space-y-2">
+                    <Label>Date</Label>
+                    <Input type="date" {...field} />
+                  </div>
+                )}
               />
-            )}
-          />
+              <Controller
+                control={control}
+                name="amount"
+                render={({ field }) => (
+                  <div className="space-y-2">
+                    <Label>Amount</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={field.value}
+                      onChange={(e) => field.onChange(Number(e.target.value))}
+                    />
+                  </div>
+                )}
+              />
+              <Controller
+                control={control}
+                name="merchant"
+                render={({ field }) => (
+                  <div className="space-y-2">
+                    <Label>Merchant</Label>
+                    <Input {...field} />
+                  </div>
+                )}
+              />
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-card">
+            <CardHeader>
+              <CardTitle className="text-base">Classification</CardTitle>
+              <CardDescription>Account, category, tags.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Controller
+                control={control}
+                name="account_id"
+                render={({ field }) => (
+                  <div className="space-y-2">
+                    <Label>Account</Label>
+                    <Select
+                      value={selectIdValue(field.value, accounts)}
+                      onValueChange={(v) => field.onChange(v === SELECT_NONE ? null : Number(v))}
+                      disabled={accounts.length === 0}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Account" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={SELECT_NONE} disabled className="text-muted-foreground">
+                          Select account
+                        </SelectItem>
+                        {accounts.map((a) => (
+                          <SelectItem key={a.id} value={String(a.id)}>
+                            {a.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              />
+              <Controller
+                control={control}
+                name="category_id"
+                render={({ field }) => (
+                  <div className="space-y-2">
+                    <Label>Category</Label>
+                    <Select
+                      value={selectIdValue(field.value, categories)}
+                      onValueChange={(v) => field.onChange(v === SELECT_NONE ? null : Number(v))}
+                      disabled={categories.length === 0}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={SELECT_NONE} disabled className="text-muted-foreground">
+                          Select category
+                        </SelectItem>
+                        {categories.map((c) => (
+                          <SelectItem key={c.id} value={String(c.id)}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              />
+              <Controller
+                control={control}
+                name="subcategory_id"
+                render={({ field }) => (
+                  <div className="space-y-2">
+                    <Label>Subcategory</Label>
+                    <Select
+                      value={selectIdValue(field.value, subcategoryOptions)}
+                      onValueChange={(v) => field.onChange(v === SELECT_NONE ? null : Number(v))}
+                      disabled={subcategoryOptions.length === 0}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Subcategory" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={SELECT_NONE} disabled className="text-muted-foreground">
+                          {categoryId == null ? 'Select a category first' : 'Select subcategory'}
+                        </SelectItem>
+                        {subcategoryOptions.map((s) => (
+                          <SelectItem key={s.id} value={String(s.id)}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              />
+
+              <div className="space-y-2">
+                <Label>Tags (optional)</Label>
+                <div className="flex flex-wrap gap-3 rounded-lg border p-3">
+                  {tags.map((t) => (
+                    <label key={t.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                      <Checkbox
+                        checked={tagIds.includes(t.id)}
+                        onCheckedChange={(c) => toggleTag(t.id, c === true)}
+                      />
+                      {t.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
-        <div style={{ marginTop: 12 }}>
+        <Card className="shadow-card mt-6">
+          <CardHeader>
+            <CardTitle className="text-base">Notes</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Controller
+              control={control}
+              name="notes"
+              render={({ field }) => <Textarea {...field} rows={4} className="resize-y min-h-[100px]" />}
+            />
+          </CardContent>
+        </Card>
+
+        <div className="mt-6">
           <Button
-            variant="contained"
             onClick={handleSubmit((values) => {
               if (!values.account_id || !values.category_id || !values.subcategory_id) return
               const payload: CreatePayload = {
@@ -326,7 +353,7 @@ export default function AddTransactionPage() {
             Save transaction
           </Button>
         </div>
-      </div>
+      </motion.div>
 
       <FeedbackDialog
         open={feedbackOpen}
@@ -337,4 +364,3 @@ export default function AddTransactionPage() {
     </div>
   )
 }
-

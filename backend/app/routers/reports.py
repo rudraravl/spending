@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 
 import numpy as np
@@ -13,6 +13,7 @@ from db.models import Transaction
 from services.trasaction_service import get_transactions
 from services.summary_service import (
     calculate_total,
+    calculate_total_income,
     summarize_by_category,
     summarize_by_subcategory,
     summarize_by_tag,
@@ -22,6 +23,7 @@ from utils.semester import (
     get_current_month_range,
     get_current_semester_range,
     get_current_year_range,
+    get_last_month_range,
 )
 
 
@@ -76,53 +78,86 @@ def _transaction_table_row(txn: Transaction) -> dict[str, object]:
     }
 
 
+def _resolve_dashboard_range(
+    range_preset: str,
+    start_date: date | None,
+    end_date: date | None,
+) -> tuple[date, date]:
+    if range_preset == "this_month":
+        return get_current_month_range()
+    if range_preset == "last_month":
+        return get_last_month_range()
+    if range_preset == "year":
+        return get_current_year_range()
+    if range_preset == "custom":
+        if not start_date or not end_date:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="start_date and end_date are required when range=custom",
+            )
+        if start_date > end_date:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="start_date must be on or before end_date",
+            )
+        return start_date, end_date
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Invalid range; use this_month, last_month, year, or custom",
+    )
+
+
 @router.get("/api/dashboard", status_code=status.HTTP_200_OK)
 def dashboard(
+    range_preset: str = Query(
+        "this_month",
+        alias="range",
+        description="this_month|last_month|year|custom",
+    ),
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
     session: Session = Depends(get_db_session),
 ) -> dict[str, object]:
-    today = date.today()
+    start, end = _resolve_dashboard_range(range_preset, start_date, end_date)
+    filters = TransactionFilter(start_date=start, end_date=end)
 
-    # Overview totals
-    total_all_time_spend = calculate_total(session)
+    total_spending = calculate_total(session, filters)
+    total_income = calculate_total_income(session, filters)
 
-    month_start, month_end = get_current_month_range()
-    month_filters = TransactionFilter(start_date=month_start, end_date=month_end)
-    current_month_spend = calculate_total(session, month_filters)
+    by_category_df = summarize_by_category(session, filters)
+    by_subcategory_df = summarize_by_subcategory(session, filters)
 
-    total_transactions = session.query(Transaction).count()
-
-    # Recent trend: last 30 days (exclude transfers only, same as Streamlit)
-    start_30 = today - timedelta(days=30)
-    trend_filters = TransactionFilter(start_date=start_30, end_date=today)
     trend_txns = get_transactions(
         session,
-        filters=trend_filters,
+        filters=filters,
         include_transfers=False,
     )
     daily: dict[date, float] = {}
     for t in trend_txns:
         daily[t.date] = daily.get(t.date, 0.0) + float(t.amount)
 
-    recent_trend = [
+    spending_over_time = [
         {"date": d.isoformat(), "amount": amt}
         for d, amt in sorted(daily.items(), key=lambda x: x[0])
     ]
 
-    # Recent activity: last 10 (exclude transfers only)
     recent_txns = get_transactions(
         session,
         limit=10,
         include_transfers=False,
     )
-
-    recent_activity = [_transaction_table_row(t) for t in recent_txns]
+    recent_transactions = [_transaction_table_row(t) for t in recent_txns]
 
     return {
-        "total_all_time_spend": total_all_time_spend,
-        "current_month_spend": current_month_spend,
-        "total_transactions": total_transactions,
-        "recent_trend": recent_trend,
-        "recent_activity": recent_activity,
+        "range": range_preset,
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
+        "total_spending": total_spending,
+        "total_income": total_income,
+        "by_category": _df_to_records(by_category_df),
+        "by_subcategory": _df_to_records(by_subcategory_df),
+        "spending_over_time": spending_over_time,
+        "recent_transactions": recent_transactions,
     }
 
 

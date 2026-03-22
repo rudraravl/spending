@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button, MenuItem, TextField } from '@mui/material'
 import { Controller, useForm } from 'react-hook-form'
-import PageHeader from '../components/PageHeader'
+import { motion } from 'framer-motion'
 import ConfirmDialog from '../components/ConfirmDialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { apiDelete, apiGet, apiPatchJson, apiPostJson } from '../api/client'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '../queryKeys'
@@ -204,12 +213,11 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="sp-page">
-      <PageHeader
-        icon="⚙️"
-        title="Settings"
-        subtitle="Manage accounts, categories, subcategories, tags, and rules."
-      />
+    <div className="p-6 lg:p-8 max-w-6xl mx-auto space-y-8">
+      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+        <h1 className="text-2xl font-semibold mb-1">Settings</h1>
+        <p className="text-muted-foreground mb-0">Manage accounts, categories, subcategories, tags, and rules.</p>
+      </motion.div>
 
       <ConfirmDialog
         open={confirmState != null}
@@ -224,105 +232,69 @@ export default function SettingsPage() {
         }}
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        <div>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>Accounts</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <TextField
-              label="Account name"
-              value={accountName}
-              onChange={(e) => setAccountName(e.target.value)}
-              fullWidth
-            />
-            <TextField
-              select
-              label="Type"
-              value={accountType}
-              onChange={(e) => setAccountType(e.target.value as (typeof ACCOUNT_TYPES)[number])}
-              fullWidth
-            >
-              {ACCOUNT_TYPES.map((t) => (
-                <MenuItem key={t} value={t}>
-                  {t}
-                </MenuItem>
-              ))}
-            </TextField>
-          </div>
-          <Button
-            variant="contained"
-            sx={{ marginTop: 1 }}
-            onClick={async () => {
-              await createAccountMutation.mutateAsync({
-                name: accountName,
-                type: accountType,
-                currency: 'USD',
-              })
-              setAccountName('')
-              await reloadAll()
-            }}
-          >
-            Create account
-          </Button>
-
-          <div style={{ marginTop: 16 }}>
-            {accounts.map((a) => (
-              <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
-                <div>
-                  <div style={{ fontWeight: 600 }}>{a.name}</div>
-                  <div style={{ opacity: 0.7, fontSize: 12 }}>{a.type}</div>
-                </div>
-                <Button
-                  color="error"
-                  onClick={() =>
-                    setConfirmState({
-                      title: 'Delete account?',
-                      message: `Remove "${a.name}"? This cannot be undone.`,
-                      action: async () => {
-                        await deleteAccountMutation.mutateAsync(a.id)
-                        await reloadAll()
-                      },
-                    })
-                  }
-                >
-                  Delete
-                </Button>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-10">
+        <div className="space-y-8">
+          <section>
+            <h2 className="text-lg font-semibold mb-4">Accounts</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+              <div className="space-y-2">
+                <Label>Account name</Label>
+                <Input value={accountName} onChange={(e) => setAccountName(e.target.value)} />
               </div>
-            ))}
-          </div>
-
-          <div style={{ fontWeight: 700, margin: '24px 0 8px' }}>Categories</div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-            <TextField
-              label="Category name"
-              value={categoryName}
-              onChange={(e) => setCategoryName(e.target.value)}
-              sx={{ flex: 1 }}
-            />
+              <div className="space-y-2">
+                <Label>Type</Label>
+                <Select
+                  value={accountType}
+                  onValueChange={(v) => setAccountType(v as (typeof ACCOUNT_TYPES)[number])}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ACCOUNT_TYPES.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {t}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
             <Button
-              variant="contained"
+              className="mt-2"
               onClick={async () => {
-                await createCategoryMutation.mutateAsync({ name: categoryName })
-                setCategoryName('')
+                await createAccountMutation.mutateAsync({
+                  name: accountName,
+                  type: accountType,
+                  currency: 'USD',
+                })
+                setAccountName('')
                 await reloadAll()
               }}
             >
-              Create category
+              Create account
             </Button>
-          </div>
 
-          <div style={{ marginTop: 16 }}>
-            {categories.map((c) => (
-              <div key={c.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, marginBottom: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                  <div style={{ fontWeight: 700 }}>{c.name}</div>
+            <div className="mt-4 space-y-3">
+              {accounts.map((a) => (
+                <div
+                  key={a.id}
+                  className="flex items-center justify-between gap-3 rounded-xl border bg-card p-4 shadow-card group"
+                >
+                  <div>
+                    <p className="text-sm font-medium">{a.name}</p>
+                    <p className="text-xs text-muted-foreground capitalize">{a.type} · USD</p>
+                  </div>
                   <Button
-                    color="error"
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
                     onClick={() =>
                       setConfirmState({
-                        title: 'Delete category?',
-                        message: `Remove "${c.name}" and its subcategory links? This cannot be undone.`,
+                        title: 'Delete account?',
+                        message: `Remove "${a.name}"? This cannot be undone.`,
                         action: async () => {
-                          await deleteCategoryMutation.mutateAsync(c.id)
+                          await deleteAccountMutation.mutateAsync(a.id)
                           await reloadAll()
                         },
                       })
@@ -331,239 +303,335 @@ export default function SettingsPage() {
                     Delete
                   </Button>
                 </div>
-                <div style={{ marginTop: 10 }}>
-                  <div style={{ fontWeight: 600, marginBottom: 6 }}>Subcategories</div>
-                  <SubcategoriesList categoryId={c.id} onReload={reloadAll} />
-                </div>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <h2 className="text-lg font-semibold mb-4">Categories</h2>
+            <div className="flex flex-col sm:flex-row gap-3 items-start mb-4">
+              <div className="space-y-2 flex-1 w-full">
+                <Label>Category name</Label>
+                <Input value={categoryName} onChange={(e) => setCategoryName(e.target.value)} />
               </div>
-            ))}
-          </div>
+              <Button
+                className="sm:mt-7"
+                onClick={async () => {
+                  await createCategoryMutation.mutateAsync({ name: categoryName })
+                  setCategoryName('')
+                  await reloadAll()
+                }}
+              >
+                Create category
+              </Button>
+            </div>
+
+            <div className="space-y-3">
+              {categories.map((c) => (
+                <div key={c.id} className="rounded-xl border bg-card p-4 shadow-card group">
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <p className="text-sm font-medium">{c.name}</p>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() =>
+                        setConfirmState({
+                          title: 'Delete category?',
+                          message: `Remove "${c.name}" and its subcategory links? This cannot be undone.`,
+                          action: async () => {
+                            await deleteCategoryMutation.mutateAsync(c.id)
+                            await reloadAll()
+                          },
+                        })
+                      }
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">Subcategories</p>
+                    <SubcategoriesList categoryId={c.id} onReload={reloadAll} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
         </div>
 
-        <div>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>Add Subcategory</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <TextField
-              select
-              label="Parent category"
-              value={subcategoryParentCategoryId ?? ''}
-              onChange={(e) => setSubcategoryParentCategoryId(Number(e.target.value))}
-              fullWidth
-            >
-              {categories.map((c) => (
-                <MenuItem key={c.id} value={c.id}>
-                  {c.name}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              label="Subcategory name"
-              value={subcategoryName}
-              onChange={(e) => setSubcategoryName(e.target.value)}
-              fullWidth
-            />
-          </div>
-          <Button
-            variant="contained"
-            sx={{ marginTop: 1 }}
-            onClick={async () => {
-              if (!subcategoryParentCategoryId) return
-              await createSubcategoryMutation.mutateAsync({
-                category_id: subcategoryParentCategoryId,
-                name: subcategoryName,
-              })
-              setSubcategoryName('')
-              await reloadAll()
-            }}
-          >
-            Create subcategory
-          </Button>
-
-          <div style={{ fontWeight: 700, margin: '24px 0 8px' }}>Tags</div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-            <TextField label="Tag name" value={tagName} onChange={(e) => setTagName(e.target.value)} sx={{ flex: 1 }} />
+        <div className="space-y-8">
+          <section>
+            <h2 className="text-lg font-semibold mb-4">Add subcategory</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+              <div className="space-y-2">
+                <Label>Parent category</Label>
+                <Select
+                  value={subcategoryParentCategoryId != null ? String(subcategoryParentCategoryId) : undefined}
+                  onValueChange={(v) => setSubcategoryParentCategoryId(Number(v))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Subcategory name</Label>
+                <Input value={subcategoryName} onChange={(e) => setSubcategoryName(e.target.value)} />
+              </div>
+            </div>
             <Button
-              variant="contained"
+              className="mt-2"
               onClick={async () => {
-                await createTagMutation.mutateAsync({ name: tagName })
-                setTagName('')
+                if (!subcategoryParentCategoryId) return
+                await createSubcategoryMutation.mutateAsync({
+                  category_id: subcategoryParentCategoryId,
+                  name: subcategoryName,
+                })
+                setSubcategoryName('')
                 await reloadAll()
               }}
             >
-              Create tag
+              Create subcategory
             </Button>
-          </div>
+          </section>
 
-          <div style={{ marginTop: 16 }}>
-            {tags.map((t) => (
-              <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
-                <div style={{ fontWeight: 600 }}>{t.name}</div>
-                <Button
-                  color="error"
-                  onClick={() =>
-                    setConfirmState({
-                      title: 'Delete tag?',
-                      message: `Remove tag "${t.name}"?`,
-                      action: async () => {
-                        await deleteTagMutation.mutateAsync(t.id)
-                        await reloadAll()
-                      },
-                    })
-                  }
-                >
-                  Delete
-                </Button>
+          <section>
+            <h2 className="text-lg font-semibold mb-4">Tags</h2>
+            <div className="flex flex-col sm:flex-row gap-3 items-start mb-4">
+              <div className="space-y-2 flex-1 w-full">
+                <Label>Tag name</Label>
+                <Input value={tagName} onChange={(e) => setTagName(e.target.value)} />
               </div>
-            ))}
-          </div>
+              <Button
+                className="sm:mt-7"
+                onClick={async () => {
+                  await createTagMutation.mutateAsync({ name: tagName })
+                  setTagName('')
+                  await reloadAll()
+                }}
+              >
+                Create tag
+              </Button>
+            </div>
 
-          <div style={{ fontWeight: 700, margin: '24px 0 8px' }}>Rules</div>
-          <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
-            {!meta ? (
-              <div>Loading rule meta...</div>
-            ) : (
-              <>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <Controller
-                    control={ruleControl}
-                    name="priority"
-                    render={({ field }) => (
-                      <TextField
-                        label="Priority"
-                        type="number"
-                        value={field.value}
-                        onChange={(e) => field.onChange(Number(e.target.value))}
-                        fullWidth
-                      />
-                    )}
-                  />
-                  <Controller
-                    control={ruleControl}
-                    name="field"
-                    render={({ field }) => (
-                      <TextField select label="Field" value={field.value} onChange={field.onChange} fullWidth>
-                        {meta.allowed_fields.map((f) => (
-                          <MenuItem key={f} value={f}>
-                            {f}
-                          </MenuItem>
-                        ))}
-                      </TextField>
-                    )}
-                  />
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
-                  <Controller
-                    control={ruleControl}
-                    name="operator"
-                    render={({ field }) => (
-                      <TextField
-                        select
-                        label="Operator"
-                        value={field.value}
-                        onChange={field.onChange}
-                        fullWidth
-                      >
-                        {meta.allowed_operators.map((op) => (
-                          <MenuItem key={op} value={op}>
-                            {op}
-                          </MenuItem>
-                        ))}
-                      </TextField>
-                    )}
-                  />
-                  <Controller
-                    control={ruleControl}
-                    name="value"
-                    render={({ field }) => <TextField label="Value" value={field.value} onChange={field.onChange} fullWidth />}
-                  />
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
-                  <Controller
-                    control={ruleControl}
-                    name="category_id"
-                    render={({ field }) => (
-                      <TextField
-                        select
-                        label="Category"
-                        value={field.value ?? ''}
-                        onChange={(e) => field.onChange(Number(e.target.value))}
-                        fullWidth
-                      >
-                        {categories.map((c) => (
-                          <MenuItem key={c.id} value={c.id}>
-                            {c.name}
-                          </MenuItem>
-                        ))}
-                      </TextField>
-                    )}
-                  />
-                  <Controller
-                    control={ruleControl}
-                    name="subcategory_id"
-                    render={({ field }) => (
-                      <TextField
-                        select
-                        label="Subcategory"
-                        value={field.value ?? ''}
-                        onChange={(e) => field.onChange(Number(e.target.value))}
-                        fullWidth
-                      >
-                        {subcategoriesForRule.map((s) => (
-                          <MenuItem key={s.id} value={s.id}>
-                            {s.name}
-                          </MenuItem>
-                        ))}
-                      </TextField>
-                    )}
-                  />
-                </div>
-
-                <Button
-                  variant="contained"
-                  sx={{ marginTop: 1.5 }}
-                  onClick={handleRuleSubmit(async (values) => {
-                    if (!values.category_id || !values.subcategory_id) return
-                    const base = {
-                      priority: values.priority,
-                      field: values.field,
-                      operator: values.operator,
-                      value: values.value,
-                      category_id: values.category_id,
-                      subcategory_id: values.subcategory_id,
-                    }
-                    await upsertRuleMutation.mutateAsync({ editingRuleId, base })
-                    setEditingRuleId(null)
-                    setRuleValueForm('value', '')
-                    await reloadAll()
-                  })}
+            <div className="flex flex-wrap gap-2">
+              {tags.map((t) => (
+                <div
+                  key={t.id}
+                  className="inline-flex items-center gap-2 rounded-md border bg-secondary/50 px-3 py-1.5 text-sm"
                 >
-                  {editingRuleId ? 'Save changes' : 'Create rule'}
-                </Button>
-                {editingRuleId ? (
-                  <Button sx={{ marginLeft: 1 }} onClick={() => { setEditingRuleId(null); setRuleValueForm('value', '') }}>
-                    Cancel
+                  <span>{t.name}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-1 text-destructive"
+                    onClick={() =>
+                      setConfirmState({
+                        title: 'Delete tag?',
+                        message: `Remove tag "${t.name}"?`,
+                        action: async () => {
+                          await deleteTagMutation.mutateAsync(t.id)
+                          await reloadAll()
+                        },
+                      })
+                    }
+                  >
+                    ×
                   </Button>
-                ) : null}
-              </>
-            )}
-          </div>
+                </div>
+              ))}
+            </div>
+          </section>
 
-          <div style={{ marginTop: 16 }}>
-            {rules.length === 0 ? (
-              <div>No rules yet.</div>
-            ) : (
-              <div>
-                {rules.map((r) => (
-                  <div key={r.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, marginBottom: 12 }}>
-                    <div style={{ fontWeight: 700 }}>
+          <section>
+            <h2 className="text-lg font-semibold mb-4">Rules</h2>
+            <div className="rounded-xl border bg-card shadow-card p-4 space-y-4">
+              {!meta ? (
+                <div className="text-sm text-muted-foreground">Loading rule meta…</div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Controller
+                      control={ruleControl}
+                      name="priority"
+                      render={({ field }) => (
+                        <div className="space-y-2">
+                          <Label>Priority</Label>
+                          <Input
+                            type="number"
+                            value={field.value}
+                            onChange={(e) => field.onChange(Number(e.target.value))}
+                          />
+                        </div>
+                      )}
+                    />
+                    <Controller
+                      control={ruleControl}
+                      name="field"
+                      render={({ field }) => (
+                        <div className="space-y-2">
+                          <Label>Field</Label>
+                          <Select value={field.value} onValueChange={field.onChange}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {meta.allowed_fields.map((f) => (
+                                <SelectItem key={f} value={f}>
+                                  {f}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Controller
+                      control={ruleControl}
+                      name="operator"
+                      render={({ field }) => (
+                        <div className="space-y-2">
+                          <Label>Operator</Label>
+                          <Select value={field.value} onValueChange={field.onChange}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {meta.allowed_operators.map((op) => (
+                                <SelectItem key={op} value={op}>
+                                  {op}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                    />
+                    <Controller
+                      control={ruleControl}
+                      name="value"
+                      render={({ field }) => (
+                        <div className="space-y-2">
+                          <Label>Value</Label>
+                          <Input value={field.value} onChange={field.onChange} />
+                        </div>
+                      )}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Controller
+                      control={ruleControl}
+                      name="category_id"
+                      render={({ field }) => (
+                        <div className="space-y-2">
+                          <Label>Category</Label>
+                          <Select
+                            value={field.value != null ? String(field.value) : undefined}
+                            onValueChange={(v) => field.onChange(Number(v))}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Category" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {categories.map((c) => (
+                                <SelectItem key={c.id} value={String(c.id)}>
+                                  {c.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                    />
+                    <Controller
+                      control={ruleControl}
+                      name="subcategory_id"
+                      render={({ field }) => (
+                        <div className="space-y-2">
+                          <Label>Subcategory</Label>
+                          <Select
+                            value={field.value != null ? String(field.value) : undefined}
+                            onValueChange={(v) => field.onChange(Number(v))}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Subcategory" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {subcategoriesForRule.map((s) => (
+                                <SelectItem key={s.id} value={String(s.id)}>
+                                  {s.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    <Button
+                      onClick={handleRuleSubmit(async (values) => {
+                        if (!values.category_id || !values.subcategory_id) return
+                        const base = {
+                          priority: values.priority,
+                          field: values.field,
+                          operator: values.operator,
+                          value: values.value,
+                          category_id: values.category_id,
+                          subcategory_id: values.subcategory_id,
+                        }
+                        await upsertRuleMutation.mutateAsync({ editingRuleId, base })
+                        setEditingRuleId(null)
+                        setRuleValueForm('value', '')
+                        await reloadAll()
+                      })}
+                    >
+                      {editingRuleId ? 'Save changes' : 'Create rule'}
+                    </Button>
+                    {editingRuleId ? (
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setEditingRuleId(null)
+                          setRuleValueForm('value', '')
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    ) : null}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="mt-6 space-y-3">
+              {rules.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No rules yet.</p>
+              ) : (
+                rules.map((r) => (
+                  <div key={r.id} className="rounded-xl border bg-card shadow-card p-4">
+                    <p className="text-sm font-medium">
                       [{r.priority}] {r.field} {r.operator} {r.value} → {catName(r.category_id, categories)} /{' '}
                       {subcategoryNameById.get(r.subcategory_id) ?? r.subcategory_id}
-                    </div>
-                    <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-                      <Button onClick={() => loadRuleIntoEditor(r)}>Edit</Button>
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button variant="outline" size="sm" onClick={() => loadRuleIntoEditor(r)}>
+                        Edit
+                      </Button>
                       <Button
-                        color="error"
+                        variant="destructive"
+                        size="sm"
                         onClick={() =>
                           setConfirmState({
                             title: 'Delete rule?',
@@ -579,10 +647,10 @@ export default function SettingsPage() {
                       </Button>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
+                ))
+              )}
+            </div>
+          </section>
         </div>
       </div>
     </div>
@@ -630,8 +698,9 @@ function SubcategoriesList({
         <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
           <div style={{ paddingLeft: 10 }}>• {s.name}</div>
           <Button
-            color="error"
-            size="small"
+            variant="ghost"
+            size="sm"
+            className="text-destructive shrink-0"
             onClick={() =>
               setConfirmState({
                 title: 'Delete subcategory?',

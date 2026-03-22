@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { motion } from 'framer-motion'
 import PlotlyDefault from 'react-plotly.js'
-import PageHeader from '../components/PageHeader'
 import { apiGet } from '../api/client'
+import { Button } from '@/components/ui/button'
 import { queryKeys } from '../queryKeys'
 import { getAccounts } from '../api/accounts'
 import { getCategories, getSubcategories } from '../api/categories'
@@ -38,6 +39,8 @@ function Pie({
         height: 320,
         margin: { t: 30, b: 10, l: 10, r: 10 },
         showlegend: false,
+        paper_bgcolor: 'transparent',
+        plot_bgcolor: 'transparent',
       }}
       config={{ displayModeBar: false, responsive: true }}
     />
@@ -193,17 +196,16 @@ export default function ViewsPage() {
   const loading = viewsQuery.isLoading
 
   return (
-    <div className="sp-page">
-      <PageHeader
-        icon="🔍"
-        title="Custom views"
-        subtitle="Mix and match filters to explore your spending from any angle."
-      />
+    <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+        <h1 className="text-2xl font-semibold mb-1">Views</h1>
+        <p className="text-muted-foreground mb-0">Mix and match filters to explore your spending from any angle.</p>
+      </motion.div>
 
-      {error ? <div style={{ color: 'crimson' }}>{error}</div> : null}
-      {!data && loading ? <div>Loading...</div> : null}
+      {error ? <div className="text-sm text-destructive">{error}</div> : null}
+      {!data && loading ? <div className="text-sm text-muted-foreground">Loading…</div> : null}
 
-      <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
+      <div className="rounded-xl border bg-card shadow-card p-4">
         <div style={{ fontWeight: 700, marginBottom: 10 }}>Filters</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, alignItems: 'end' }}>
           <label>
@@ -299,7 +301,7 @@ export default function ViewsPage() {
       {data ? (
         <div style={{ marginTop: 16 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 16 }}>
-            <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
+            <div className="rounded-xl border bg-card shadow-card p-4">
               <div style={{ fontWeight: 700, marginBottom: 6 }}>Total</div>
               <div style={{ fontSize: 26 }}>${data.total.toFixed(2)}</div>
               <div style={{ opacity: 0.7, marginTop: 8, fontSize: 13 }}>
@@ -307,7 +309,7 @@ export default function ViewsPage() {
               </div>
             </div>
 
-            <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
+            <div className="rounded-xl border bg-card shadow-card p-4">
               <div style={{ fontWeight: 700, marginBottom: 8 }}>Spending over time</div>
               {plotOk ? (
                 <Plot
@@ -334,22 +336,22 @@ export default function ViewsPage() {
           </div>
 
           <div style={{ marginTop: 16 }}>
-            <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
-              <button onClick={() => setTab('tag')} style={{ padding: '10px 14px' }}>
+            <div className="flex flex-wrap gap-2 mb-3">
+              <Button variant={tab === 'tag' ? 'default' : 'outline'} size="sm" onClick={() => setTab('tag')}>
                 By tag
-              </button>
-              <button onClick={() => setTab('category')} style={{ padding: '10px 14px' }}>
+              </Button>
+              <Button variant={tab === 'category' ? 'default' : 'outline'} size="sm" onClick={() => setTab('category')}>
                 By category
-              </button>
-              <button onClick={() => setTab('subcategory')} style={{ padding: '10px 14px' }}>
+              </Button>
+              <Button variant={tab === 'subcategory' ? 'default' : 'outline'} size="sm" onClick={() => setTab('subcategory')}>
                 By subcategory
-              </button>
+              </Button>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               {tab === 'tag' ? (
                 <>
-                  <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
+                  <div className="rounded-xl border bg-card shadow-card p-4">
                     <div style={{ fontWeight: 700, marginBottom: 8 }}>By Tag</div>
                     <div style={{ overflow: 'auto' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -382,7 +384,7 @@ export default function ViewsPage() {
                       </table>
                     </div>
                   </div>
-                  <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
+                  <div className="rounded-xl border bg-card shadow-card p-4">
                     <div style={{ fontWeight: 700, marginBottom: 8 }}>Spend by Tag</div>
                     {data.by_tag.length ? (
                       <Pie
@@ -400,7 +402,7 @@ export default function ViewsPage() {
 
               {tab === 'category' ? (
                 <>
-                  <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
+                  <div className="rounded-xl border bg-card shadow-card p-4">
                     <div style={{ fontWeight: 700, marginBottom: 8 }}>By Category</div>
                     <div style={{ overflow: 'auto' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -433,7 +435,7 @@ export default function ViewsPage() {
                       </table>
                     </div>
                   </div>
-                  <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
+                  <div className="rounded-xl border bg-card shadow-card p-4">
                     <div style={{ fontWeight: 700, marginBottom: 8 }}>Spend by Category</div>
                     {data.by_category.length ? (
                       <Pie
@@ -451,7 +453,7 @@ export default function ViewsPage() {
 
               {tab === 'subcategory' ? (
                 <>
-                  <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
+                  <div className="rounded-xl border bg-card shadow-card p-4">
                     <div style={{ fontWeight: 700, marginBottom: 8 }}>By Subcategory</div>
                     <div style={{ overflow: 'auto' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -486,7 +488,7 @@ export default function ViewsPage() {
                       </table>
                     </div>
                   </div>
-                  <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
+                  <div className="rounded-xl border bg-card shadow-card p-4">
                     <div style={{ fontWeight: 700, marginBottom: 8 }}>Spend by Subcategory</div>
                     {data.by_subcategory.length ? (
                       <Pie
@@ -506,7 +508,7 @@ export default function ViewsPage() {
 
           <div style={{ marginTop: 18 }}>
             <div style={{ fontWeight: 700, marginBottom: 8 }}>Transactions</div>
-            <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12, overflow: 'auto' }}>
+            <div className="rounded-xl border bg-card shadow-card p-4 overflow-auto">
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>

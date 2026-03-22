@@ -1,3 +1,4 @@
+import type { RowSelectionState } from '@tanstack/react-table'
 import { useEffect, useMemo, useState } from 'react'
 import { useFieldArray, useForm } from 'react-hook-form'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -36,7 +37,7 @@ export function useTransactions() {
 
   const [gridRows, setGridRows] = useState<TransactionRow[]>([])
   const [dirtyIds, setDirtyIds] = useState<Set<number>>(new Set())
-  const [selectionModel, setSelectionModel] = useState<unknown>([])
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const [error, setError] = useState<string | null>(null)
 
   const splitsForm = useForm<SplitsFormValues>({
@@ -159,7 +160,7 @@ export function useTransactions() {
     if (metaLoading || transactionsQuery.isPending) return
     setGridRows(filteredRows)
     setDirtyIds(new Set())
-    setSelectionModel([])
+    setRowSelection({})
   }, [filteredRows, metaLoading, transactionsQuery.isPending])
 
   const splitsQuery = useQuery<TransactionSplitOut[], Error>({
@@ -273,14 +274,9 @@ export function useTransactions() {
   }
 
   function getSelectedIds(): number[] {
-    if (Array.isArray(selectionModel)) return selectionModel.map((x) => Number(x))
-
-    const maybeIds = (selectionModel as { ids?: unknown }).ids
-    if (Array.isArray(maybeIds)) return maybeIds.map((x: unknown) => Number(x))
-    if (maybeIds && typeof (maybeIds as Set<unknown>).forEach === 'function')
-      return Array.from(maybeIds as Set<unknown>).map((x) => Number(x))
-
-    return []
+    return Object.entries(rowSelection)
+      .filter(([, selected]) => selected)
+      .map(([id]) => Number(id))
   }
 
   function deleteSelected() {
@@ -330,9 +326,12 @@ export function useTransactions() {
     },
     categories,
     tags,
+    accounts,
+    subcategoriesByCategory,
     table: {
       gridRows,
-      setSelectionModel,
+      rowSelection,
+      setRowSelection,
       processRowUpdate,
       saveDirtyEdits,
       deleteSelected,

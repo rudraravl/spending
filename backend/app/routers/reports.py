@@ -12,6 +12,7 @@ from backend.app.deps import get_db_session
 from db.models import Transaction
 from services.trasaction_service import get_transactions
 from services.summary_service import (
+    PAYMENT_SUBCATEGORY_NAMES,
     calculate_gross_spending,
     calculate_total,
     calculate_total_income,
@@ -137,6 +138,9 @@ def dashboard(
     )
     daily: dict[date, float] = {}
     for t in trend_txns:
+        sub = t.subcategory.name.lower() if t.subcategory and t.subcategory.name else ""
+        if sub in PAYMENT_SUBCATEGORY_NAMES:
+            continue
         daily[t.date] = daily.get(t.date, 0.0) + float(t.amount)
 
     spending_over_time = [

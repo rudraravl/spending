@@ -14,6 +14,7 @@ from db.models import Account, Tag
 from services.trasaction_service import get_transactions
 from backend.app.routers import reports as reports_router
 from services.summary_service import (
+    PAYMENT_SUBCATEGORY_NAMES,
     calculate_gross_spending,
     calculate_total,
     calculate_total_income,
@@ -109,6 +110,9 @@ def compute_expected_dashboard(
     trend_txns = get_transactions(session, filters=filters, include_transfers=False)
     daily: dict[date, float] = {}
     for t in trend_txns:
+        sub = t.subcategory.name.lower() if t.subcategory and t.subcategory.name else ""
+        if sub in PAYMENT_SUBCATEGORY_NAMES:
+            continue
         daily[t.date] = daily.get(t.date, 0.0) + float(t.amount)
     spending_over_time = [
         {"date": d.isoformat(), "amount": amt}

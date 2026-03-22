@@ -3,7 +3,17 @@ export interface AccountOut {
   name: string
   type: string
   currency: string
-  // Present only if backend returns it; keep optional so existing API typings still work.
   created_at?: string | null
+  is_linked?: boolean
+  provider?: string | null
+  external_id?: string | null
+  institution_name?: string | null
+  last_synced_at?: string | null
+}
+
+/** Response from GET /api/accounts/{id}/summary */
+export interface AccountSummaryOut {
+  account_id: number
+  balance: number
 }
 

@@ -14,12 +14,22 @@ class AccountOut(BaseModel):
     type: str
     currency: str
     created_at: datetime | None = None
+    is_linked: bool = False
+    provider: str | None = None
+    external_id: str | None = None
+    institution_name: str | None = None
+    last_synced_at: datetime | None = None
 
 
 class AccountCreate(BaseModel):
     name: str
     type: str
     currency: str | None = None
+
+
+class AccountSummaryOut(BaseModel):
+    account_id: int
+    balance: float
 
 
 class CategoryOut(BaseModel):

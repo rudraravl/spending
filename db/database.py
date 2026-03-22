@@ -25,10 +25,31 @@ engine = create_engine(
 )
 
 # Bump this when schema changes require a rebuild.
-SCHEMA_VERSION = "2026-03-17-rules-engine"
+SCHEMA_VERSION = "2026-03-22-accounts-linkage"
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+def _migrate_accounts_columns(conn) -> None:
+    """Add linkage columns to existing SQLite `accounts` rows without full rebuild."""
+    if "accounts" not in {
+        row[0]
+        for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()
+    }:
+        return
+    cols = {row[1] for row in conn.execute(text("PRAGMA table_info(accounts)")).fetchall()}
+    # SQLite stores BOOLEAN as INTEGER 0/1
+    if "is_linked" not in cols:
+        conn.execute(text("ALTER TABLE accounts ADD COLUMN is_linked INTEGER NOT NULL DEFAULT 0"))
+    if "provider" not in cols:
+        conn.execute(text("ALTER TABLE accounts ADD COLUMN provider VARCHAR"))
+    if "external_id" not in cols:
+        conn.execute(text("ALTER TABLE accounts ADD COLUMN external_id VARCHAR"))
+    if "institution_name" not in cols:
+        conn.execute(text("ALTER TABLE accounts ADD COLUMN institution_name VARCHAR"))
+    if "last_synced_at" not in cols:
+        conn.execute(text("ALTER TABLE accounts ADD COLUMN last_synced_at DATETIME"))
 
 
 def init_db():
@@ -93,6 +114,8 @@ def init_db():
             Base.metadata.drop_all(bind=engine)
 
         Base.metadata.create_all(bind=engine)
+
+        _migrate_accounts_columns(conn)
 
         # Ensure external dedupe index exists for imports
         conn.execute(

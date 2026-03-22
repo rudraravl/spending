@@ -25,6 +25,7 @@ import {
   getSubcategories,
 } from '../api/categories'
 
+import { ACCOUNT_TYPES } from '../features/accounts/accountViewKind'
 import type { CategoryOut, SubcategoryOut, TagOut } from '../types'
 
 type RuleMeta = { allowed_fields: string[]; allowed_operators: string[] }
@@ -45,8 +46,6 @@ type RuleFormValues = {
   category_id: number | null
   subcategory_id: number | null
 }
-
-const ACCOUNT_TYPES = ['checking', 'savings', 'credit', 'cash', 'investment'] as const
 
 function catName(categoryId: number, list: CategoryOut[]) {
   return list.find((c) => c.id === categoryId)?.name ?? `Category ${categoryId}`

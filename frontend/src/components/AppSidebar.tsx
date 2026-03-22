@@ -1,5 +1,6 @@
 import {
   LayoutDashboard,
+  Landmark,
   Upload,
   PlusCircle,
   ArrowLeftRight,
@@ -24,6 +25,7 @@ import {
 
 const mainItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "Accounts", url: "/accounts", icon: Landmark },
   { title: "Import CSV", url: "/import", icon: Upload },
   { title: "Add Transaction", url: "/add-transaction", icon: PlusCircle },
   { title: "Transfer", url: "/transfer", icon: ArrowLeftRight },

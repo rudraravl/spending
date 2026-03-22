@@ -1,4 +1,4 @@
-export type { AccountOut } from './account'
+export type { AccountOut, AccountSummaryOut } from './account'
 export type { CategoryOut } from './category'
 export type { SubcategoryOut } from './subcategory'
 export type { TagOut } from './tag'

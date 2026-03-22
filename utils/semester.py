@@ -2,9 +2,9 @@
 Semester utility for determining academic semester date ranges.
 
 Semester definitions:
-- Spring: Jan 1 – May 31
+- Spring: Jan 12 – May 9
 - Summer: Jun 1 – Aug 15
-- Fall: Aug 16 – Dec 31
+- Fall: Aug 24 – Dec 14
 
 Auto-detects based on current date.
 """
@@ -23,23 +23,49 @@ class Semester(Enum):
 
 def get_current_semester() -> Semester:
     """
-    Determine the current academic semester based on today's date.
-    
+    Determine the current academic semester based on today's date
+    using exact semester date boundaries:
+    - Spring: Jan 12 – May 9
+    - Summer: Jun 1 – Aug 15
+    - Fall: Aug 24 – Dec 14
+
     Returns:
         Semester enum value
     """
     today = date.today()
-    month = today.month
-    day = today.day
-    
-    if 1 <= month <= 5:
+    year = today.year
+
+    spring_start = date(year, 1, 12)
+    spring_end = date(year, 5, 9)
+    summer_start = date(year, 6, 1)
+    summer_end = date(year, 8, 15)
+    fall_start = date(year, 8, 24)
+    fall_end = date(year, 12, 14)
+
+    if spring_start <= today <= spring_end:
         return Semester.SPRING
-    elif month == 8 and day >= 16:
-        return Semester.FALL
-    elif 6 <= month <= 8:
+    elif summer_start <= today <= summer_end:
         return Semester.SUMMER
-    else:  # September to December
+    elif fall_start <= today <= fall_end:
         return Semester.FALL
+    else:
+        # Handle edge periods outside semester ranges:
+        # Before Jan 12 → previous year's Fall
+        # Between May 10 – May 31 → Spring (just ended, or summer break, handle as Spring)
+        # Between Aug 16 – Aug 23 → Summer just ended, treat as Summer
+        # After Dec 14 → current year's Fall
+
+        if today < spring_start:
+            return Semester.FALL  # Assign to previous Fall
+        elif spring_end < today < summer_start:
+            return Semester.SPRING
+        elif summer_end < today < fall_start:
+            return Semester.SUMMER
+        elif today > fall_end:
+            return Semester.FALL
+        else:
+            # Unexpected date, but default to Fall
+            return Semester.FALL
 
 
 def get_semester_range(
@@ -57,11 +83,11 @@ def get_semester_range(
         Tuple of (start_date, end_date)
     """
     if semester == Semester.SPRING:
-        return date(year, 1, 1), date(year, 5, 31)
+        return date(year, 1, 12), date(year, 5, 9)
     elif semester == Semester.SUMMER:
         return date(year, 6, 1), date(year, 8, 15)
     elif semester == Semester.FALL:
-        return date(year, 8, 16), date(year, 12, 31)
+        return date(year, 8, 24), date(year, 12, 14)
     else:
         raise ValueError(f"Unknown semester: {semester}")
 
@@ -113,3 +139,14 @@ def get_current_year_range() -> Tuple[date, date]:
     """
     today = date.today()
     return date(today.year, 1, 1), today
+
+
+def get_last_month_range() -> Tuple[date, date]:
+    """
+    First and last calendar day of the month before today's month.
+    """
+    today = date.today()
+    first_this_month = date(today.year, today.month, 1)
+    end_prev = first_this_month - timedelta(days=1)
+    start_prev = date(end_prev.year, end_prev.month, 1)
+    return start_prev, end_prev

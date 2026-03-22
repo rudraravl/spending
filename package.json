@@ -1,0 +1,11 @@
+{
+  "name": "spending-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:backend": "uvicorn backend.main:app --reload --port 8000",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev": "echo \"Run dev:backend and dev:frontend in separate terminals.\""
+  }
+}
+

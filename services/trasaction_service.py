@@ -19,6 +19,9 @@ from utils.filters import TransactionFilter
 SPLIT_TOLERANCE = .01
 
 
+_UNSET = object()
+
+
 def create_transaction(
     session: Session,
     date_: date,
@@ -110,7 +113,7 @@ def update_transaction(
     account_id: Optional[int] = None,
     category_id: Optional[int] = None,
     subcategory_id: Optional[int] = None,
-    notes: Optional[Optional[str]] = None,
+    notes: str | None | object = _UNSET,
     tag_ids: Optional[List[int]] = None,
 ) -> Transaction:
     """
@@ -140,7 +143,8 @@ def update_transaction(
         subcategory_id if subcategory_id is not None else transaction.subcategory_id
     )
 
-    new_notes = notes if notes is not None else transaction.notes
+    # `notes` needs to support explicit clearing (notes=None) vs "field omitted".
+    new_notes = transaction.notes if notes is _UNSET else notes
 
     # Validate account
     account = session.query(Account).filter(Account.id == new_account_id).first()

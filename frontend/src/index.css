@@ -1,0 +1,148 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --background: 40 25% 97%;
+    --foreground: 220 20% 14%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 20% 14%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 20% 14%;
+
+    --primary: 158 50% 38%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 40 20% 94%;
+    --secondary-foreground: 220 20% 14%;
+
+    --muted: 40 15% 93%;
+    --muted-foreground: 220 10% 50%;
+
+    --accent: 24 80% 55%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 65% 52%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 12% 90%;
+    --input: 220 12% 90%;
+    --ring: 158 50% 38%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 220 20% 14%;
+    --sidebar-foreground: 220 10% 75%;
+    --sidebar-primary: 158 50% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 18% 20%;
+    --sidebar-accent-foreground: 0 0% 95%;
+    --sidebar-border: 220 15% 22%;
+    --sidebar-ring: 158 50% 48%;
+
+    --success: 158 50% 38%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --income: 158 50% 38%;
+    --expense: 0 65% 52%;
+    --chart-1: 158 50% 38%;
+    --chart-2: 24 80% 55%;
+    --chart-3: 220 60% 55%;
+    --chart-4: 280 50% 55%;
+    --chart-5: 38 92% 50%;
+  }
+
+  .dark {
+    color-scheme: dark;
+    --background: 220 18% 8%;
+    --foreground: 40 20% 96%;
+
+    --card: 220 16% 11%;
+    --card-foreground: 40 20% 96%;
+
+    --popover: 220 16% 11%;
+    --popover-foreground: 40 20% 96%;
+
+    --primary: 158 48% 45%;
+    --primary-foreground: 220 18% 8%;
+
+    --secondary: 220 14% 16%;
+    --secondary-foreground: 40 20% 92%;
+
+    --muted: 220 12% 18%;
+    --muted-foreground: 220 10% 62%;
+
+    --accent: 24 72% 52%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 58% 48%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 12% 20%;
+    --input: 220 12% 20%;
+    --ring: 158 48% 45%;
+
+    --sidebar-background: 220 22% 6%;
+    --sidebar-foreground: 220 10% 72%;
+    --sidebar-primary: 158 48% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 16% 12%;
+    --sidebar-accent-foreground: 0 0% 95%;
+    --sidebar-border: 220 14% 14%;
+    --sidebar-ring: 158 48% 48%;
+
+    --success: 158 48% 45%;
+    --success-foreground: 220 18% 8%;
+    --warning: 38 88% 52%;
+    --warning-foreground: 220 18% 8%;
+    --income: 158 48% 45%;
+    --expense: 0 58% 48%;
+    --chart-1: 158 48% 45%;
+    --chart-2: 24 72% 52%;
+    --chart-3: 220 55% 60%;
+    --chart-4: 280 45% 60%;
+    --chart-5: 38 88% 52%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased font-sans;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply tracking-tight;
+  }
+
+  .mono {
+    @apply font-mono;
+  }
+}
+
+/* Plotly fills parent */
+.js-plotly-plot,
+.plotly {
+  width: 100%;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}

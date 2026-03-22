@@ -4,6 +4,7 @@ import { Outlet, useLocation } from "react-router-dom";
 
 const pageMeta: Record<string, { title: string; description: string }> = {
   "/": { title: "Dashboard", description: "Your spending overview at a glance" },
+  "/accounts": { title: "Accounts", description: "Linked and manual accounts" },
   "/import": { title: "Import CSV", description: "Upload bank statements" },
   "/add-transaction": { title: "Add Transaction", description: "Record a new expense or income" },
   "/transfer": { title: "Transfer", description: "Move money between accounts" },
@@ -15,7 +16,11 @@ const pageMeta: Record<string, { title: string; description: string }> = {
 
 export default function AppLayout() {
   const location = useLocation();
-  const meta = pageMeta[location.pathname] ?? { title: "", description: "" };
+  const meta =
+    pageMeta[location.pathname] ??
+    (location.pathname.startsWith("/accounts/")
+      ? { title: "Account", description: "Balance and activity" }
+      : { title: "", description: "" });
 
   return (
     <SidebarProvider>

@@ -4,6 +4,9 @@ export type TransactionFilterParams = {
   includeTransfers: boolean
   startDate?: string
   endDate?: string
+  accountId?: number
+  limit?: number
+  offset?: number
 }
 
 export const getTransactions = <T,>(params: TransactionFilterParams) => {
@@ -12,6 +15,15 @@ export const getTransactions = <T,>(params: TransactionFilterParams) => {
   if (params.startDate && params.endDate) {
     query.set('start_date', params.startDate)
     query.set('end_date', params.endDate)
+  }
+  if (params.accountId != null) {
+    query.set('account_id', String(params.accountId))
+  }
+  if (params.limit != null) {
+    query.set('limit', String(params.limit))
+  }
+  if (params.offset != null && params.offset > 0) {
+    query.set('offset', String(params.offset))
   }
   return apiGet<T>(`/api/transactions?${query.toString()}`)
 }

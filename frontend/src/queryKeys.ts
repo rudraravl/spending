@@ -1,6 +1,8 @@
 export const queryKeys = {
   dashboard: () => ['dashboard'] as const,
   accounts: () => ['accounts'] as const,
+  accountDetail: (id: number) => ['accounts', 'detail', id] as const,
+  accountSummary: (id: number) => ['accounts', 'summary', id] as const,
   categories: () => ['categories'] as const,
   tags: () => ['tags'] as const,
   rules: () => ['rules'] as const,
@@ -14,6 +16,10 @@ export const queryKeys = {
     endDate?: string
   }) =>
     ['transactions', params.includeTransfers, params.startDate ?? null, params.endDate ?? null] as const,
+
+  /** Transactions scoped to one account (hub / account detail). */
+  transactionsForAccount: (accountId: number, includeTransfers: boolean) =>
+    ['transactions', 'account', accountId, includeTransfers] as const,
 
   splits: (txnId: number) => ['splits', txnId] as const,
 

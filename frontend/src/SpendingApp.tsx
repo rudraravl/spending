@@ -6,6 +6,8 @@ import { Toaster as Sonner } from '@/components/ui/sonner'
 import { Toaster } from '@/components/ui/toaster'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import queryClient from './queryClient'
+import AccountDetailPage from './pages/AccountDetailPage'
+import AccountsPage from './pages/AccountsPage'
 import AddTransactionPage from './pages/AddTransactionPage'
 import AllTransactionsPage from './pages/AllTransactionsPage'
 import DashboardPage from './pages/DashboardPage'
@@ -27,6 +29,8 @@ export default function SpendingApp() {
             <Routes>
               <Route element={<AppLayout />}>
                 <Route path="/" element={<DashboardPage />} />
+                <Route path="/accounts" element={<AccountsPage />} />
+                <Route path="/accounts/:accountId" element={<AccountDetailPage />} />
                 <Route path="/import" element={<ImportCsvPage />} />
                 <Route path="/add-transaction" element={<AddTransactionPage />} />
                 <Route path="/transfer" element={<TransferPage />} />

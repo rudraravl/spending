@@ -7,6 +7,7 @@ from backend.app.deps import get_db_session
 from backend.app.schemas import (
     AccountCreate,
     AccountOut,
+    AccountSummaryOut,
     CategoryCreate,
     CategoryOut,
     SubcategoryCreate,
@@ -15,6 +16,7 @@ from backend.app.schemas import (
     TagOut,
 )
 from db.models import Account, Category, Subcategory, Tag
+from services.account_service import account_ledger_balance
 
 
 router = APIRouter(tags=["entities"])
@@ -24,18 +26,43 @@ def _integrity_error_to_http(detail: str) -> HTTPException:
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
 
 
+def _account_to_out(a: Account) -> AccountOut:
+    return AccountOut(
+        id=a.id,
+        name=a.name,
+        type=a.type,
+        currency=a.currency,
+        created_at=a.created_at,
+        is_linked=bool(a.is_linked),
+        provider=a.provider,
+        external_id=a.external_id,
+        institution_name=a.institution_name,
+        last_synced_at=a.last_synced_at,
+    )
+
+
 @router.get("/api/accounts", response_model=list[AccountOut])
 def list_accounts(session: Session = Depends(get_db_session)) -> list[AccountOut]:
-    return [
-        AccountOut(
-            id=a.id,
-            name=a.name,
-            type=a.type,
-            currency=a.currency,
-            created_at=a.created_at,
-        )
-        for a in session.query(Account).order_by(Account.id.asc()).all()
-    ]
+    return [_account_to_out(a) for a in session.query(Account).order_by(Account.id.asc()).all()]
+
+
+@router.get("/api/accounts/{account_id}", response_model=AccountOut)
+def get_account(account_id: int, session: Session = Depends(get_db_session)) -> AccountOut:
+    account = session.query(Account).filter(Account.id == account_id).first()
+    if not account:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+    return _account_to_out(account)
+
+
+@router.get("/api/accounts/{account_id}/summary", response_model=AccountSummaryOut)
+def get_account_summary(account_id: int, session: Session = Depends(get_db_session)) -> AccountSummaryOut:
+    account = session.query(Account).filter(Account.id == account_id).first()
+    if not account:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+    return AccountSummaryOut(
+        account_id=account_id,
+        balance=account_ledger_balance(session, account_id),
+    )
 
 
 @router.post("/api/accounts", response_model=AccountOut, status_code=status.HTTP_201_CREATED)
@@ -51,17 +78,12 @@ def create_account(
     try:
         session.add(account)
         session.commit()
+        session.refresh(account)
     except Exception as e:  # pragma: no cover (varies by DB)
         session.rollback()
         raise _integrity_error_to_http(str(e)) from e
 
-    return AccountOut(
-        id=account.id,
-        name=account.name,
-        type=account.type,
-        currency=account.currency,
-        created_at=account.created_at,
-    )
+    return _account_to_out(account)
 
 
 @router.delete("/api/accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT)

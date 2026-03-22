@@ -50,6 +50,12 @@ class Account(Base):
     type = Column(String, nullable=False)
     currency = Column(String, nullable=False, server_default="USD")
     created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
+    # Future: bank / Plaid / investment platform linkage (manual accounts keep defaults)
+    is_linked = Column(Boolean, nullable=False, server_default="0", default=False)
+    provider = Column(String, nullable=True)
+    external_id = Column(String, nullable=True)
+    institution_name = Column(String, nullable=True)
+    last_synced_at = Column(DateTime, nullable=True)
 
     # Relationships
     transactions = relationship('Transaction', back_populates='account', cascade='all, delete-orphan')

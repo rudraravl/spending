@@ -14,6 +14,5 @@ export type TransactionRow = {
 }
 
 export type SplitsFormValues = {
-  splitTxnId: number
   splitRows: TransactionSplitIn[]
 }

@@ -1,6 +1,6 @@
 import { Controller, type Control, type FieldArrayWithId, type UseFormSetValue } from 'react-hook-form'
 import type { CategoryOut, SubcategoryOut } from '../../types'
-import type { SplitsFormValues } from './types'
+import type { SplitsFormValues, TransactionRow } from './types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -21,6 +21,8 @@ export type TransactionFormProps = {
   removeSplitRow: (index: number) => void
   appendDefaultSplitRow: () => void
   splitTxnId: number
+  splitTargetRow: TransactionRow | null
+  splitSelectionState: 'none' | 'one' | 'multiple'
   categories: CategoryOut[]
   subcategoriesByCategory: Record<number, SubcategoryOut[]>
   splitsLoading: boolean
@@ -38,6 +40,8 @@ export default function TransactionForm({
   removeSplitRow,
   appendDefaultSplitRow,
   splitTxnId,
+  splitTargetRow,
+  splitSelectionState,
   categories,
   subcategoriesByCategory,
   splitsLoading,
@@ -51,26 +55,34 @@ export default function TransactionForm({
       <Card className="shadow-card">
         <CardHeader>
           <CardTitle className="text-base">Splits</CardTitle>
-          <CardDescription>Edit category splits for a transaction by ID.</CardDescription>
+          <CardDescription>
+            Select exactly one transaction in the table above (checkbox) to load and edit its category splits.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <Label htmlFor="split-txn-id">Transaction ID</Label>
-            <Controller
-              control={splitsControl}
-              name="splitTxnId"
-              render={({ field }) => (
-                <Input
-                  id="split-txn-id"
-                  type="number"
-                  min={0}
-                  className="w-36"
-                  value={field.value || ''}
-                  onChange={(e) => field.onChange(Number(e.target.value))}
-                />
-              )}
-            />
-          </div>
+          {splitSelectionState === 'none' ? (
+            <p className="text-sm text-muted-foreground">Select a transaction using the row checkboxes to edit splits.</p>
+          ) : null}
+          {splitSelectionState === 'multiple' ? (
+            <p className="text-sm text-muted-foreground">
+              Splits apply to one transaction at a time. Leave only one row selected, or clear the selection.
+            </p>
+          ) : null}
+          {splitSelectionState === 'one' && splitTargetRow ? (
+            <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Editing splits for</p>
+              <p className="font-medium tabular-nums">
+                {splitTargetRow.Date}
+                <span className="text-muted-foreground font-normal"> · </span>
+                {splitTargetRow.Merchant || '—'}
+                <span className="text-muted-foreground font-normal"> · </span>
+                {Number(splitTargetRow.Amount).toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </p>
+            </div>
+          ) : null}
 
           {splitErrorMessage ? <p className="text-sm text-destructive">{splitErrorMessage}</p> : null}
           {splitsLoading ? <p className="text-sm text-muted-foreground">Loading splits…</p> : null}

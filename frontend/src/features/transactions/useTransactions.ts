@@ -42,7 +42,6 @@ export function useTransactions() {
 
   const splitsForm = useForm<SplitsFormValues>({
     defaultValues: {
-      splitTxnId: 0,
       splitRows: [],
     },
   })
@@ -51,8 +50,14 @@ export function useTransactions() {
     control: splitsControl,
     name: 'splitRows',
   })
-  const splitTxnId = watchSplits('splitTxnId')
   const splitRows = watchSplits('splitRows')
+
+  const splitTxnId = useMemo(() => {
+    const ids = Object.entries(rowSelection)
+      .filter(([, selected]) => selected)
+      .map(([id]) => Number(id))
+    return ids.length === 1 ? ids[0] : 0
+  }, [rowSelection])
   const [splitError, setSplitError] = useState<string | null>(null)
 
   const accountsQuery = useQuery<AccountOut[], Error>({
@@ -172,7 +177,14 @@ export function useTransactions() {
   const splitsLoading = splitTxnId > 0 && (splitsQuery.isPending || splitsQuery.isFetching)
 
   useEffect(() => {
-    if (!splitsQuery.data) return
+    if (splitTxnId <= 0) {
+      replaceSplitRows([])
+      return
+    }
+    if (!splitsQuery.data) {
+      replaceSplitRows([])
+      return
+    }
     replaceSplitRows(
       splitsQuery.data.map((s) => ({
         category_id: s.category_id,
@@ -181,7 +193,19 @@ export function useTransactions() {
         notes: s.notes ?? null,
       })),
     )
-  }, [splitsQuery.data, replaceSplitRows])
+  }, [splitTxnId, splitsQuery.data, replaceSplitRows])
+
+  const splitTargetRow = useMemo(
+    () => (splitTxnId > 0 ? gridRows.find((r) => r.id === splitTxnId) ?? null : null),
+    [gridRows, splitTxnId],
+  )
+
+  const splitSelectionState = useMemo(() => {
+    const n = Object.values(rowSelection).filter(Boolean).length
+    if (n > 1) return 'multiple' as const
+    if (n === 1) return 'one' as const
+    return 'none' as const
+  }, [rowSelection])
 
   const splitsQueryErrorMessage = splitsQuery.error?.message ?? null
 
@@ -348,6 +372,8 @@ export function useTransactions() {
       removeSplitRow,
       appendDefaultSplitRow,
       splitTxnId,
+      splitTargetRow,
+      splitSelectionState,
       subcategoriesByCategory,
       splitsLoading,
       splitErrorMessage: splitError ?? splitsQueryErrorMessage,

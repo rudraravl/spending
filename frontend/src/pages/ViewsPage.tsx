@@ -4,6 +4,18 @@ import { motion } from 'framer-motion'
 import PlotlyDefault from 'react-plotly.js'
 import { apiGet } from '../api/client'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Separator } from '@/components/ui/separator'
 import { queryKeys } from '../queryKeys'
 import { getAccounts } from '../api/accounts'
 import { getCategories, getSubcategories } from '../api/categories'
@@ -205,98 +217,202 @@ export default function ViewsPage() {
       {error ? <div className="text-sm text-destructive">{error}</div> : null}
       {!data && loading ? <div className="text-sm text-muted-foreground">Loading…</div> : null}
 
-      <div className="rounded-xl border bg-card shadow-card p-4">
-        <div style={{ fontWeight: 700, marginBottom: 10 }}>Filters</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, alignItems: 'end' }}>
-          <label>
-            Quick range
-            <select value={preset} onChange={(e) => setPreset(e.target.value as Preset)} style={{ width: '100%', padding: 10, marginTop: 4 }}>
-              {(['Custom', 'Last 7 days', 'Last 30 days', 'Year to date'] as Preset[]).map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Start date
-            <input type="date" value={startDate} onChange={(e) => { setPreset('Custom'); setStartDate(e.target.value) }} style={{ width: '100%', padding: 10, marginTop: 4 }} />
-          </label>
-          <label>
-            End date
-            <input type="date" value={endDate} onChange={(e) => { setPreset('Custom'); setEndDate(e.target.value) }} style={{ width: '100%', padding: 10, marginTop: 4 }} />
-          </label>
-        </div>
+      <Card className="shadow-card">
+        <CardHeader className="pb-4">
+          <CardTitle className="text-lg">Filters</CardTitle>
+          <CardDescription>Set the reporting window, then narrow by account, category, tags, or amount.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-8">
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold text-foreground tracking-tight">Date range</h2>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="views-preset">Quick range</Label>
+                <Select value={preset} onValueChange={(v) => setPreset(v as Preset)}>
+                  <SelectTrigger id="views-preset" className="w-full">
+                    <SelectValue placeholder="Preset" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(['Custom', 'Last 7 days', 'Last 30 days', 'Year to date'] as Preset[]).map((p) => (
+                      <SelectItem key={p} value={p}>
+                        {p}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="views-start">Start date</Label>
+                <Input
+                  id="views-start"
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => {
+                    setPreset('Custom')
+                    setStartDate(e.target.value)
+                  }}
+                />
+              </div>
+              <div className="space-y-2 sm:col-span-2 lg:col-span-1">
+                <Label htmlFor="views-end">End date</Label>
+                <Input
+                  id="views-end"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => {
+                    setPreset('Custom')
+                    setEndDate(e.target.value)
+                  }}
+                />
+              </div>
+            </div>
+          </section>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginTop: 12 }}>
-          <label>
-            Account (optional)
-            <select value={accountId ?? ''} onChange={(e) => setAccountId(e.target.value ? Number(e.target.value) : null)} style={{ width: '100%', padding: 10, marginTop: 4 }}>
-              <option value="">All</option>
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Category (optional)
-            <select value={categoryId ?? ''} onChange={(e) => { setCategoryId(e.target.value ? Number(e.target.value) : null); }} style={{ width: '100%', padding: 10, marginTop: 4 }}>
-              <option value="">All</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Subcategory (optional)
-            <select value={subcategoryId ?? ''} onChange={(e) => setSubcategoryId(e.target.value ? Number(e.target.value) : null)} style={{ width: '100%', padding: 10, marginTop: 4 }} disabled={!categoryId}>
-              <option value="">All</option>
-              {subcategories.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Tags (optional)
-            <select
-              multiple
-              value={selectedTagIds.map(String)}
-              onChange={(e) => {
-                const selected = Array.from(e.target.selectedOptions).map((o) => Number(o.value))
-                setSelectedTagIds(selected)
-              }}
-              style={{ width: '100%', padding: 10, marginTop: 4, minHeight: 80 }}
-            >
-              {tags.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+          <Separator />
 
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 12 }}>
-          <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input type="checkbox" checked={tagsMatchAny} onChange={(e) => setTagsMatchAny(e.target.checked)} />
-            Match any tag (OR)
-          </label>
-          <label style={{ flex: 1 }}>
-            Min amount (optional)
-            <input type="number" step="0.01" value={minAmount} onChange={(e) => setMinAmount(Number(e.target.value))} style={{ width: '100%', padding: 10, marginTop: 4 }} />
-          </label>
-          <label style={{ flex: 1 }}>
-            Max amount (optional)
-            <input type="number" step="0.01" value={maxAmount} onChange={(e) => setMaxAmount(Number(e.target.value))} style={{ width: '100%', padding: 10, marginTop: 4 }} />
-          </label>
-        </div>
-      </div>
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold text-foreground tracking-tight">Classification</h2>
+            <p className="text-xs text-muted-foreground -mt-1">
+              Optional. Choose All accounts / categories / subcategories to avoid narrowing by classification.
+            </p>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="views-account">Account</Label>
+                <Select
+                  value={accountId != null ? String(accountId) : '__all__'}
+                  onValueChange={(v) => setAccountId(v === '__all__' ? null : Number(v))}
+                >
+                  <SelectTrigger id="views-account">
+                    <SelectValue placeholder="All accounts" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">All accounts</SelectItem>
+                    {accounts.map((a) => (
+                      <SelectItem key={a.id} value={String(a.id)}>
+                        {a.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="views-category">Category</Label>
+                <Select
+                  value={categoryId != null ? String(categoryId) : '__all__'}
+                  onValueChange={(v) => setCategoryId(v === '__all__' ? null : Number(v))}
+                >
+                  <SelectTrigger id="views-category">
+                    <SelectValue placeholder="All categories" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">All categories</SelectItem>
+                    {categories.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="views-subcategory" className={!categoryId ? 'text-muted-foreground' : undefined}>
+                  Subcategory
+                </Label>
+                <Select
+                  value={subcategoryId != null ? String(subcategoryId) : '__all__'}
+                  onValueChange={(v) => setSubcategoryId(v === '__all__' ? null : Number(v))}
+                  disabled={!categoryId}
+                >
+                  <SelectTrigger id="views-subcategory">
+                    <SelectValue placeholder={categoryId ? 'All subcategories' : 'Pick a category first'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">All subcategories</SelectItem>
+                    {subcategories.map((s) => (
+                      <SelectItem key={s.id} value={String(s.id)}>
+                        {s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </section>
+
+          <Separator />
+
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold text-foreground tracking-tight">Tags</h2>
+            <div className="rounded-lg border border-input bg-muted/30 p-3 space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="views-tags">Select tags</Label>
+                <select
+                  id="views-tags"
+                  multiple
+                  value={selectedTagIds.map(String)}
+                  onChange={(e) => {
+                    const selected = Array.from(e.target.selectedOptions).map((o) => Number(o.value))
+                    setSelectedTagIds(selected)
+                  }}
+                  className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {tags.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">Hold Ctrl (Windows) or ⌘ (Mac) to select multiple.</p>
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <Checkbox
+                  id="views-tags-or"
+                  checked={tagsMatchAny}
+                  onCheckedChange={(c) => setTagsMatchAny(c === true)}
+                />
+                <Label htmlFor="views-tags-or" className="text-sm font-normal leading-snug cursor-pointer">
+                  Match any selected tag (OR). When off, transactions must include all selected tags (AND).
+                </Label>
+              </div>
+            </div>
+          </section>
+
+          <Separator />
+
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold text-foreground tracking-tight">Amount</h2>
+            <p className="text-xs text-muted-foreground -mt-1">
+              Leave at 0 or empty for no bound; only positive values filter by amount.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2 max-w-xl">
+              <div className="space-y-2">
+                <Label htmlFor="views-min-amt">Min amount</Label>
+                <Input
+                  id="views-min-amt"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  value={minAmount || ''}
+                  onChange={(e) => setMinAmount(e.target.value === '' ? 0 : Number(e.target.value))}
+                  placeholder="No minimum"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="views-max-amt">Max amount</Label>
+                <Input
+                  id="views-max-amt"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  value={maxAmount || ''}
+                  onChange={(e) => setMaxAmount(e.target.value === '' ? 0 : Number(e.target.value))}
+                  placeholder="No maximum"
+                />
+              </div>
+            </div>
+          </section>
+        </CardContent>
+      </Card>
 
       {data ? (
         <div style={{ marginTop: 16 }}>

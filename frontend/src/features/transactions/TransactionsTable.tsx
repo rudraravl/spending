@@ -555,18 +555,23 @@ export default function TransactionsTable({
 
   return (
     <div className="p-6 lg:p-8">
-      <div className="flex items-center justify-end gap-2 mb-6">
-        <Button variant="outline" size="sm" onClick={onSaveEdits} disabled={savePending || !metaReady}>
-          Save Edits
-        </Button>
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={onDeleteSelected}
-          disabled={getSelectedIds().length === 0 || deletePending || !metaReady}
-        >
-          Delete Selected
-        </Button>
+      <div className="flex flex-col items-end gap-2 mb-6">
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={onSaveEdits} disabled={savePending || !metaReady}>
+            Save Edits
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={onDeleteSelected}
+            disabled={getSelectedIds().length === 0 || deletePending || !metaReady}
+          >
+            Delete Selected
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground text-right max-w-md">
+          Select one row to load the splits editor below.
+        </p>
       </div>
 
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-5">

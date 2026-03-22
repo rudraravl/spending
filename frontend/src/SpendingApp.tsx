@@ -19,7 +19,7 @@ import ViewsPage from './pages/ViewsPage'
 export default function SpendingApp() {
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
+      <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
         <TooltipProvider>
           <Toaster />
           <Sonner />

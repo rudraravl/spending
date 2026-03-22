@@ -67,8 +67,8 @@ export function AppSidebar() {
                 <Wallet className="h-4 w-4 text-sidebar-primary-foreground" />
               </div>
               <div>
-                <h1 className="text-sm font-semibold text-sidebar-accent-foreground">SpendWise</h1>
-                <p className="text-[11px] text-sidebar-foreground">Semester budget tracker</p>
+                <h1 className="text-sm font-semibold text-sidebar-accent-foreground">Spending</h1>
+                <p className="text-[11px] text-sidebar-foreground">Local Budget tracker</p>
               </div>
             </div>
           </div>

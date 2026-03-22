@@ -43,6 +43,8 @@ export default function AllTransactionsPage() {
         removeSplitRow={splits.removeSplitRow}
         appendDefaultSplitRow={splits.appendDefaultSplitRow}
         splitTxnId={splits.splitTxnId}
+        splitTargetRow={splits.splitTargetRow}
+        splitSelectionState={splits.splitSelectionState}
         categories={categories}
         subcategoriesByCategory={splits.subcategoriesByCategory}
         splitsLoading={splits.splitsLoading}

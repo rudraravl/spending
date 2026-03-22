@@ -14,6 +14,7 @@ from db.models import Account, Tag
 from services.trasaction_service import get_transactions
 from backend.app.routers import reports as reports_router
 from services.summary_service import (
+    calculate_gross_spending,
     calculate_total,
     calculate_total_income,
     summarize_by_category,
@@ -100,7 +101,7 @@ def compute_expected_dashboard(
         raise ValueError(f"Unsupported dashboard range: {range_preset}")
 
     filters = TransactionFilter(start_date=start, end_date=end)
-    total_spending = calculate_total(session, filters)
+    total_spending = calculate_gross_spending(session, filters)
     total_income = calculate_total_income(session, filters)
     by_category = summarize_by_category(session, filters)
     by_subcategory = summarize_by_subcategory(session, filters)

@@ -12,6 +12,7 @@ from backend.app.deps import get_db_session
 from db.models import Transaction
 from services.trasaction_service import get_transactions
 from services.summary_service import (
+    calculate_gross_spending,
     calculate_total,
     calculate_total_income,
     summarize_by_category,
@@ -121,7 +122,9 @@ def dashboard(
     start, end = _resolve_dashboard_range(range_preset, start_date, end_date)
     filters = TransactionFilter(start_date=start, end_date=end)
 
-    total_spending = calculate_total(session, filters)
+    # Gross outflows vs credits: sum(amount) would net credits into spending and also
+    # count them in total_income, inflating net = income - spending. Use positive amounts only.
+    total_spending = calculate_gross_spending(session, filters)
     total_income = calculate_total_income(session, filters)
 
     by_category_df = summarize_by_category(session, filters)

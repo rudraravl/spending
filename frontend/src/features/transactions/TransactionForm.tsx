@@ -1,7 +1,17 @@
-import { Button, MenuItem, TextField } from '@mui/material'
 import { Controller, type Control, type FieldArrayWithId, type UseFormSetValue } from 'react-hook-form'
 import type { CategoryOut, SubcategoryOut } from '../../types'
-import type { SplitsFormValues } from './types'
+import type { SplitsFormValues, TransactionRow } from './types'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 export type TransactionFormProps = {
   splitsControl: Control<SplitsFormValues>
@@ -11,6 +21,8 @@ export type TransactionFormProps = {
   removeSplitRow: (index: number) => void
   appendDefaultSplitRow: () => void
   splitTxnId: number
+  splitTargetRow: TransactionRow | null
+  splitSelectionState: 'none' | 'one' | 'multiple'
   categories: CategoryOut[]
   subcategoriesByCategory: Record<number, SubcategoryOut[]>
   splitsLoading: boolean
@@ -28,6 +40,8 @@ export default function TransactionForm({
   removeSplitRow,
   appendDefaultSplitRow,
   splitTxnId,
+  splitTargetRow,
+  splitSelectionState,
   categories,
   subcategoriesByCategory,
   splitsLoading,
@@ -37,125 +51,162 @@ export default function TransactionForm({
   metaReady,
 }: TransactionFormProps) {
   return (
-    <div style={{ marginTop: 22 }}>
-      <div style={{ fontWeight: 700, marginBottom: 8 }}>Splits</div>
-      <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <span>Enter a Transaction ID to edit splits:</span>
-        <Controller
-          control={splitsControl}
-          name="splitTxnId"
-          render={({ field }) => (
-            <TextField
-              type="number"
-              value={field.value}
-              inputProps={{ min: 0 }}
-              onChange={(e) => field.onChange(Number(e.target.value))}
-              size="small"
-              sx={{ width: 140 }}
-            />
-          )}
-        />
-      </div>
+    <div className="px-6 lg:px-8 pb-8 max-w-6xl">
+      <Card className="shadow-card">
+        <CardHeader>
+          <CardTitle className="text-base">Splits</CardTitle>
+          <CardDescription>
+            Select exactly one transaction in the table above (checkbox) to load and edit its category splits.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {splitSelectionState === 'none' ? (
+            <p className="text-sm text-muted-foreground">Select a transaction using the row checkboxes to edit splits.</p>
+          ) : null}
+          {splitSelectionState === 'multiple' ? (
+            <p className="text-sm text-muted-foreground">
+              Splits apply to one transaction at a time. Leave only one row selected, or clear the selection.
+            </p>
+          ) : null}
+          {splitSelectionState === 'one' && splitTargetRow ? (
+            <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Editing splits for</p>
+              <p className="font-medium tabular-nums">
+                {splitTargetRow.Date}
+                <span className="text-muted-foreground font-normal"> · </span>
+                {splitTargetRow.Merchant || '—'}
+                <span className="text-muted-foreground font-normal"> · </span>
+                {Number(splitTargetRow.Amount).toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </p>
+            </div>
+          ) : null}
 
-      {splitErrorMessage ? <div style={{ color: 'crimson' }}>{splitErrorMessage}</div> : null}
-      {splitsLoading ? <div>Loading splits...</div> : null}
+          {splitErrorMessage ? <p className="text-sm text-destructive">{splitErrorMessage}</p> : null}
+          {splitsLoading ? <p className="text-sm text-muted-foreground">Loading splits…</p> : null}
 
-      {splitTxnId > 0 && !splitsLoading && metaReady ? (
-        <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
-          <div style={{ marginBottom: 8, fontWeight: 600 }}>Edit splits</div>
-          {splitFields.map((sf, idx) => {
-            const sr = splitRows[idx] ?? sf
-            const subs = subcategoriesByCategory[sr.category_id] ?? []
-            return (
-              <div
-                key={`${splitTxnId}-${idx}`}
-                style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 0.8fr 1.2fr auto', gap: 8, marginBottom: 8 }}
-              >
-                <Controller
-                  control={splitsControl}
-                  name={`splitRows.${idx}.category_id`}
-                  render={({ field }) => (
-                    <TextField
-                      select
-                      value={field.value}
-                      onChange={(e) => {
-                        const nextCat = Number(e.target.value)
-                        const nextSubs = subcategoriesByCategory[nextCat] ?? []
-                        const nextSub = nextSubs.find((s) => s.id === sr.subcategory_id)?.id ?? nextSubs[0]?.id
-                        field.onChange(nextCat)
-                        setSplitsValue(`splitRows.${idx}.subcategory_id`, nextSub ?? sr.subcategory_id)
-                      }}
-                      size="small"
-                      fullWidth
-                    >
-                      {categories.map((c) => (
-                        <MenuItem key={c.id} value={c.id}>
-                          {c.name}
-                        </MenuItem>
-                      ))}
-                    </TextField>
-                  )}
-                />
-
-                <Controller
-                  control={splitsControl}
-                  name={`splitRows.${idx}.subcategory_id`}
-                  render={({ field }) => (
-                    <TextField select value={field.value} onChange={(e) => field.onChange(Number(e.target.value))} size="small" fullWidth>
-                      {subs.map((s) => (
-                        <MenuItem key={s.id} value={s.id}>
-                          {s.name}
-                        </MenuItem>
-                      ))}
-                    </TextField>
-                  )}
-                />
-
-                <Controller
-                  control={splitsControl}
-                  name={`splitRows.${idx}.amount`}
-                  render={({ field }) => (
-                    <TextField
-                      type="number"
-                      inputProps={{ step: '0.01' }}
-                      value={field.value}
-                      onChange={(e) => field.onChange(Number(e.target.value))}
-                      size="small"
-                      fullWidth
+          {splitTxnId > 0 && !splitsLoading && metaReady ? (
+            <div className="space-y-4 rounded-xl border p-4">
+              <p className="text-sm font-medium">Edit splits</p>
+              {splitFields.map((sf, idx) => {
+                const sr = splitRows[idx] ?? sf
+                const subs = subcategoriesByCategory[sr.category_id] ?? []
+                return (
+                  <div
+                    key={`${splitTxnId}-${idx}`}
+                    className="grid grid-cols-1 md:grid-cols-[1fr_1fr_minmax(0,100px)_1fr_auto] gap-3 items-end"
+                  >
+                    <Controller
+                      control={splitsControl}
+                      name={`splitRows.${idx}.category_id`}
+                      render={({ field }) => (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Category</Label>
+                          <Select
+                            value={String(field.value)}
+                            onValueChange={(v) => {
+                              const nextCat = Number(v)
+                              const nextSubs = subcategoriesByCategory[nextCat] ?? []
+                              const nextSub =
+                                nextSubs.find((s) => s.id === sr.subcategory_id)?.id ?? nextSubs[0]?.id
+                              field.onChange(nextCat)
+                              setSplitsValue(`splitRows.${idx}.subcategory_id`, nextSub ?? sr.subcategory_id)
+                            }}
+                          >
+                            <SelectTrigger className="h-9">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {categories.map((c) => (
+                                <SelectItem key={c.id} value={String(c.id)}>
+                                  {c.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
                     />
-                  )}
-                />
 
-                <Controller
-                  control={splitsControl}
-                  name={`splitRows.${idx}.notes`}
-                  render={({ field }) => (
-                    <TextField
-                      value={field.value ?? ''}
-                      onChange={(e) => field.onChange(e.target.value ? e.target.value : null)}
-                      placeholder="Notes"
-                      size="small"
-                      fullWidth
+                    <Controller
+                      control={splitsControl}
+                      name={`splitRows.${idx}.subcategory_id`}
+                      render={({ field }) => (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Subcategory</Label>
+                          <Select
+                            value={String(field.value)}
+                            onValueChange={(v) => field.onChange(Number(v))}
+                          >
+                            <SelectTrigger className="h-9">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {subs.map((s) => (
+                                <SelectItem key={s.id} value={String(s.id)}>
+                                  {s.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
                     />
-                  )}
-                />
 
-                <Button color="error" variant="outlined" onClick={() => removeSplitRow(idx)}>
-                  Remove
+                    <Controller
+                      control={splitsControl}
+                      name={`splitRows.${idx}.amount`}
+                      render={({ field }) => (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Amount</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            className="h-9"
+                            value={field.value}
+                            onChange={(e) => field.onChange(Number(e.target.value))}
+                          />
+                        </div>
+                      )}
+                    />
+
+                    <Controller
+                      control={splitsControl}
+                      name={`splitRows.${idx}.notes`}
+                      render={({ field }) => (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Notes</Label>
+                          <Input
+                            className="h-9"
+                            value={field.value ?? ''}
+                            placeholder="Notes"
+                            onChange={(e) => field.onChange(e.target.value ? e.target.value : null)}
+                          />
+                        </div>
+                      )}
+                    />
+
+                    <Button type="button" variant="outline" size="sm" onClick={() => removeSplitRow(idx)}>
+                      Remove
+                    </Button>
+                  </div>
+                )
+              })}
+
+              <div className="flex flex-wrap gap-2 pt-2">
+                <Button type="button" variant="outline" size="sm" onClick={appendDefaultSplitRow}>
+                  Add split row
+                </Button>
+                <Button type="button" size="sm" onClick={onSaveSplits} disabled={saveSplitsPending || !metaReady}>
+                  Save splits
                 </Button>
               </div>
-            )
-          })}
-
-          <Button variant="outlined" onClick={appendDefaultSplitRow}>
-            Add split row
-          </Button>
-
-          <Button variant="contained" sx={{ marginLeft: 1 }} onClick={onSaveSplits} disabled={saveSplitsPending || !metaReady}>
-            Save splits
-          </Button>
-        </div>
-      ) : null}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
     </div>
   )
 }

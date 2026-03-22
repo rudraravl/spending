@@ -1,13 +1,11 @@
 import { useState, type CSSProperties } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import PlotlyDefault from 'react-plotly.js'
-import PageHeader from '../components/PageHeader'
+import { motion } from 'framer-motion'
+import { PlotlyComponent as Plot, plotlyComponentOk } from '../components/charts/plotlyShared'
+import { Button } from '@/components/ui/button'
 import { apiGet } from '../api/client'
 
-// `react-plotly.js` is CJS; depending on bundler interop, the React component can be nested under one or more `default` keys.
-const Plot: any =
-  (PlotlyDefault as any)?.default?.default ?? (PlotlyDefault as any)?.default ?? PlotlyDefault
-
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic API row shape from summaries endpoint
 type SummaryRow = Record<string, any>
 
 type SummariesResponse = {
@@ -30,13 +28,6 @@ const grid2: CSSProperties = {
   gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
   gap: 16,
   marginTop: 16,
-}
-
-const panel: CSSProperties = {
-  minWidth: 0,
-  border: '1px solid var(--border)',
-  borderRadius: 14,
-  padding: 12,
 }
 
 const tableFixed: CSSProperties = {
@@ -93,6 +84,8 @@ function Pie({
           autosize: true,
           margin: { t: 30, b: 10, l: 10, r: 10 },
           showlegend: false,
+          paper_bgcolor: 'transparent',
+          plot_bgcolor: 'transparent',
         }}
         style={{ width: '100%', height: '100%' }}
         config={{ displayModeBar: false, responsive: true }}
@@ -122,7 +115,7 @@ function ChartPlaceholder({ message }: { message: string }) {
 
 export default function SummariesPage() {
   const [tab, setTab] = useState<(typeof rangeMap)[number]['key']>('month')
-  const plotOk = typeof Plot === 'function' || (typeof Plot === 'object' && Boolean((Plot as any)?.$$typeof))
+  const plotOk = plotlyComponentOk(Plot)
 
   const { data, error, isPending, isFetching } = useQuery<SummariesResponse, Error>({
     queryKey: ['summaries', tab],
@@ -134,14 +127,13 @@ export default function SummariesPage() {
   const loadFailed = Boolean(error) && !data
 
   return (
-    <div className="sp-page">
-      <PageHeader
-        icon="📊"
-        title="Summaries"
-        subtitle="Jump straight to month, year, or semester overviews."
-      />
+    <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+        <h1 className="text-2xl font-semibold mb-1">Summaries</h1>
+        <p className="text-muted-foreground mb-0">Jump straight to month, year, or semester overviews.</p>
+      </motion.div>
 
-      {error ? <div style={{ color: 'crimson' }}>{error.message}</div> : null}
+      {error ? <div className="text-sm text-destructive">{error.message}</div> : null}
 
       {loadFailed ? (
         <div style={{ marginTop: 12, opacity: 0.85 }}>Unable to load summaries.</div>
@@ -149,28 +141,24 @@ export default function SummariesPage() {
 
       {loadFailed ? null : (
       <div style={{ opacity: awaitingData ? 0.72 : 1, transition: 'opacity 0.15s ease' }}>
-        <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className="flex flex-wrap gap-2 mb-4 items-center">
           {rangeMap.map((t) => (
-            <button
+            <Button
               key={t.key}
               type="button"
+              variant={tab === t.key ? 'default' : 'outline'}
+              size="sm"
               onClick={() => setTab(t.key)}
-              style={{
-                padding: '10px 14px',
-                borderRadius: 12,
-                border: tab === t.key ? '2px solid var(--accent-border)' : '1px solid var(--border)',
-                background: tab === t.key ? 'rgba(170, 59, 255, 0.12)' : 'transparent',
-              }}
             >
               {t.label}
-            </button>
+            </Button>
           ))}
           {isFetching && data ? (
             <span style={{ fontSize: 13, opacity: 0.75 }}>Updating…</span>
           ) : null}
         </div>
 
-        <div style={{ ...panel, marginBottom: 0 }}>
+        <div className="rounded-xl border bg-card shadow-card p-4 min-w-0 mb-0">
           <div style={{ fontWeight: 700, marginBottom: 6 }}>Total Spend</div>
           {awaitingData ? (
             <div style={{ fontSize: 26, opacity: 0.5 }}>—</div>
@@ -183,7 +171,7 @@ export default function SummariesPage() {
         </div>
 
         <div style={grid2}>
-          <div style={panel}>
+          <div className="rounded-xl border bg-card shadow-card p-4 min-w-0">
             <div style={{ fontWeight: 700, marginBottom: 8 }}>By Tag</div>
             <div style={{ overflow: 'auto' }}>
               <table style={tableFixed}>
@@ -230,7 +218,7 @@ export default function SummariesPage() {
               </table>
             </div>
           </div>
-          <div style={panel}>
+          <div className="rounded-xl border bg-card shadow-card p-4 min-w-0">
             <div style={{ fontWeight: 700, marginBottom: 8 }}>Spend by Tag</div>
             {awaitingData ? (
               <ChartPlaceholder message="Loading chart…" />
@@ -248,7 +236,7 @@ export default function SummariesPage() {
         </div>
 
         <div style={grid2}>
-          <div style={panel}>
+          <div className="rounded-xl border bg-card shadow-card p-4 min-w-0">
             <div style={{ fontWeight: 700, marginBottom: 8 }}>By Category</div>
             <div style={{ overflow: 'auto' }}>
               <table style={tableFixed}>
@@ -295,7 +283,7 @@ export default function SummariesPage() {
               </table>
             </div>
           </div>
-          <div style={panel}>
+          <div className="rounded-xl border bg-card shadow-card p-4 min-w-0">
             <div style={{ fontWeight: 700, marginBottom: 8 }}>Spend by Category</div>
             {awaitingData ? (
               <ChartPlaceholder message="Loading chart…" />
@@ -313,7 +301,7 @@ export default function SummariesPage() {
         </div>
 
         <div style={grid2}>
-          <div style={panel}>
+          <div className="rounded-xl border bg-card shadow-card p-4 min-w-0">
             <div style={{ fontWeight: 700, marginBottom: 8 }}>By Subcategory</div>
             <div style={{ overflow: 'auto' }}>
               <table style={tableFixed}>
@@ -365,7 +353,7 @@ export default function SummariesPage() {
               </table>
             </div>
           </div>
-          <div style={panel}>
+          <div className="rounded-xl border bg-card shadow-card p-4 min-w-0">
             <div style={{ fontWeight: 700, marginBottom: 8 }}>Spend by Subcategory</div>
             {awaitingData ? (
               <ChartPlaceholder message="Loading chart…" />

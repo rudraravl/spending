@@ -10,10 +10,14 @@ from fastapi.testclient import TestClient
 
 from backend.main import app
 from db.database import close_session, get_session, init_db
-from db.models import Account, Tag, Transaction
+from db.models import Account, Tag
 from services.trasaction_service import get_transactions
+from backend.app.routers import reports as reports_router
 from services.summary_service import (
+    PAYMENT_SUBCATEGORY_NAMES,
+    calculate_gross_spending,
     calculate_total,
+    calculate_total_income,
     summarize_by_category,
     summarize_by_subcategory,
     summarize_by_tag,
@@ -23,6 +27,7 @@ from utils.semester import (
     get_current_month_range,
     get_current_semester_range,
     get_current_year_range,
+    get_last_month_range,
 )
 
 
@@ -76,26 +81,57 @@ def _assert_records_match(got: list[dict[str, object]], exp: list[dict[str, obje
             _assert_close(g[k], e[k], eps=float_eps)
 
 
-def compute_expected_dashboard(session) -> dict[str, object]:
-    today = date.today()
-    total_all_time_spend = calculate_total(session)
-    month_start, month_end = get_current_month_range()
-    month_filters = TransactionFilter(start_date=month_start, end_date=month_end)
-    current_month_spend = calculate_total(session, month_filters)
-    total_transactions = session.query(Transaction).count()
+def compute_expected_dashboard(
+    session,
+    range_preset: str,
+    *,
+    custom_start: date | None = None,
+    custom_end: date | None = None,
+) -> dict[str, object]:
+    if range_preset == "this_month":
+        start, end = get_current_month_range()
+    elif range_preset == "last_month":
+        start, end = get_last_month_range()
+    elif range_preset == "year":
+        start, end = get_current_year_range()
+    elif range_preset == "custom":
+        if not custom_start or not custom_end:
+            raise ValueError("custom_start and custom_end required for custom range")
+        start, end = custom_start, custom_end
+    else:
+        raise ValueError(f"Unsupported dashboard range: {range_preset}")
 
-    start_30 = today - timedelta(days=30)
-    trend_filters = TransactionFilter(start_date=start_30, end_date=today)
-    trend_txns = get_transactions(session, filters=trend_filters, include_transfers=False)
+    filters = TransactionFilter(start_date=start, end_date=end)
+    total_spending = calculate_gross_spending(session, filters)
+    total_income = calculate_total_income(session, filters)
+    by_category = summarize_by_category(session, filters)
+    by_subcategory = summarize_by_subcategory(session, filters)
+
+    trend_txns = get_transactions(session, filters=filters, include_transfers=False)
     daily: dict[date, float] = {}
     for t in trend_txns:
+        sub = t.subcategory.name.lower() if t.subcategory and t.subcategory.name else ""
+        if sub in PAYMENT_SUBCATEGORY_NAMES:
+            continue
         daily[t.date] = daily.get(t.date, 0.0) + float(t.amount)
-    recent_trend = [{"date": d.isoformat(), "amount": amt} for d, amt in sorted(daily.items(), key=lambda x: x[0])]
+    spending_over_time = [
+        {"date": d.isoformat(), "amount": amt}
+        for d, amt in sorted(daily.items(), key=lambda x: x[0])
+    ]
+
+    recent_txns = get_transactions(session, limit=10, include_transfers=False)
+    recent_transactions = [reports_router._transaction_table_row(t) for t in recent_txns]
+
     return {
-        "total_all_time_spend": total_all_time_spend,
-        "current_month_spend": current_month_spend,
-        "total_transactions": total_transactions,
-        "recent_trend": recent_trend,
+        "range": range_preset,
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
+        "total_spending": total_spending,
+        "total_income": total_income,
+        "by_category": _df_to_records(by_category),
+        "by_subcategory": _df_to_records(by_subcategory),
+        "spending_over_time": spending_over_time,
+        "recent_transactions": recent_transactions,
     }
 
 
@@ -179,12 +215,18 @@ def main() -> None:
         tag_ids = [tags[0].id] if tags else []
 
         # --- Dashboard ---
-        got_dashboard = client.get("/api/dashboard").json()
-        exp_dashboard = compute_expected_dashboard(session)
-        _assert_close(got_dashboard["total_all_time_spend"], exp_dashboard["total_all_time_spend"])
-        _assert_close(got_dashboard["current_month_spend"], exp_dashboard["current_month_spend"])
-        _assert_close(got_dashboard["total_transactions"], exp_dashboard["total_transactions"])
-        _assert_records_match(got_dashboard["recent_trend"], exp_dashboard["recent_trend"])
+        for preset in ("this_month", "last_month"):
+            got_dashboard = client.get(f"/api/dashboard?range={preset}").json()
+            exp_dashboard = compute_expected_dashboard(session, preset)
+            _assert_close(got_dashboard["range"], exp_dashboard["range"])
+            _assert_close(got_dashboard["start_date"], exp_dashboard["start_date"])
+            _assert_close(got_dashboard["end_date"], exp_dashboard["end_date"])
+            _assert_close(got_dashboard["total_spending"], exp_dashboard["total_spending"])
+            _assert_close(got_dashboard["total_income"], exp_dashboard["total_income"])
+            _assert_records_match(got_dashboard["by_category"], exp_dashboard["by_category"])
+            _assert_records_match(got_dashboard["by_subcategory"], exp_dashboard["by_subcategory"])
+            _assert_records_match(got_dashboard["spending_over_time"], exp_dashboard["spending_over_time"])
+            _assert_records_match(got_dashboard["recent_transactions"], exp_dashboard["recent_transactions"])
 
         # --- Summaries ---
         for range_type in ["month", "year", "semester"]:

@@ -1,12 +1,30 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button, MenuItem, TextField } from '@mui/material'
 import { Controller, useForm } from 'react-hook-form'
-import PageHeader from '../components/PageHeader'
+import { motion } from 'framer-motion'
+import { Upload } from 'lucide-react'
 import FeedbackDialog from '../components/FeedbackDialog'
 import { apiGet, apiPostForm } from '../api/client'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '../queryKeys'
 import { getAccounts } from '../api/accounts'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 
 import type { AccountOut } from '../types'
 
@@ -105,6 +123,7 @@ export default function ImportCsvPage() {
   const previewError = previewQuery.error?.message ?? null
 
   const genericColumns = useMemo(() => preview?.raw_columns ?? [], [preview])
+  const previewKeys = useMemo(() => Object.keys(preview?.preview_rows[0] ?? {}), [preview])
 
   useEffect(() => {
     if (accountId != null) return
@@ -160,214 +179,235 @@ export default function ImportCsvPage() {
   })
 
   return (
-    <div className="sp-page">
-      <PageHeader
-        icon="📥"
-        title="Import CSV"
-        subtitle="Bring in transactions from your bank or card statements."
-      />
+    <div className="p-6 lg:p-8 max-w-6xl mx-auto">
+      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+        <h1 className="text-2xl font-semibold mb-1">Import CSV</h1>
+        <p className="text-muted-foreground mb-8">Import transactions from your bank or card statement.</p>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        <div>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>Step 1 · Account</div>
-          <Controller
-            control={control}
-            name="account_id"
-            render={({ field }) => (
-              <TextField
-                select
-                label="Account"
-                value={field.value ?? ''}
-                onChange={(e) => field.onChange(Number(e.target.value))}
-                fullWidth
-                sx={{ marginBottom: 2 }}
-              >
-                {accounts.map((a) => (
-                  <MenuItem key={a.id} value={a.id}>
-                    {a.name}
-                  </MenuItem>
-                ))}
-              </TextField>
-            )}
-          />
-
-          <div style={{ fontWeight: 700, margin: '16px 0 8px' }}>Step 2 · Format</div>
-          <Controller
-            control={control}
-            name="adapter_name"
-            render={({ field }) => (
-              <TextField
-                select
-                label="Adapter"
-                value={field.value}
-                onChange={field.onChange}
-                fullWidth
-                sx={{ marginBottom: 2 }}
-              >
-                {adapters.map((a) => (
-                  <MenuItem key={a} value={a}>
-                    {a}
-                  </MenuItem>
-                ))}
-              </TextField>
-            )}
-          />
-
-          <div style={{ fontWeight: 700, margin: '16px 0 8px' }}>Step 3 · File</div>
-          <Button component="label" variant="outlined" sx={{ display: 'block', mb: 1 }}>
-            Choose CSV file
-            <input
-              type="file"
-              accept=".csv"
-              hidden
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            />
-          </Button>
-          {file ? <div style={{ fontSize: 14, opacity: 0.85 }}>{file.name}</div> : null}
-
-          {isGeneric && preview && preview.raw_columns.length > 0 ? (
-            <div style={{ marginTop: 12 }}>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>Generic column mapping</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="space-y-6">
+            <Card className="shadow-card">
+              <CardHeader>
+                <CardTitle className="text-base">Step 1 · Account</CardTitle>
+                <CardDescription>Choose the account these transactions belong to.</CardDescription>
+              </CardHeader>
+              <CardContent>
                 <Controller
                   control={control}
-                  name="generic_date_col"
+                  name="account_id"
                   render={({ field }) => (
-                    <TextField
-                      select
-                      label="Date column"
-                      value={field.value}
-                      onChange={field.onChange}
-                      fullWidth
-                    >
-                      <MenuItem value="" disabled>
-                        Select
-                      </MenuItem>
-                      {genericColumns.map((c) => (
-                        <MenuItem key={c} value={c}>
-                          {c}
-                        </MenuItem>
-                      ))}
-                    </TextField>
+                    <div className="space-y-2">
+                      <Label>Account</Label>
+                      <Select
+                        value={field.value != null ? String(field.value) : ''}
+                        onValueChange={(v) => field.onChange(Number(v))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select account" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {accounts.map((a) => (
+                            <SelectItem key={a.id} value={String(a.id)}>
+                              {a.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   )}
                 />
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-card">
+              <CardHeader>
+                <CardTitle className="text-base">Step 2 · Format</CardTitle>
+                <CardDescription>Pick a bank-specific parser or use the generic CSV adapter.</CardDescription>
+              </CardHeader>
+              <CardContent>
                 <Controller
                   control={control}
-                  name="generic_amount_col"
+                  name="adapter_name"
                   render={({ field }) => (
-                    <TextField
-                      select
-                      label="Amount column"
-                      value={field.value}
-                      onChange={field.onChange}
-                      fullWidth
-                    >
-                      <MenuItem value="" disabled>
-                        Select
-                      </MenuItem>
-                      {genericColumns.map((c) => (
-                        <MenuItem key={c} value={c}>
-                          {c}
-                        </MenuItem>
-                      ))}
-                    </TextField>
+                    <div className="space-y-2">
+                      <Label>Adapter</Label>
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {adapters.map((a) => (
+                            <SelectItem key={a} value={a}>
+                              {a}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   )}
                 />
-                <Controller
-                  control={control}
-                  name="generic_merchant_col"
-                  render={({ field }) => (
-                    <TextField
-                      select
-                      label="Merchant column"
-                      value={field.value}
-                      onChange={field.onChange}
-                      fullWidth
-                    >
-                      <MenuItem value="" disabled>
-                        Select
-                      </MenuItem>
-                      {genericColumns.map((c) => (
-                        <MenuItem key={c} value={c}>
-                          {c}
-                        </MenuItem>
-                      ))}
-                    </TextField>
-                  )}
-                />
-              </div>
-            </div>
-          ) : null}
-        </div>
+              </CardContent>
+            </Card>
 
-        <div>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>Preview & import</div>
-          {previewError ? (
-            <div style={{ color: 'crimson' }}>{previewError}</div>
-          ) : null}
+            <Card className="shadow-card">
+              <CardHeader>
+                <CardTitle className="text-base">Step 3 · File</CardTitle>
+                <CardDescription>Upload your CSV file and preview parsed transactions.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <label className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/30 p-8 cursor-pointer hover:bg-muted/50 transition-colors">
+                  <Upload className="h-10 w-10 text-muted-foreground/50 mb-3" />
+                  <p className="text-sm font-medium text-muted-foreground">Choose CSV file</p>
+                  <p className="text-xs text-muted-foreground/70 mt-1">or drop here (click to browse)</p>
+                  <input
+                    type="file"
+                    accept=".csv"
+                    className="sr-only"
+                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                  />
+                </label>
+                {file ? <p className="text-sm text-muted-foreground">{file.name}</p> : null}
 
-          {preview ? (
-            <div>
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ fontWeight: 600 }}>Rows detected</div>
-                <div>{preview.rows_detected}</div>
-              </div>
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ fontWeight: 600 }}>Date range</div>
-                <div>
-                  {preview.inferred_date_range ? (
-                    <>
-                      {preview.inferred_date_range.min_date} → {preview.inferred_date_range.max_date}
-                    </>
+                {isGeneric && preview && preview.raw_columns.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <Controller
+                      control={control}
+                      name="generic_date_col"
+                      render={({ field }) => (
+                        <div className="space-y-2">
+                          <Label>Date column</Label>
+                          <Select value={field.value || undefined} onValueChange={field.onChange}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {genericColumns.map((c) => (
+                                <SelectItem key={c} value={c}>
+                                  {c}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                    />
+                    <Controller
+                      control={control}
+                      name="generic_amount_col"
+                      render={({ field }) => (
+                        <div className="space-y-2">
+                          <Label>Amount column</Label>
+                          <Select value={field.value || undefined} onValueChange={field.onChange}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {genericColumns.map((c) => (
+                                <SelectItem key={c} value={c}>
+                                  {c}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                    />
+                    <Controller
+                      control={control}
+                      name="generic_merchant_col"
+                      render={({ field }) => (
+                        <div className="space-y-2">
+                          <Label>Merchant column</Label>
+                          <Select value={field.value || undefined} onValueChange={field.onChange}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {genericColumns.map((c) => (
+                                <SelectItem key={c} value={c}>
+                                  {c}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                    />
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card className="shadow-card min-h-[320px]">
+            <CardHeader>
+              <CardTitle className="text-base">Preview & import</CardTitle>
+              <CardDescription>Live preview after file and options are set.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {previewError ? <p className="text-sm text-destructive mb-4">{previewError}</p> : null}
+
+              {preview ? (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-sm font-medium">Rows detected</p>
+                    <p className="text-sm text-muted-foreground">{preview.rows_detected}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Date range</p>
+                    <p className="text-sm text-muted-foreground">
+                      {preview.inferred_date_range ? (
+                        <>
+                          {preview.inferred_date_range.min_date} → {preview.inferred_date_range.max_date}
+                        </>
+                      ) : (
+                        'Not detected'
+                      )}
+                    </p>
+                  </div>
+
+                  <div className="max-h-[300px] overflow-auto rounded-lg border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          {previewKeys.map((k) => (
+                            <TableHead key={k} className="text-xs">
+                              {k}
+                            </TableHead>
+                          ))}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {preview.preview_rows.map((row, idx) => (
+                          <TableRow key={idx}>
+                            {previewKeys.map((k) => (
+                              <TableCell key={k} className="text-xs">
+                                {String((row as Record<string, unknown>)[k] ?? '')}
+                              </TableCell>
+                            ))}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  {accountId ? (
+                    <Button onClick={() => importMutation.mutate()} disabled={importMutation.isPending}>
+                      Confirm import
+                    </Button>
                   ) : (
-                    'Not detected'
+                    <p className="text-sm text-muted-foreground">Create/select an account first.</p>
                   )}
                 </div>
-              </div>
-
-              <div style={{ maxHeight: 300, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 10 }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr>
-                      {Object.keys(preview.preview_rows[0] ?? {}).map((k) => (
-                        <th key={k} style={{ padding: 8, borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
-                          {k}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {preview.preview_rows.map((row, idx) => (
-                      <tr key={idx}>
-                        {Object.keys(preview.preview_rows[0] ?? {}).map((k) => (
-                          <td key={k} style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>
-                            {String((row as Record<string, unknown>)[k] ?? '')}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {accountId ? (
-                <Button
-                  variant="contained"
-                  sx={{ marginTop: 1.5 }}
-                  onClick={() => importMutation.mutate()}
-                  disabled={importMutation.isPending}
-                >
-                  Confirm import
-                </Button>
               ) : (
-                <div style={{ marginTop: 10 }}>Create/select an account first.</div>
+                <p className="text-sm text-muted-foreground">
+                  Choose an account, format, and file to see a live preview here.
+                </p>
               )}
-            </div>
-          ) : (
-            <div>Choose an account, format, and file to see a live preview here.</div>
-          )}
+            </CardContent>
+          </Card>
         </div>
-      </div>
+      </motion.div>
 
       <FeedbackDialog
         open={feedbackOpen}

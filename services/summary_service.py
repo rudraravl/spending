@@ -11,7 +11,7 @@ Provides:
 from typing import List, Optional, Dict, Tuple
 import pandas as pd
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, union_all
+from sqlalchemy import func, and_, union_all, case
 from db.models import Transaction, Tag, Category, Subcategory, TransactionSplit
 from utils.filters import TransactionFilter
 
@@ -121,7 +121,10 @@ def calculate_total(
     filters: Optional[TransactionFilter] = None,
 ) -> float:
     """
-    Calculate total spending for transactions matching filters.
+    Net sum of all matching transaction amounts (debits and credits together).
+
+    Positive amounts add; negative amounts (credits) subtract. For dashboard-style
+    gross spending that pairs with calculate_total_income, use calculate_gross_spending.
 
     NOTE: Transactions in the Payments subcategory are excluded from totals.
 
@@ -130,7 +133,7 @@ def calculate_total(
         filters: TransactionFilter object
 
     Returns:
-        Total amount (sum of matching transaction amounts excluding Payments subcategory)
+        Net total (sum of matching transaction amounts excluding Payments subcategory)
     """
     query = session.query(func.sum(Transaction.amount))
     query = _exclude_non_spend_transactions(query)
@@ -167,6 +170,109 @@ def calculate_total(
         if filters.subcategory_id:
             query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
     
+    result = query.scalar()
+    return float(result) if result else 0.0
+
+
+def calculate_gross_spending(
+    session: Session,
+    filters: Optional[TransactionFilter] = None,
+) -> float:
+    """
+    Sum of outflows (debits) only in the app's sign convention: positive amounts are spending.
+
+    Credits (negative amounts) are excluded so they are not double-counted with
+    calculate_total_income when computing net as income - spending on the dashboard.
+
+    Uses the same exclusions as calculate_total (no transfers, no Payments subcategory).
+    """
+    gross = func.coalesce(
+        func.sum(case((Transaction.amount > 0, Transaction.amount), else_=0.0)),
+        0.0,
+    )
+    query = session.query(gross)
+    query = _exclude_non_spend_transactions(query)
+
+    if filters:
+        if filters.start_date:
+            query = query.filter(Transaction.date >= filters.start_date)
+
+        if filters.end_date:
+            query = query.filter(Transaction.date <= filters.end_date)
+
+        if filters.account_id:
+            query = query.filter(Transaction.account_id == filters.account_id)
+
+        if filters.min_amount is not None:
+            query = query.filter(Transaction.amount >= filters.min_amount)
+
+        if filters.max_amount is not None:
+            query = query.filter(Transaction.amount <= filters.max_amount)
+
+        if filters.tag_ids:
+            if getattr(filters, "tags_match_any", False):
+                query = query.filter(Transaction.tags.any(Tag.id.in_(filters.tag_ids)))
+            else:
+                for tag_id in filters.tag_ids:
+                    query = query.filter(Transaction.tags.any(Tag.id == tag_id))
+
+        if filters.category_id:
+            query = query.filter(Transaction.category_id == filters.category_id)
+
+        if filters.subcategory_id:
+            query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
+
+    result = query.scalar()
+    return float(result) if result else 0.0
+
+
+def calculate_total_income(
+    session: Session,
+    filters: Optional[TransactionFilter] = None,
+) -> float:
+    """
+    Sum of inflows (credits) in the app's sign convention: negative amounts are credits.
+
+    Uses the same exclusions as calculate_total (no transfers, no Payments subcategory).
+    Returns a non-negative float for display.
+    """
+    # Sum of (-amount) for rows where amount < 0, else 0
+    inflow = func.coalesce(
+        func.sum(case((Transaction.amount < 0, -Transaction.amount), else_=0.0)),
+        0.0,
+    )
+    query = session.query(inflow)
+    query = _exclude_non_spend_transactions(query)
+
+    if filters:
+        if filters.start_date:
+            query = query.filter(Transaction.date >= filters.start_date)
+
+        if filters.end_date:
+            query = query.filter(Transaction.date <= filters.end_date)
+
+        if filters.account_id:
+            query = query.filter(Transaction.account_id == filters.account_id)
+
+        if filters.min_amount is not None:
+            query = query.filter(Transaction.amount >= filters.min_amount)
+
+        if filters.max_amount is not None:
+            query = query.filter(Transaction.amount <= filters.max_amount)
+
+        if filters.tag_ids:
+            if getattr(filters, "tags_match_any", False):
+                query = query.filter(Transaction.tags.any(Tag.id.in_(filters.tag_ids)))
+            else:
+                for tag_id in filters.tag_ids:
+                    query = query.filter(Transaction.tags.any(Tag.id == tag_id))
+
+        if filters.category_id:
+            query = query.filter(Transaction.category_id == filters.category_id)
+
+        if filters.subcategory_id:
+            query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
+
     result = query.scalar()
     return float(result) if result else 0.0
 
@@ -301,30 +407,36 @@ def summarize_by_category(
 
     agg_q = (
         session.query(
+            combined.c.category_id,
             combined.c.category,
             func.sum(combined.c.amount).label("total"),
             func.count().label("count"),
         )
-        .group_by(combined.c.category)
+        .group_by(combined.c.category_id, combined.c.category)
         .order_by(func.sum(combined.c.amount).desc())
     )
 
     results = agg_q.all()
 
     data = [
-        {"category": row.category, "total": row.total, "count": row.count}
+        {
+            "category_id": row.category_id,
+            "category": row.category,
+            "total": row.total,
+            "count": row.count,
+        }
         for row in results
     ]
 
     df = pd.DataFrame(data)
     if len(df) == 0:
-        return pd.DataFrame(columns=["category", "total", "count", "percent"])
+        return pd.DataFrame(columns=["category_id", "category", "total", "count", "percent"])
 
     total = df["total"].sum()
     df["percent"] = (df["total"] / total * 100).round(2) if total > 0 else 0.0
     df = df.sort_values("total", ascending=False).reset_index(drop=True)
 
-    return df[["category", "total", "count", "percent"]]
+    return df[["category_id", "category", "total", "count", "percent"]]
 
 
 def summarize_by_subcategory(
@@ -340,6 +452,7 @@ def summarize_by_subcategory(
     # 1) Rows from splits
     split_q = (
         session.query(
+            Category.id.label("category_id"),
             Category.name.label("category"),
             Subcategory.name.label("subcategory"),
             TransactionSplit.amount.label("amount"),
@@ -355,6 +468,7 @@ def summarize_by_subcategory(
     # 2) Rows from unsplit transactions
     base_q = (
         session.query(
+            Category.id.label("category_id"),
             Category.name.label("category"),
             Subcategory.name.label("subcategory"),
             Transaction.amount.label("amount"),
@@ -371,12 +485,17 @@ def summarize_by_subcategory(
 
     agg_q = (
         session.query(
+            combined.c.category_id,
             combined.c.category,
             combined.c.subcategory,
             func.sum(combined.c.amount).label("total"),
             func.count().label("count"),
         )
-        .group_by(combined.c.category, combined.c.subcategory)
+        .group_by(
+            combined.c.category_id,
+            combined.c.category,
+            combined.c.subcategory,
+        )
         .order_by(func.sum(combined.c.amount).desc())
     )
 
@@ -384,6 +503,7 @@ def summarize_by_subcategory(
 
     data = [
         {
+            "category_id": row.category_id,
             "category": row.category,
             "subcategory": row.subcategory,
             "total": row.total,
@@ -395,14 +515,23 @@ def summarize_by_subcategory(
     df = pd.DataFrame(data)
     if len(df) == 0:
         return pd.DataFrame(
-            columns=["category", "subcategory", "total", "count", "percent"]
+            columns=[
+                "category_id",
+                "category",
+                "subcategory",
+                "total",
+                "count",
+                "percent",
+            ]
         )
 
     total = df["total"].sum()
     df["percent"] = (df["total"] / total * 100).round(2) if total > 0 else 0.0
     df = df.sort_values("total", ascending=False).reset_index(drop=True)
 
-    return df[["category", "subcategory", "total", "count", "percent"]]
+    return df[
+        ["category_id", "category", "subcategory", "total", "count", "percent"]
+    ]
 
 
 def export_summary(

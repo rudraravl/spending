@@ -1,24 +1,20 @@
-import PageHeader from '../components/PageHeader'
 import TransactionForm from '../features/transactions/TransactionForm'
 import TransactionsTable from '../features/transactions/TransactionsTable'
 import { useTransactions } from '../features/transactions/useTransactions'
 
 export default function AllTransactionsPage() {
-  const { bannerError, filters, categories, tags, table, splits } = useTransactions()
+  const { bannerError, filters, categories, tags, accounts, subcategoriesByCategory, table, splits } =
+    useTransactions()
 
   return (
-    <div className="sp-page">
-      <PageHeader
-        icon="📋"
-        title="All transactions"
-        subtitle="Search, edit, and clean up any transaction in your history."
-      />
-
-      {bannerError ? <div style={{ color: 'crimson', marginBottom: 10 }}>{bannerError}</div> : null}
+    <div>
+      {bannerError ? <div className="text-destructive text-sm px-6 lg:px-8 pt-6">{bannerError}</div> : null}
 
       <TransactionsTable
         categories={categories}
         tags={tags}
+        accounts={accounts}
+        subcategoriesByCategory={subcategoriesByCategory}
         merchantSearch={filters.merchantSearch}
         onMerchantSearchChange={filters.setMerchantSearch}
         fCategory={filters.fCategory}
@@ -28,7 +24,8 @@ export default function AllTransactionsPage() {
         showOnlyRecent={filters.showOnlyRecent}
         onShowOnlyRecentChange={filters.setShowOnlyRecent}
         gridRows={table.gridRows}
-        onSelectionModelChange={table.setSelectionModel}
+        rowSelection={table.rowSelection}
+        setRowSelection={table.setRowSelection}
         onProcessRowUpdate={table.processRowUpdate}
         onSaveEdits={table.saveDirtyEdits}
         onDeleteSelected={table.deleteSelected}
@@ -46,6 +43,8 @@ export default function AllTransactionsPage() {
         removeSplitRow={splits.removeSplitRow}
         appendDefaultSplitRow={splits.appendDefaultSplitRow}
         splitTxnId={splits.splitTxnId}
+        splitTargetRow={splits.splitTargetRow}
+        splitSelectionState={splits.splitSelectionState}
         categories={categories}
         subcategoriesByCategory={splits.subcategoriesByCategory}
         splitsLoading={splits.splitsLoading}
@@ -57,3 +56,4 @@ export default function AllTransactionsPage() {
     </div>
   )
 }
+

@@ -1,11 +1,22 @@
 import { useEffect, useState } from 'react'
-import { Button, MenuItem, TextField } from '@mui/material'
 import { Controller, useForm } from 'react-hook-form'
+import { motion } from 'framer-motion'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import PageHeader from '../components/PageHeader'
 import { apiPostJson } from '../api/client'
 import { queryKeys } from '../queryKeys'
 import { getAccounts } from '../api/accounts'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 
 import type { AccountOut } from '../types'
 
@@ -47,17 +58,14 @@ export default function TransferPage() {
 
   useEffect(() => {
     if (accounts.length < 2) return
-    // Only set defaults once; don’t overwrite user input on subsequent refetches.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (fromAccountId == null) setValue('from_account_id', accounts[0].id)
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (toAccountId == null) setValue('to_account_id', accounts[1].id)
   }, [accounts, fromAccountId, toAccountId, setValue])
 
   const transferMutation = useMutation({
     mutationFn: (payload: TransferPayload) => apiPostJson('/api/transfers', payload),
     onSuccess: () => {
-      setOk('✅ Transfer recorded!')
+      setOk('Transfer recorded.')
       setError(null)
       reset({
         from_account_id: fromAccountId,
@@ -80,137 +88,142 @@ export default function TransferPage() {
   })
 
   return (
-    <div className="sp-page">
-      <PageHeader
-        icon="🔁"
-        title="Transfer between accounts"
-        subtitle="Move money between your spending totals."
-      />
+    <div className="p-6 lg:p-8 max-w-3xl mx-auto">
+      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+        <h1 className="text-2xl font-semibold mb-1">Transfer</h1>
+        <p className="text-muted-foreground mb-8">Move money between your accounts.</p>
 
-      {queryError ? <div style={{ marginTop: 12, color: 'crimson' }}>{queryError.message}</div> : null}
+        {queryError ? <p className="text-sm text-destructive mb-4">{queryError.message}</p> : null}
 
-      {isLoading ? (
-        <div>Loading...</div>
-      ) : accounts.length < 2 ? (
-        <div>Create at least two accounts in Settings first.</div>
-      ) : (
-        <div style={{ maxWidth: 800 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <Controller
-              control={control}
-              name="from_account_id"
-              render={({ field }) => (
-                <TextField
-                  select
-                  label="From account"
-                  value={field.value ?? ''}
-                  onChange={(e) => field.onChange(Number(e.target.value))}
-                  fullWidth
-                >
-                  {accounts.map((a) => (
-                    <MenuItem key={a.id} value={a.id}>
-                      {a.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              )}
-            />
-            <Controller
-              control={control}
-              name="to_account_id"
-              render={({ field }) => (
-                <TextField
-                  select
-                  label="To account"
-                  value={field.value ?? ''}
-                  onChange={(e) => field.onChange(Number(e.target.value))}
-                  fullWidth
-                >
-                  {accounts.map((a) => (
-                    <MenuItem key={a.id} value={a.id}>
-                      {a.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              )}
-            />
-          </div>
-
-          <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <Controller
-              control={control}
-              name="amount"
-              render={({ field }) => (
-                <TextField
-                  label="Amount"
-                  type="number"
-                  inputProps={{ step: '0.01' }}
-                  value={field.value}
-                  onChange={(e) => field.onChange(Number(e.target.value))}
-                  fullWidth
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : accounts.length < 2 ? (
+          <p className="text-sm text-muted-foreground">Create at least two accounts in Settings first.</p>
+        ) : (
+          <Card className="shadow-card">
+            <CardHeader>
+              <CardTitle className="text-base">Transfer details</CardTitle>
+              <CardDescription>From and to must be different accounts.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Controller
+                  control={control}
+                  name="from_account_id"
+                  render={({ field }) => (
+                    <div className="space-y-2">
+                      <Label>From account</Label>
+                      <Select
+                        value={field.value != null ? String(field.value) : undefined}
+                        onValueChange={(v) => field.onChange(Number(v))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {accounts.map((a) => (
+                            <SelectItem key={a.id} value={String(a.id)}>
+                              {a.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                 />
-              )}
-            />
-            <Controller
-              control={control}
-              name="date"
-              render={({ field }) => (
-                <TextField
-                  label="Date"
-                  type="date"
-                  {...field}
-                  fullWidth
-                  InputLabelProps={{ shrink: true }}
+                <Controller
+                  control={control}
+                  name="to_account_id"
+                  render={({ field }) => (
+                    <div className="space-y-2">
+                      <Label>To account</Label>
+                      <Select
+                        value={field.value != null ? String(field.value) : undefined}
+                        onValueChange={(v) => field.onChange(Number(v))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {accounts.map((a) => (
+                            <SelectItem key={a.id} value={String(a.id)}>
+                              {a.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                 />
-              )}
-            />
-          </div>
+              </div>
 
-          <div style={{ marginTop: 16 }}>
-            <div style={{ fontWeight: 600, marginBottom: 8 }}>Notes (optional)</div>
-            <Controller
-              control={control}
-              name="notes"
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  fullWidth
-                  multiline
-                  minRows={3}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Controller
+                  control={control}
+                  name="amount"
+                  render={({ field }) => (
+                    <div className="space-y-2">
+                      <Label>Amount</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={field.value}
+                        onChange={(e) => field.onChange(Number(e.target.value))}
+                      />
+                    </div>
+                  )}
                 />
-              )}
-            />
-          </div>
+                <Controller
+                  control={control}
+                  name="date"
+                  render={({ field }) => (
+                    <div className="space-y-2">
+                      <Label>Date</Label>
+                      <Input type="date" {...field} />
+                    </div>
+                  )}
+                />
+              </div>
 
-          {error ? <div style={{ marginTop: 12, color: 'crimson' }}>{error}</div> : null}
-          {ok ? <div style={{ marginTop: 12, color: 'green' }}>{ok}</div> : null}
+              <Controller
+                control={control}
+                name="notes"
+                render={({ field }) => (
+                  <div className="space-y-2">
+                    <Label>Notes (optional)</Label>
+                    <Textarea {...field} rows={3} />
+                  </div>
+                )}
+              />
 
-          <Button
-            variant="contained"
-            sx={{ marginTop: 1.5 }}
-            onClick={handleSubmit((values) => {
-              if (!values.from_account_id || !values.to_account_id) return
-              if (values.from_account_id === values.to_account_id) {
-                setError('From and To accounts must be different.')
-                return
-              }
-              setError(null)
-              setOk(null)
-              transferMutation.mutate({
-                from_account_id: values.from_account_id,
-                to_account_id: values.to_account_id,
-                amount: values.amount,
-                date: values.date,
-                notes: values.notes ? values.notes : null,
-              })
-            })}
-            disabled={transferMutation.isPending}
-          >
-            Save transfer
-          </Button>
-        </div>
-      )}
+              {error ? <p className="text-sm text-destructive">{error}</p> : null}
+              {ok ? <p className="text-sm text-income">{ok}</p> : null}
+
+              <Button
+                onClick={handleSubmit((values) => {
+                  if (!values.from_account_id || !values.to_account_id) return
+                  if (values.from_account_id === values.to_account_id) {
+                    setError('From and To accounts must be different.')
+                    return
+                  }
+                  setError(null)
+                  setOk(null)
+                  transferMutation.mutate({
+                    from_account_id: values.from_account_id,
+                    to_account_id: values.to_account_id,
+                    amount: values.amount,
+                    date: values.date,
+                    notes: values.notes ? values.notes : null,
+                  })
+                })}
+                disabled={transferMutation.isPending}
+              >
+                Save transfer
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+      </motion.div>
     </div>
   )
 }
-

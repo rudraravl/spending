@@ -24,6 +24,7 @@ class CapitalOneAdapter(GenericAdapter):
             date_format="%m/%d/%y",
             has_header=True,
             auto_category="",
+            invert_amounts_for_cash_flow=False,
         )
 
     def reported_balance_from_import(self, file_path: str) -> float | None:
@@ -43,11 +44,16 @@ class CapitalOneAdapter(GenericAdapter):
         return fv
 
     def _preprocess_dataframe(self, dataframe: pd.DataFrame) -> pd.DataFrame:
-        """App convention: outflows positive, inflows negative (see GenericAdapter)."""
+        """Map Capital One types to cash-flow: debits/purchases negative, credits positive."""
         dataframe = dataframe.copy()
         if "Transaction Type" in dataframe.columns and "Transaction Amount" in dataframe.columns:
             dataframe["Transaction Amount"] = pd.to_numeric(dataframe["Transaction Amount"], errors="coerce")
             is_credit = dataframe["Transaction Type"].astype(str).str.strip().str.lower() == "credit"
-            # CSV amounts are positive; flip sign on credits for app convention.
-            dataframe.loc[is_credit, "Transaction Amount"] *= -1
+            # CSV amounts are typically positive; purchases/debits become negative outflows.
+            dataframe.loc[~is_credit, "Transaction Amount"] *= -1
+        elif "Transaction Amount" in dataframe.columns:
+            # Some exports omit type; assume positive magnitudes are purchases/outflows.
+            dataframe["Transaction Amount"] = -pd.to_numeric(
+                dataframe["Transaction Amount"], errors="coerce"
+            )
         return dataframe

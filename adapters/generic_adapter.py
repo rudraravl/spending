@@ -1,9 +1,14 @@
 """
 Generic Adapter - Accepts manual column mapping.
 
-Allows users to specify which columns correspond to date, amount, and merchant.
-Amount sign convention: charges/expenses should be POSITIVE, payments/credits should be NEGATIVE.
-If your CSV uses a different convention, override parse() to flip the sign."""
+Cash-flow amount convention (see docs/AMOUNT_CONVENTION.md):
+positive = inflow, negative = outflow.
+
+After reading the amount column, we optionally negate so typical "charges shown as
+positive" bank exports become negative outflows (`invert_amounts_for_cash_flow`,
+default True). Adapters whose CSV already uses negative for charges (e.g. Chase)
+set invert_amounts_for_cash_flow=False.
+"""
 
 import pandas as pd
 from datetime import datetime
@@ -31,16 +36,15 @@ class GenericAdapter(BaseAdapter):
         date_format: str,
         has_header: bool,
         auto_category = "",
-        
+        *,
+        invert_amounts_for_cash_flow: bool = True,
     ):
         """
         Initialize generic adapter with column mappings.
-        
+
         Args:
-            date_col: Name of the date column
-            amount_col: Name of the amount column
-            merchant_col: Name of the merchant/description column
-            date_format: Date format string for parsing dates
+            invert_amounts_for_cash_flow: If True (default), negate parsed amounts so
+                typical positive charges become negative outflows.
         """
         self.date_col = date_col
         self.amount_col = amount_col
@@ -48,6 +52,7 @@ class GenericAdapter(BaseAdapter):
         self.date_format = date_format
         self.has_header = has_header
         self.auto_category = auto_category
+        self.invert_amounts_for_cash_flow = invert_amounts_for_cash_flow
 
     def _preprocess_dataframe(self, dataframe: pd.DataFrame) -> pd.DataFrame:
         """Override in subclasses to modify the raw dataframe before normalization. Default: no-op."""
@@ -97,5 +102,9 @@ class GenericAdapter(BaseAdapter):
         
         # Remove rows with invalid data
         result = result.dropna(subset=['date', 'amount', 'merchant'])
-        
+
+        if self.invert_amounts_for_cash_flow:
+            result = result.copy()
+            result["amount"] = -result["amount"]
+
         return result.reset_index(drop=True)

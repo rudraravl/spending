@@ -15,6 +15,8 @@ import {
   YAxis,
 } from 'recharts'
 import { apiGet } from '../api/client'
+import { SortableTableHead } from '@/components/sortable-table-head'
+import { cycleSort, sortBySelector, type ColumnSortState } from '@/lib/tableSort'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -22,7 +24,6 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
@@ -128,6 +129,7 @@ export default function DashboardPage() {
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
   const [pinnedCategoryId, setPinnedCategoryId] = useState<number | null>(null)
+  const [recentSort, setRecentSort] = useState<ColumnSortState | null>(null)
 
   const customReady = preset !== 'custom' || (Boolean(customStart) && Boolean(customEnd))
 
@@ -180,6 +182,16 @@ export default function DashboardPage() {
     data?.by_category.find((c) => c.category_id === selectedCategoryId)?.category ?? ''
 
   const netBalance = data ? Number(data.total_income) - Number(data.total_spending) : 0
+
+  const sortedRecentTransactions = useMemo(() => {
+    if (!data?.recent_transactions?.length) return []
+    return sortBySelector(data.recent_transactions, recentSort, {
+      Date: (r) => r.Date,
+      Merchant: (r) => r.Merchant,
+      Amount: (r) => r.Amount,
+      Category: (r) => r.Category,
+    })
+  }, [data?.recent_transactions, recentSort])
 
   function onSelectPreset(next: RangeKey) {
     setPreset(next)
@@ -440,14 +452,35 @@ export default function DashboardPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
-                    <TableHead className="text-xs">Date</TableHead>
-                    <TableHead className="text-xs">Merchant</TableHead>
-                    <TableHead className="text-xs text-right">Amount</TableHead>
-                    <TableHead className="text-xs">Category</TableHead>
+                    <SortableTableHead
+                      label="Date"
+                      columnKey="Date"
+                      sort={recentSort}
+                      onSort={(k) => setRecentSort((prev) => cycleSort(prev, k))}
+                    />
+                    <SortableTableHead
+                      label="Merchant"
+                      columnKey="Merchant"
+                      sort={recentSort}
+                      onSort={(k) => setRecentSort((prev) => cycleSort(prev, k))}
+                    />
+                    <SortableTableHead
+                      label="Amount"
+                      columnKey="Amount"
+                      sort={recentSort}
+                      onSort={(k) => setRecentSort((prev) => cycleSort(prev, k))}
+                      align="right"
+                    />
+                    <SortableTableHead
+                      label="Category"
+                      columnKey="Category"
+                      sort={recentSort}
+                      onSort={(k) => setRecentSort((prev) => cycleSort(prev, k))}
+                    />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {data.recent_transactions.map((tx) => (
+                  {sortedRecentTransactions.map((tx) => (
                     <TableRow key={tx.id}>
                       <TableCell className="font-mono text-xs text-muted-foreground">
                         {fmtShortDate(tx.Date)}
@@ -455,10 +488,10 @@ export default function DashboardPage() {
                       <TableCell className="text-sm font-medium">{tx.Merchant}</TableCell>
                       <TableCell
                         className={`text-right font-mono text-sm tabular-nums font-medium ${
-                          tx.Amount >= 0 ? 'text-income' : ''
+                          tx.Amount > 0 ? 'text-income' : tx.Amount < 0 ? 'text-expense' : ''
                         }`}
                       >
-                        {tx.Amount >= 0 ? '+' : ''}
+                        {tx.Amount > 0 ? '+' : ''}
                         {tx.Amount.toFixed(2)}
                       </TableCell>
                       <TableCell>

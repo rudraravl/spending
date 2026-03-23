@@ -21,6 +21,8 @@ export default function AllTransactionsPage() {
         onFCategoryChange={filters.setFCategory}
         fTag={filters.fTag}
         onFTagChange={filters.setFTag}
+        fAccountId={filters.fAccountId}
+        onFAccountChange={filters.setFAccountId}
         showOnlyRecent={filters.showOnlyRecent}
         onShowOnlyRecentChange={filters.setShowOnlyRecent}
         gridRows={table.gridRows}

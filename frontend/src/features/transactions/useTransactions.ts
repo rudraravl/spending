@@ -33,6 +33,7 @@ export function useTransactions() {
   const [merchantSearch, setMerchantSearch] = useState('')
   const [fCategory, setFCategory] = useState('All')
   const [fTag, setFTag] = useState('All')
+  const [fAccountId, setFAccountId] = useState<number | null>(null)
   const [showOnlyRecent, setShowOnlyRecent] = useState(false)
 
   const [gridRows, setGridRows] = useState<TransactionRow[]>([])
@@ -140,6 +141,7 @@ export function useTransactions() {
     let filtered = transactionsQuery.data ?? []
     if (fCategory !== 'All') filtered = filtered.filter((t) => t.category_name === fCategory)
     if (fTag !== 'All') filtered = filtered.filter((t) => t.tag_names.includes(fTag))
+    if (fAccountId != null) filtered = filtered.filter((t) => t.account_id === fAccountId)
     if (needle) {
       filtered = filtered.filter((t) => {
         const hay = `${t.merchant ?? ''} ${t.notes ?? ''}`.toLowerCase()
@@ -159,7 +161,7 @@ export function useTransactions() {
       Acct: t.account_name ?? '',
       Split: t.has_splits ? 'Split' : '',
     }))
-  }, [transactionsQuery.data, merchantSearch, fCategory, fTag])
+  }, [transactionsQuery.data, merchantSearch, fCategory, fTag, fAccountId])
 
   useEffect(() => {
     if (metaLoading || transactionsQuery.isPending) return
@@ -345,9 +347,11 @@ export function useTransactions() {
       setFCategory,
       fTag,
       setFTag,
+      fAccountId,
+      setFAccountId,
       showOnlyRecent,
       setShowOnlyRecent,
-    },
+   },
     categories,
     tags,
     accounts,

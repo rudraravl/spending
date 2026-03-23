@@ -17,14 +17,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { SortableTableHead } from '@/components/sortable-table-head'
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table'
+import { columnLooksNumeric, cycleSort, sortByColumn, type ColumnSortState } from '@/lib/tableSort'
 
 import type { AccountOut } from '../types'
 
@@ -83,6 +78,7 @@ export default function ImportCsvPage() {
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [feedbackTitle, setFeedbackTitle] = useState('')
   const [feedbackMessage, setFeedbackMessage] = useState('')
+  const [previewSort, setPreviewSort] = useState<ColumnSortState | null>(null)
 
   const isGeneric = adapterName === 'Generic'
 
@@ -124,6 +120,18 @@ export default function ImportCsvPage() {
 
   const genericColumns = useMemo(() => preview?.raw_columns ?? [], [preview])
   const previewKeys = useMemo(() => Object.keys(preview?.preview_rows[0] ?? {}), [preview])
+
+  const sortedPreviewRows = useMemo(() => {
+    if (!preview?.preview_rows?.length) return []
+    const rows = preview.preview_rows as Record<string, unknown>[]
+    const numeric =
+      previewSort && columnLooksNumeric(rows, previewSort.key) ? [previewSort.key] : []
+    return sortByColumn(rows, previewSort, numeric)
+  }, [preview?.preview_rows, previewSort])
+
+  useEffect(() => {
+    setPreviewSort(null)
+  }, [previewSignature])
 
   useEffect(() => {
     if (accountId != null) return
@@ -376,18 +384,23 @@ export default function ImportCsvPage() {
                       <TableHeader>
                         <TableRow>
                           {previewKeys.map((k) => (
-                            <TableHead key={k} className="text-xs">
-                              {k}
-                            </TableHead>
+                            <SortableTableHead
+                              key={k}
+                              label={k}
+                              columnKey={k}
+                              sort={previewSort}
+                              onSort={(key) => setPreviewSort((prev) => cycleSort(prev, key))}
+                              className="text-xs"
+                            />
                           ))}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {preview.preview_rows.map((row, idx) => (
+                        {sortedPreviewRows.map((row, idx) => (
                           <TableRow key={idx}>
                             {previewKeys.map((k) => (
                               <TableCell key={k} className="text-xs">
-                                {String((row as Record<string, unknown>)[k] ?? '')}
+                                {String(row[k] ?? '')}
                               </TableCell>
                             ))}
                           </TableRow>

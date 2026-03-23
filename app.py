@@ -25,7 +25,9 @@ from services.trasaction_service import (
     set_transaction_splits,
 )
 from services.summary_service import (
+    PAYMENT_SUBCATEGORY_NAMES,
     calculate_total,
+    calculate_gross_spending,
     summarize_by_tag,
     summarize_by_category,
     summarize_by_subcategory,
@@ -279,14 +281,14 @@ if page == "Dashboard":
     with section("Overview", "Key totals across your entire history"):
         col1, col2, col3 = st.columns(3)
 
-        # Total spend (all time)
-        total_spend = calculate_total(session)
+        # Gross outflows (all time), cash-flow sign in DB
+        total_spend = calculate_gross_spending(session)
         col1.metric("Total All-Time Spending", f"${total_spend:.2f}")
 
-        # Current month spend
+        # Current month gross spending
         month_range = get_current_month_range()
         filters = TransactionFilter(start_date=month_range[0], end_date=month_range[1])
-        month_spend = calculate_total(session, filters)
+        month_spend = calculate_gross_spending(session, filters)
         col2.metric("Current Month", f"${month_spend:.2f}")
 
         # Total transactions
@@ -300,10 +302,14 @@ if page == "Dashboard":
         trend_filters = TransactionFilter(start_date=start_30, end_date=today)
         trend_txns = get_transactions(session, filters=trend_filters, include_transfers=False)
 
-        daily_rows = [
-            {"date": t.date, "amount": float(t.amount)}
-            for t in trend_txns
-        ]
+        daily_rows = []
+        for t in trend_txns:
+            sub = t.subcategory.name.lower() if t.subcategory and t.subcategory.name else ""
+            if sub in PAYMENT_SUBCATEGORY_NAMES:
+                continue
+            raw = float(t.amount)
+            if raw < 0:
+                daily_rows.append({"date": t.date, "amount": -raw})
         if daily_rows:
             daily_df = (
                 pd.DataFrame(daily_rows)
@@ -522,7 +528,11 @@ elif page == "Add Transaction":
         with basic_col:
             with section("Basics", "Core details for the transaction."):
                 txn_date = st.date_input("Date", value=date.today())
-                amount = st.number_input("Amount", step=0.01)
+                amount = st.number_input(
+                    "Amount",
+                    step=0.01,
+                    help="Cash-flow: negative = spending/outflow, positive = income/inflow.",
+                )
                 merchant = st.text_input("Merchant")
 
         with classify_col:
@@ -1290,15 +1300,17 @@ elif page == "Views":
         with top_col2:
             with section("Spending over time", "Daily totals (excluding payments and rent)."):
                 exclude_subcategories = {"payments", "rent"}
-                daily_txn_rows = [
-                    {"date": t.date, "amount": float(t.amount)}
-                    for t in transactions
-                    if not (
+                daily_txn_rows = []
+                for t in transactions:
+                    if (
                         t.subcategory
                         and t.subcategory.name
                         and t.subcategory.name.lower() in exclude_subcategories
-                    )
-                ]
+                    ):
+                        continue
+                    raw = float(t.amount)
+                    if raw < 0:
+                        daily_txn_rows.append({"date": t.date, "amount": -raw})
                 if daily_txn_rows:
                     daily_df = (
                         pd.DataFrame(daily_txn_rows)

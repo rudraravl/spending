@@ -122,7 +122,11 @@ class Tag(Base):
 
 
 class Transaction(Base):
-    """Represents a single transaction."""
+    """Represents a single transaction.
+
+    Amount uses cash-flow sign: positive = inflow, negative = outflow.
+    Transfers: source account negative, destination positive (see docs/AMOUNT_CONVENTION.md).
+    """
     __tablename__ = 'transactions'
 
     id = Column(Integer, primary_key=True)

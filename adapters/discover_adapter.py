@@ -2,7 +2,7 @@
 Discover Adapter - Parser for Discover card CSV exports.
 
 Expects columns: Trans. Date, Amount, Description
-Discover format: Charges are positive, payments/credits are negative.
+Discover CSV: charges typically positive — GenericAdapter inverts to cash-flow (negative outflows).
 """
 
 from adapters.generic_adapter import GenericAdapter

@@ -123,8 +123,7 @@ def dashboard(
     start, end = _resolve_dashboard_range(range_preset, start_date, end_date)
     filters = TransactionFilter(start_date=start, end_date=end)
 
-    # Gross outflows vs credits: sum(amount) would net credits into spending and also
-    # count them in total_income, inflating net = income - spending. Use positive amounts only.
+    # Cash-flow: gross spending = sum of outflow magnitudes; income = sum of inflows.
     total_spending = calculate_gross_spending(session, filters)
     total_income = calculate_total_income(session, filters)
 
@@ -141,7 +140,9 @@ def dashboard(
         sub = t.subcategory.name.lower() if t.subcategory and t.subcategory.name else ""
         if sub in PAYMENT_SUBCATEGORY_NAMES:
             continue
-        daily[t.date] = daily.get(t.date, 0.0) + float(t.amount)
+        raw = float(t.amount)
+        if raw < 0:
+            daily[t.date] = daily.get(t.date, 0.0) - raw
 
     spending_over_time = [
         {"date": d.isoformat(), "amount": amt}
@@ -237,14 +238,16 @@ def views(
 
     total = calculate_total(session, filters)
 
-    # Daily chart: exclude payments AND rent (Streamlit UI-only logic)
+    # Daily chart: gross outflows; exclude payments AND rent (Streamlit UI-only logic)
     exclude_subcategories = {"payments", "rent"}
     daily: dict[date, float] = {}
     for t in transactions:
         sub = t.subcategory.name.lower() if t.subcategory and t.subcategory.name else ""
         if sub in exclude_subcategories:
             continue
-        daily[t.date] = daily.get(t.date, 0.0) + float(t.amount)
+        raw = float(t.amount)
+        if raw < 0:
+            daily[t.date] = daily.get(t.date, 0.0) - raw
 
     spending_over_time = [
         {"date": d.isoformat(), "amount": amt}

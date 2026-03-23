@@ -3,7 +3,7 @@ Base Adapter - Abstract interface for CSV parsers.
 
 Each adapter must implement parse() to normalize CSV data to:
 - date (datetime.date)
-- amount (float) - CONVENTION: charges/expenses are POSITIVE, payments/credits are NEGATIVE
+- amount (float) — cash-flow: positive = inflow, negative = outflow (see docs/AMOUNT_CONVENTION.md)
 - merchant (string)
 
 All other processing (deduplication, account assignment) happens in import_service.

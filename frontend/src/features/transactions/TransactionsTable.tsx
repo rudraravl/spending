@@ -1,10 +1,12 @@
 import {
   flexRender,
   getCoreRowModel,
+  getSortedRowModel,
   useReactTable,
   type ColumnDef,
   type OnChangeFn,
   type RowSelectionState,
+  type SortingState,
 } from '@tanstack/react-table'
 import { Check, ChevronsUpDown, Filter, Search } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
@@ -32,6 +34,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { DataTableColumnHeader } from '@/components/data-table-column-header'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 
@@ -371,6 +374,8 @@ export type TransactionsTableProps = {
   onFCategoryChange: (v: string) => void
   fTag: string
   onFTagChange: (v: string) => void
+  fAccountId: number | null
+  onFAccountChange: (id: number | null) => void
   showOnlyRecent: boolean
   onShowOnlyRecentChange: (v: boolean) => void
   gridRows: TransactionRow[]
@@ -396,6 +401,8 @@ export default function TransactionsTable({
   onFCategoryChange,
   fTag,
   onFTagChange,
+  fAccountId,
+  onFAccountChange,
   showOnlyRecent,
   onShowOnlyRecentChange,
   gridRows,
@@ -409,6 +416,19 @@ export default function TransactionsTable({
   savePending,
   deletePending,
 }: TransactionsTableProps) {
+  const [sorting, setSorting] = useState<SortingState>([])
+
+  const accountSelectOptions = useMemo(() => {
+    const nameCount = new Map<string, number>()
+    for (const a of accounts) {
+      nameCount.set(a.name, (nameCount.get(a.name) ?? 0) + 1)
+    }
+    return accounts.map((a) => ({
+      account: a,
+      label: (nameCount.get(a.name) ?? 0) > 1 ? `${a.name} (${a.type})` : a.name,
+    }))
+  }, [accounts])
+
   const flatSubOptions = useMemo(() => {
     const nameCount = new Map<string, number>()
     for (const c of categories) {
@@ -460,35 +480,41 @@ export default function TransactionsTable({
       },
       {
         accessorKey: 'Date',
-        header: 'Date',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Date" />,
         cell: ({ row }) => (
           <EditableCell row={row.original} columnId="Date" processRowUpdate={onProcessRowUpdate} />
         ),
       },
       {
         accessorKey: 'Merchant',
-        header: 'Merchant',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Merchant" />,
         cell: ({ row }) => (
           <EditableCell row={row.original} columnId="Merchant" processRowUpdate={onProcessRowUpdate} />
         ),
       },
       {
         accessorKey: 'Amount',
-        header: () => <div className="text-right w-full">Amount</div>,
+        header: ({ column }) => (
+          <div className="flex w-full justify-end">
+            <DataTableColumnHeader column={column} title="Amount" className="justify-end" />
+          </div>
+        ),
         cell: ({ row }) => (
           <div className="text-right">
             <EditableCell
               row={row.original}
               columnId="Amount"
               processRowUpdate={onProcessRowUpdate}
-              inputClassName={row.original.Amount >= 0 ? 'text-income' : ''}
+              inputClassName={
+                row.original.Amount > 0 ? 'text-income' : row.original.Amount < 0 ? 'text-expense' : ''
+              }
             />
           </div>
         ),
       },
       {
         accessorKey: 'Category',
-        header: 'Category',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Category" />,
         cell: ({ row }) => (
           <CategoryComboboxCell
             row={row.original}
@@ -500,7 +526,7 @@ export default function TransactionsTable({
       },
       {
         accessorKey: 'Subcategory',
-        header: 'Subcategory',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Subcategory" />,
         cell: ({ row }) => (
           <SubcategoryComboboxCell
             row={row.original}
@@ -511,7 +537,7 @@ export default function TransactionsTable({
       },
       {
         accessorKey: 'Acct',
-        header: 'Account',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Account" />,
         cell: ({ row }) => (
           <AccountComboboxCell
             row={row.original}
@@ -522,21 +548,21 @@ export default function TransactionsTable({
       },
       {
         accessorKey: 'Tags',
-        header: 'Tags',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Tags" />,
         cell: ({ row }) => (
           <TagsPickerCell row={row.original} tags={tags} processRowUpdate={onProcessRowUpdate} />
         ),
       },
       {
         accessorKey: 'Notes',
-        header: 'Notes',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Notes" />,
         cell: ({ row }) => (
           <EditableCell row={row.original} columnId="Notes" processRowUpdate={onProcessRowUpdate} />
         ),
       },
       {
         accessorKey: 'Split',
-        header: 'Split',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Split" />,
         cell: ({ row }) => <span className="text-xs text-muted-foreground">{row.original.Split}</span>,
       },
     ],
@@ -547,10 +573,12 @@ export default function TransactionsTable({
     data: gridRows,
     columns,
     getRowId: (row) => String(row.id),
-    state: { rowSelection },
+    state: { rowSelection, sorting },
     onRowSelectionChange: setRowSelection,
+    onSortingChange: setSorting,
     enableRowSelection: true,
     getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
   })
 
   return (
@@ -619,6 +647,25 @@ export default function TransactionsTable({
                   {tags.map((t) => (
                     <SelectItem key={t.id} value={t.name}>
                       {t.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Account</Label>
+              <Select
+                value={fAccountId === null ? 'All' : String(fAccountId)}
+                onValueChange={(v) => onFAccountChange(v === 'All' ? null : Number(v))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">All accounts</SelectItem>
+                  {accountSelectOptions.map(({ account: a, label }) => (
+                    <SelectItem key={a.id} value={String(a.id)}>
+                      {label}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -166,6 +166,11 @@ export default function ImportCsvPage() {
       setFeedbackTitle('Import complete')
       setFeedbackMessage(lines.join('\n'))
       setFeedbackOpen(true)
+      queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
+      if (accountId != null) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.accountDetail(accountId) })
+        queryClient.invalidateQueries({ queryKey: queryKeys.accountSummary(accountId) })
+      }
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['views'] })

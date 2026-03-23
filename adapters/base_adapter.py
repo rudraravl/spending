@@ -28,6 +28,13 @@ class BaseAdapter(ABC):
             Normalized DataFrame with columns: date, amount, merchant
         """
         pass
-    
+
+    def reported_balance_from_import(self, file_path: str) -> float | None:
+        """
+        If the CSV includes a bank/custodian-reported balance for asset accounts
+        (e.g. checking Balance column), return it; otherwise None.
+        """
+        return None
+
     def __repr__(self):
         return f"<{self.__class__.__name__}>"

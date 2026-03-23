@@ -21,6 +21,15 @@ function formatMoney(amount: number, currency: string) {
   }
 }
 
+function formatImportedAt(iso: string | null | undefined) {
+  if (!iso) return null
+  try {
+    return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso))
+  } catch {
+    return iso
+  }
+}
+
 function isNotFoundError(err: unknown): boolean {
   const msg = String((err as Error)?.message ?? err).toLowerCase()
   return msg.includes('not found') || msg.includes('404')
@@ -89,6 +98,9 @@ export default function AccountDetailPage() {
 
   const acct = accountQuery.data
   const balance = summaryQuery.data?.balance ?? null
+  const summary = summaryQuery.data
+  const ledgerDiffers =
+    summary != null && Math.abs(summary.balance - summary.ledger_balance) > 0.005
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -127,7 +139,19 @@ export default function AccountDetailPage() {
               {summaryQuery.isPending ? (
                 <p className="text-sm text-muted-foreground">…</p>
               ) : balance != null ? (
-                <p className="text-2xl font-semibold tabular-nums tracking-tight">{formatMoney(balance, acct.currency)}</p>
+                <div>
+                  <p className="text-2xl font-semibold tabular-nums tracking-tight">{formatMoney(balance, acct.currency)}</p>
+                  {ledgerDiffers && summary ? (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Sum of transactions: {formatMoney(summary.ledger_balance, acct.currency)}
+                    </p>
+                  ) : null}
+                  {acct.reported_balance_at ? (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Bank balance from last import · {formatImportedAt(acct.reported_balance_at)}
+                    </p>
+                  ) : null}
+                </div>
               ) : (
                 <p className="text-sm text-muted-foreground">—</p>
               )}

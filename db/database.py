@@ -50,6 +50,10 @@ def _migrate_accounts_columns(conn) -> None:
         conn.execute(text("ALTER TABLE accounts ADD COLUMN institution_name VARCHAR"))
     if "last_synced_at" not in cols:
         conn.execute(text("ALTER TABLE accounts ADD COLUMN last_synced_at DATETIME"))
+    if "reported_balance" not in cols:
+        conn.execute(text("ALTER TABLE accounts ADD COLUMN reported_balance FLOAT"))
+    if "reported_balance_at" not in cols:
+        conn.execute(text("ALTER TABLE accounts ADD COLUMN reported_balance_at DATETIME"))
 
 
 def init_db():

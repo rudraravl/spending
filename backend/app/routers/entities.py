@@ -16,7 +16,7 @@ from backend.app.schemas import (
     TagOut,
 )
 from db.models import Account, Category, Subcategory, Tag
-from services.account_service import account_ledger_balance
+from services.account_service import account_display_balance
 
 
 router = APIRouter(tags=["entities"])
@@ -38,6 +38,8 @@ def _account_to_out(a: Account) -> AccountOut:
         external_id=a.external_id,
         institution_name=a.institution_name,
         last_synced_at=a.last_synced_at,
+        reported_balance=a.reported_balance,
+        reported_balance_at=a.reported_balance_at,
     )
 
 
@@ -59,9 +61,11 @@ def get_account_summary(account_id: int, session: Session = Depends(get_db_sessi
     account = session.query(Account).filter(Account.id == account_id).first()
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+    display, ledger = account_display_balance(session, account)
     return AccountSummaryOut(
         account_id=account_id,
-        balance=account_ledger_balance(session, account_id),
+        balance=display,
+        ledger_balance=ledger,
     )
 
 

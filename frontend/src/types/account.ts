@@ -9,11 +9,14 @@ export interface AccountOut {
   external_id?: string | null
   institution_name?: string | null
   last_synced_at?: string | null
+  reported_balance?: number | null
+  reported_balance_at?: string | null
 }
 
 /** Response from GET /api/accounts/{id}/summary */
 export interface AccountSummaryOut {
   account_id: number
   balance: number
+  ledger_balance: number
 }
 

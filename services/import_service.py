@@ -10,7 +10,7 @@ Handles:
 
 from typing import List, Tuple, Optional
 import pandas as pd
-from datetime import date
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from db.models import Transaction, Account, Category, Subcategory, Tag
 from adapters.base_adapter import BaseAdapter
@@ -20,7 +20,9 @@ from adapters.bilt_adapter import BiltAdapter
 from adapters.discover_adapter import DiscoverAdapter
 from adapters.citi_adapter import CitiAdapter
 from adapters.chase_adapter import ChaseAdapter
+from adapters.capital_one_adapter import CapitalOneAdapter
 from services.rule_service import apply_rules_to_transaction
+from services.account_service import ASSET_ACCOUNT_TYPES
 
 
 # Adapter registry
@@ -31,6 +33,7 @@ ADAPTERS = {
     'Discover': DiscoverAdapter,
     'Citi': CitiAdapter,
     'Chase': ChaseAdapter,
+    'Capital One': CapitalOneAdapter,
 }
 
 
@@ -147,6 +150,12 @@ def import_csv(
                 'reason': str(e),
             })
     
+    # Bank-reported balance from CSV (checking/savings/cash/investment only)
+    reported = adapter.reported_balance_from_import(file_path)
+    if reported is not None and account.type in ASSET_ACCOUNT_TYPES:
+        account.reported_balance = float(reported)
+        account.reported_balance_at = datetime.now(timezone.utc)
+
     session.commit()
     
     return num_imported, skipped

@@ -19,6 +19,8 @@ class AccountOut(BaseModel):
     external_id: str | None = None
     institution_name: str | None = None
     last_synced_at: datetime | None = None
+    reported_balance: float | None = None
+    reported_balance_at: datetime | None = None
 
 
 class AccountCreate(BaseModel):
@@ -30,6 +32,7 @@ class AccountCreate(BaseModel):
 class AccountSummaryOut(BaseModel):
     account_id: int
     balance: float
+    ledger_balance: float
 
 
 class CategoryOut(BaseModel):

@@ -19,7 +19,7 @@ from adapters.wells_adapter import WellsAdapter
 from adapters.bilt_adapter import BiltAdapter
 from adapters.discover_adapter import DiscoverAdapter
 from adapters.citi_adapter import CitiAdapter
-from adapters.chase_adapter import ChaseAdapter
+from adapters.chase_adapter import ChaseCreditCardAdapter, ChaseCheckingAdapter
 from adapters.capital_one_adapter import CapitalOneAdapter
 from services.rule_service import apply_rules_to_transaction
 from services.account_service import ASSET_ACCOUNT_TYPES
@@ -32,7 +32,8 @@ ADAPTERS = {
     'Bilt': BiltAdapter,
     'Discover': DiscoverAdapter,
     'Citi': CitiAdapter,
-    'Chase': ChaseAdapter,
+    'Chase (Credit Card)': ChaseCreditCardAdapter,
+    'Chase (Checking)': ChaseCheckingAdapter,
     'Capital One': CapitalOneAdapter,
 }
 

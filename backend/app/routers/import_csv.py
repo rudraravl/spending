@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import csv
 from typing import Any
 
 import pandas as pd
@@ -14,6 +15,30 @@ from services.import_service import get_available_adapters, import_csv, preview_
 
 
 router = APIRouter(tags=["import"])
+
+
+def _read_csv_for_preview(file_path: str) -> pd.DataFrame:
+    """
+    Read CSV defensively for UI preview.
+    Some bank exports include ragged trailing commas on data rows, which can
+    misalign columns under strict parsing.
+    """
+    with open(file_path, newline="", encoding="utf-8-sig") as csv_file:
+        reader = csv.reader(csv_file)
+        header = next(reader, [])
+        header = [str(col).strip() for col in header]
+        if len(header) == 0:
+            return pd.DataFrame()
+
+        rows: list[list[str]] = []
+        for row in reader:
+            if len(row) < len(header):
+                row = row + [""] * (len(header) - len(row))
+            elif len(row) > len(header):
+                row = row[: len(header)]
+            rows.append(row)
+
+    return pd.DataFrame(rows, columns=header)
 
 
 def _jsonify_df_value(value: Any) -> object:
@@ -82,7 +107,7 @@ async def preview_import_csv(
     temp_path = await _save_upload_to_temp_csv(file)
     try:
         try:
-            preview_df = pd.read_csv(temp_path)
+            preview_df = _read_csv_for_preview(temp_path)
         except Exception as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"CSV parse error: {e}") from e
 

@@ -163,7 +163,7 @@ export default function DashboardPage() {
     const rows = data.by_subcategory.filter((r) => r.category_id === selectedCategoryId)
     return rows
       .map((r) => ({
-        name: r.subcategory,
+        name: (r.subcategory && String(r.subcategory).trim()) || 'Uncategorized',
         amount: Math.abs(Number(r.total)),
         percent: Number(r.percent),
       }))
@@ -415,26 +415,49 @@ export default function DashboardPage() {
               <motion.div variants={item} className="rounded-xl border bg-card p-6 shadow-card mb-8">
                 <h2 className="text-sm font-semibold mb-1">Subcategories</h2>
                 <p className="text-xs text-muted-foreground mb-4">{selectedCategoryName}</p>
-                <div className="h-48">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={subPieData}
-                        dataKey="amount"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={32}
-                        outerRadius={56}
-                        paddingAngle={2}
-                        strokeWidth={0}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  <div className="h-48 min-h-[12rem]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={subPieData}
+                          dataKey="amount"
+                          nameKey="name"
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={32}
+                          outerRadius={56}
+                          paddingAngle={2}
+                          strokeWidth={0}
+                        >
+                          {subPieData.map((_, i) => (
+                            <Cell key={i} fill={pieColors[i % pieColors.length]} />
+                          ))}
+                        </Pie>
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="space-y-2 min-w-0 self-center">
+                    {subPieData.map((sub, i) => (
+                      <div
+                        key={`${sub.name}-${i}`}
+                        className="flex w-full items-center justify-between text-sm rounded-md px-1 py-0.5"
                       >
-                        {subPieData.map((_, i) => (
-                          <Cell key={i} fill={pieColors[i % pieColors.length]} />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div
+                            className="h-2.5 w-2.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: pieColors[i % pieColors.length] }}
+                          />
+                          <span className="text-foreground truncate" title={sub.name}>
+                            {sub.name}
+                          </span>
+                        </div>
+                        <span className="font-mono text-xs tabular-nums text-muted-foreground shrink-0">
+                          {sub.percent.toFixed(0)}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </motion.div>
             ) : null}

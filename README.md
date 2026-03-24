@@ -60,6 +60,31 @@ npm --prefix frontend run dev
 python scripts/regression_api_vs_streamlit.py
 ```
 
+
+### OPTIONAL for Mac - set up app on Automator
+Open Automator, create new application in desired location, do "Run Applescript" and paste:
+
+```bash
+tell application "Terminal"
+	activate
+	
+	-- Backend tab
+	do script "cd *PATH/TO/REPO*; source .venv/bin/activate; npm run dev:backend"
+	
+	-- New tab for frontend
+	tell application "System Events" to keystroke "t" using command down
+	delay 0.5
+	
+	do script "cd *PATH/TO/REPO*; npm run dev:frontend" in front window
+end tell
+
+-- Wait for frontend server to start
+delay 2
+
+-- Open browser to app
+do shell script "open http://localhost:5173"
+```
+
 ## Features
 
 - Import credit card CSVs (adapters + generic mapping)

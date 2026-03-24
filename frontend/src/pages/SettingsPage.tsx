@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { apiDelete, apiGet, apiPatchJson, apiPostJson } from '../api/client'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '../queryKeys'
 import { createAccount, deleteAccount, getAccounts } from '../api/accounts'
 import {
@@ -114,12 +114,6 @@ export default function SettingsPage() {
     await queryClient.refetchQueries({ queryKey: queryKeys.settingsAll() })
   }
 
-  const createSubsQuery = useQuery<SubcategoryOut[], Error>({
-    queryKey: queryKeys.subcategories(subcategoryParentCategoryId),
-    queryFn: () => getSubcategories(subcategoryParentCategoryId!),
-    enabled: subcategoryParentCategoryId != null,
-  })
-
   const ruleSubsQuery = useQuery<SubcategoryOut[], Error>({
     queryKey: queryKeys.subcategories(ruleCategoryId),
     queryFn: () => getSubcategories(ruleCategoryId!),
@@ -132,16 +126,29 @@ export default function SettingsPage() {
   const rules = settingsAllQuery.data?.ruleResp ?? []
   const meta = settingsAllQuery.data?.ruleMetaResp ?? null
 
-  const subcategoriesForCreate =
-    subcategoryParentCategoryId == null ? [] : (createSubsQuery.data ?? [])
   const subcategoriesForRule = ruleCategoryId == null ? [] : (ruleSubsQuery.data ?? [])
 
+  const categoryIds = useMemo(() => categories.map((c) => c.id), [categories])
+  const allSubcategoriesQueries = useQueries({
+    queries: categoryIds.map((categoryId) => ({
+      queryKey: queryKeys.subcategories(categoryId),
+      queryFn: () => getSubcategories(categoryId),
+      enabled: categoryIds.length > 0,
+    })),
+  })
   const subcategoryNameById = useMemo(() => {
     const map = new Map<number, string>()
-    for (const s of subcategoriesForCreate) map.set(s.id, s.name)
-    for (const s of subcategoriesForRule) map.set(s.id, s.name)
+    for (const q of allSubcategoriesQueries) {
+      for (const s of q.data ?? []) map.set(s.id, s.name)
+    }
     return map
-  }, [subcategoriesForCreate, subcategoriesForRule])
+  }, [
+    allSubcategoriesQueries
+      .flatMap((q) => q.data ?? [])
+      .map((s) => `${s.id}:${s.name}`)
+      .sort()
+      .join('|'),
+  ])
 
   useEffect(() => {
     const cat = settingsAllQuery.data?.cat

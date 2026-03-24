@@ -1,8 +1,8 @@
 """
 Chase Adapter - Parser for Chase Credit Card and Checking CSV exports.
 
-Expects columns: Transaction Date, Post Date, Description, Category, Type, Amount
-Chase CSV: charges are typically negative, payments positive — already cash-flow; no extra invert.
+Credit card exports use Transaction Date, Description, Amount. Amounts are already cash-flow: charges negative, credits positive;
+invert_amounts_for_cash_flow stays False.
 """
 
 import csv
@@ -22,7 +22,7 @@ class ChaseCreditCardAdapter(GenericAdapter):
             date_format='%m/%d/%Y',
             has_header=True,
             auto_category='',
-            invert_amounts_for_cash_flow=True,
+            invert_amounts_for_cash_flow=False,
         )
 
     

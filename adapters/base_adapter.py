@@ -3,7 +3,7 @@ Base Adapter - Abstract interface for CSV parsers.
 
 Each adapter must implement parse() to normalize CSV data to:
 - date (datetime.date)
-- amount (float) - CONVENTION: charges/expenses are POSITIVE, payments/credits are NEGATIVE
+- amount (float) — cash-flow: positive = inflow, negative = outflow (see docs/AMOUNT_CONVENTION.md)
 - merchant (string)
 
 All other processing (deduplication, account assignment) happens in import_service.
@@ -28,6 +28,13 @@ class BaseAdapter(ABC):
             Normalized DataFrame with columns: date, amount, merchant
         """
         pass
-    
+
+    def reported_balance_from_import(self, file_path: str) -> float | None:
+        """
+        If the CSV includes a bank/custodian-reported balance for asset accounts
+        (e.g. checking Balance column), return it; otherwise None.
+        """
+        return None
+
     def __repr__(self):
         return f"<{self.__class__.__name__}>"

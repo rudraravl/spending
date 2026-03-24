@@ -56,6 +56,9 @@ class Account(Base):
     external_id = Column(String, nullable=True)
     institution_name = Column(String, nullable=True)
     last_synced_at = Column(DateTime, nullable=True)
+    # Bank/custodian-reported balance (e.g. top-of-export Balance on checking CSV imports)
+    reported_balance = Column(Float, nullable=True)
+    reported_balance_at = Column(DateTime, nullable=True)
 
     # Relationships
     transactions = relationship('Transaction', back_populates='account', cascade='all, delete-orphan')
@@ -119,7 +122,11 @@ class Tag(Base):
 
 
 class Transaction(Base):
-    """Represents a single transaction."""
+    """Represents a single transaction.
+
+    Amount uses cash-flow sign: positive = inflow, negative = outflow.
+    Transfers: source account negative, destination positive (see docs/AMOUNT_CONVENTION.md).
+    """
     __tablename__ = 'transactions'
 
     id = Column(Integer, primary_key=True)

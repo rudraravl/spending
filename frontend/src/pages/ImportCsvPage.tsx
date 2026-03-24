@@ -17,14 +17,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { SortableTableHead } from '@/components/sortable-table-head'
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table'
+import { columnLooksNumeric, cycleSort, sortByColumn, type ColumnSortState } from '@/lib/tableSort'
 
 import type { AccountOut } from '../types'
 
@@ -79,10 +74,12 @@ export default function ImportCsvPage() {
   const genericMerchantCol = watch('generic_merchant_col')
 
   const [file, setFile] = useState<File | null>(null)
+  const [isDraggingFile, setIsDraggingFile] = useState(false)
 
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [feedbackTitle, setFeedbackTitle] = useState('')
   const [feedbackMessage, setFeedbackMessage] = useState('')
+  const [previewSort, setPreviewSort] = useState<ColumnSortState | null>(null)
 
   const isGeneric = adapterName === 'Generic'
 
@@ -125,6 +122,18 @@ export default function ImportCsvPage() {
   const genericColumns = useMemo(() => preview?.raw_columns ?? [], [preview])
   const previewKeys = useMemo(() => Object.keys(preview?.preview_rows[0] ?? {}), [preview])
 
+  const sortedPreviewRows = useMemo(() => {
+    if (!preview?.preview_rows?.length) return []
+    const rows = preview.preview_rows as Record<string, unknown>[]
+    const numeric =
+      previewSort && columnLooksNumeric(rows, previewSort.key) ? [previewSort.key] : []
+    return sortByColumn(rows, previewSort, numeric)
+  }, [preview?.preview_rows, previewSort])
+
+  useEffect(() => {
+    setPreviewSort(null)
+  }, [previewSignature])
+
   useEffect(() => {
     if (accountId != null) return
     if (accounts.length === 0) return
@@ -136,6 +145,18 @@ export default function ImportCsvPage() {
       setValue('adapter_name', 'Generic')
     }
   }, [adapters, setValue])
+
+  const acceptCsvFile = (f: File) => {
+    const nameOk = f.name.toLowerCase().endsWith('.csv')
+    const typeOk =
+      f.type === 'text/csv' ||
+      f.type === 'application/csv' ||
+      f.type === 'application/vnd.ms-excel' ||
+      f.type === ''
+    const accepted = nameOk || typeOk
+    if (accepted) setFile(f)
+    return accepted
+  }
 
   const importMutation = useMutation({
     mutationFn: async (): Promise<CsvImportResult> => {
@@ -166,6 +187,11 @@ export default function ImportCsvPage() {
       setFeedbackTitle('Import complete')
       setFeedbackMessage(lines.join('\n'))
       setFeedbackOpen(true)
+      queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
+      if (accountId != null) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.accountDetail(accountId) })
+        queryClient.invalidateQueries({ queryKey: queryKeys.accountSummary(accountId) })
+      }
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['views'] })
@@ -255,15 +281,54 @@ export default function ImportCsvPage() {
                 <CardDescription>Upload your CSV file and preview parsed transactions.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <label className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/30 p-8 cursor-pointer hover:bg-muted/50 transition-colors">
+                <label
+                  htmlFor="import-csv-file"
+                  onDragEnter={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setIsDraggingFile(true)
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                      setIsDraggingFile(false)
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setIsDraggingFile(false)
+                    const dropped = e.dataTransfer.files?.[0]
+                    if (dropped) acceptCsvFile(dropped)
+                  }}
+                  className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 cursor-pointer transition-colors ${
+                    isDraggingFile
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border bg-muted/30 hover:bg-muted/50'
+                  }`}
+                >
                   <Upload className="h-10 w-10 text-muted-foreground/50 mb-3" />
                   <p className="text-sm font-medium text-muted-foreground">Choose CSV file</p>
                   <p className="text-xs text-muted-foreground/70 mt-1">or drop here (click to browse)</p>
                   <input
+                    id="import-csv-file"
                     type="file"
                     accept=".csv"
                     className="sr-only"
-                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (!f) return
+                      const accepted = acceptCsvFile(f)
+                      if (!accepted) {
+                        setFile(null)
+                        e.currentTarget.value = ''
+                      }
+                    }}
                   />
                 </label>
                 {file ? <p className="text-sm text-muted-foreground">{file.name}</p> : null}
@@ -371,18 +436,23 @@ export default function ImportCsvPage() {
                       <TableHeader>
                         <TableRow>
                           {previewKeys.map((k) => (
-                            <TableHead key={k} className="text-xs">
-                              {k}
-                            </TableHead>
+                            <SortableTableHead
+                              key={k}
+                              label={k}
+                              columnKey={k}
+                              sort={previewSort}
+                              onSort={(key) => setPreviewSort((prev) => cycleSort(prev, key))}
+                              className="text-xs"
+                            />
                           ))}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {preview.preview_rows.map((row, idx) => (
+                        {sortedPreviewRows.map((row, idx) => (
                           <TableRow key={idx}>
                             {previewKeys.map((k) => (
                               <TableCell key={k} className="text-xs">
-                                {String((row as Record<string, unknown>)[k] ?? '')}
+                                {String(row[k] ?? '')}
                               </TableCell>
                             ))}
                           </TableRow>

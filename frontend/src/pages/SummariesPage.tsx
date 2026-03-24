@@ -1,8 +1,10 @@
-import { useState, type CSSProperties } from 'react'
+import { useMemo, useState, type CSSProperties } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { PlotlyComponent as Plot, plotlyComponentOk } from '../components/charts/plotlyShared'
 import { Button } from '@/components/ui/button'
+import { SortableHtmlTh } from '@/components/sortable-table-head'
+import { cycleSort, sortByColumn, type ColumnSortState } from '@/lib/tableSort'
 import { apiGet } from '../api/client'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic API row shape from summaries endpoint
@@ -115,6 +117,9 @@ function ChartPlaceholder({ message }: { message: string }) {
 
 export default function SummariesPage() {
   const [tab, setTab] = useState<(typeof rangeMap)[number]['key']>('month')
+  const [tagSort, setTagSort] = useState<ColumnSortState | null>(null)
+  const [categorySort, setCategorySort] = useState<ColumnSortState | null>(null)
+  const [subcategorySort, setSubcategorySort] = useState<ColumnSortState | null>(null)
   const plotOk = plotlyComponentOk(Plot)
 
   const { data, error, isPending, isFetching } = useQuery<SummariesResponse, Error>({
@@ -125,6 +130,29 @@ export default function SummariesPage() {
 
   const awaitingData = !data && !error && (isPending || isFetching)
   const loadFailed = Boolean(error) && !data
+
+  const sortedByTag = useMemo((): SummaryRow[] => {
+    if (!data?.by_tag?.length) return data?.by_tag ?? []
+    return sortByColumn(data.by_tag as Record<string, unknown>[], tagSort, ['total', 'count', 'percent']) as SummaryRow[]
+  }, [data?.by_tag, tagSort])
+
+  const sortedByCategory = useMemo((): SummaryRow[] => {
+    if (!data?.by_category?.length) return data?.by_category ?? []
+    return sortByColumn(data.by_category as Record<string, unknown>[], categorySort, [
+      'total',
+      'count',
+      'percent',
+    ]) as SummaryRow[]
+  }, [data?.by_category, categorySort])
+
+  const sortedBySubcategory = useMemo((): SummaryRow[] => {
+    if (!data?.by_subcategory?.length) return data?.by_subcategory ?? []
+    return sortByColumn(data.by_subcategory as Record<string, unknown>[], subcategorySort, [
+      'total',
+      'count',
+      'percent',
+    ]) as SummaryRow[]
+  }, [data?.by_subcategory, subcategorySort])
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
@@ -183,10 +211,34 @@ export default function SummariesPage() {
                 </colgroup>
                 <thead>
                   <tr>
-                    <th style={th}>tag</th>
-                    <th style={th}>total</th>
-                    <th style={th}>count</th>
-                    <th style={th}>percent</th>
+                    <SortableHtmlTh
+                      label="tag"
+                      columnKey="tag"
+                      sort={tagSort}
+                      onSort={(k) => setTagSort((p) => cycleSort(p, k))}
+                      style={th}
+                    />
+                    <SortableHtmlTh
+                      label="total"
+                      columnKey="total"
+                      sort={tagSort}
+                      onSort={(k) => setTagSort((p) => cycleSort(p, k))}
+                      style={th}
+                    />
+                    <SortableHtmlTh
+                      label="count"
+                      columnKey="count"
+                      sort={tagSort}
+                      onSort={(k) => setTagSort((p) => cycleSort(p, k))}
+                      style={th}
+                    />
+                    <SortableHtmlTh
+                      label="percent"
+                      columnKey="percent"
+                      sort={tagSort}
+                      onSort={(k) => setTagSort((p) => cycleSort(p, k))}
+                      style={th}
+                    />
                   </tr>
                 </thead>
                 <tbody>
@@ -203,7 +255,7 @@ export default function SummariesPage() {
                       </td>
                     </tr>
                   ) : (
-                    data!.by_tag.map((r, idx) => (
+                    sortedByTag.map((r, idx) => (
                       <tr key={idx}>
                         <td style={td} title={String(r.tag)}>
                           {r.tag}
@@ -248,10 +300,34 @@ export default function SummariesPage() {
                 </colgroup>
                 <thead>
                   <tr>
-                    <th style={th}>category</th>
-                    <th style={th}>total</th>
-                    <th style={th}>count</th>
-                    <th style={th}>percent</th>
+                    <SortableHtmlTh
+                      label="category"
+                      columnKey="category"
+                      sort={categorySort}
+                      onSort={(k) => setCategorySort((p) => cycleSort(p, k))}
+                      style={th}
+                    />
+                    <SortableHtmlTh
+                      label="total"
+                      columnKey="total"
+                      sort={categorySort}
+                      onSort={(k) => setCategorySort((p) => cycleSort(p, k))}
+                      style={th}
+                    />
+                    <SortableHtmlTh
+                      label="count"
+                      columnKey="count"
+                      sort={categorySort}
+                      onSort={(k) => setCategorySort((p) => cycleSort(p, k))}
+                      style={th}
+                    />
+                    <SortableHtmlTh
+                      label="percent"
+                      columnKey="percent"
+                      sort={categorySort}
+                      onSort={(k) => setCategorySort((p) => cycleSort(p, k))}
+                      style={th}
+                    />
                   </tr>
                 </thead>
                 <tbody>
@@ -268,7 +344,7 @@ export default function SummariesPage() {
                       </td>
                     </tr>
                   ) : (
-                    data!.by_category.map((r, idx) => (
+                    sortedByCategory.map((r, idx) => (
                       <tr key={idx}>
                         <td style={td} title={String(r.category)}>
                           {r.category}
@@ -314,11 +390,41 @@ export default function SummariesPage() {
                 </colgroup>
                 <thead>
                   <tr>
-                    <th style={th}>category</th>
-                    <th style={th}>subcategory</th>
-                    <th style={th}>total</th>
-                    <th style={th}>count</th>
-                    <th style={th}>percent</th>
+                    <SortableHtmlTh
+                      label="category"
+                      columnKey="category"
+                      sort={subcategorySort}
+                      onSort={(k) => setSubcategorySort((p) => cycleSort(p, k))}
+                      style={th}
+                    />
+                    <SortableHtmlTh
+                      label="subcategory"
+                      columnKey="subcategory"
+                      sort={subcategorySort}
+                      onSort={(k) => setSubcategorySort((p) => cycleSort(p, k))}
+                      style={th}
+                    />
+                    <SortableHtmlTh
+                      label="total"
+                      columnKey="total"
+                      sort={subcategorySort}
+                      onSort={(k) => setSubcategorySort((p) => cycleSort(p, k))}
+                      style={th}
+                    />
+                    <SortableHtmlTh
+                      label="count"
+                      columnKey="count"
+                      sort={subcategorySort}
+                      onSort={(k) => setSubcategorySort((p) => cycleSort(p, k))}
+                      style={th}
+                    />
+                    <SortableHtmlTh
+                      label="percent"
+                      columnKey="percent"
+                      sort={subcategorySort}
+                      onSort={(k) => setSubcategorySort((p) => cycleSort(p, k))}
+                      style={th}
+                    />
                   </tr>
                 </thead>
                 <tbody>
@@ -335,7 +441,7 @@ export default function SummariesPage() {
                       </td>
                     </tr>
                   ) : (
-                    data!.by_subcategory.map((r, idx) => (
+                    sortedBySubcategory.map((r, idx) => (
                       <tr key={idx}>
                         <td style={td} title={String(r.category)}>
                           {r.category}

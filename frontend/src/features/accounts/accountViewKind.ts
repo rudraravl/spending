@@ -6,13 +6,15 @@ export type AccountType = (typeof ACCOUNT_TYPES)[number]
 
 /**
  * Which shell to render on the account detail page.
- * - credit_with_ledger: balance + full transaction history for this account
- * - balance_only: balance only (banks / cash / investment for now)
+ * - credit_with_ledger: balance + transaction list (credit, checking, savings)
+ * - balance_only: balance only (cash / investment for now)
  */
 export type AccountViewKind = 'credit_with_ledger' | 'balance_only'
 
+const TYPES_WITH_TXN_TABLE = new Set(['credit', 'checking', 'savings'])
+
 export function accountViewKind(type: string): AccountViewKind {
-  if (type === 'credit') return 'credit_with_ledger'
+  if (TYPES_WITH_TXN_TABLE.has(type)) return 'credit_with_ledger'
   return 'balance_only'
 }
 

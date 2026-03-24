@@ -2,7 +2,7 @@
 Citi Adapter - Parser for Citi CSV exports.
 
 Expects columns: Status, Date, Description, Debit, Credit, Member Name
-Citi format: Sign convention valid: positive for charges, negative for payments
+Debit column holds charge magnitudes (positive); GenericAdapter inverts to negative outflows.
 """
 
 import pandas as pd

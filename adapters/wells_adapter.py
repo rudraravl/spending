@@ -2,17 +2,15 @@
 Wells Adapter - Parser for Wells Fargo CSV exports.
 
 Expects columns: Date (col 0), Amount (col 1), Description (col 5)
-Wells format: Charges are negative, payments/credits are positive.
-This adapter normalizes to: Charges positive, payments negative.
+Wells CSV: charges negative, payments positive — already cash-flow; no extra invert.
 """
 
-import pandas as pd
 from adapters.generic_adapter import GenericAdapter
 
 
 class WellsAdapter(GenericAdapter):
     """Wells Fargo credit card statement adapter."""
-    
+
     def __init__(self):
         super().__init__(
             date_col=0,
@@ -21,12 +19,5 @@ class WellsAdapter(GenericAdapter):
             has_header=False,
             date_format='%m/%d/%Y',  # 4-digit year (e.g. 2/13/2026)
             auto_category='',
+            invert_amounts_for_cash_flow=False,
         )
-    
-    def parse(self, file_path: str) -> pd.DataFrame:
-        """Parse Wells Fargo CSV and normalize amounts (flip sign)."""
-        result = super().parse(file_path)
-        # Wells uses negative for charges, positive for payments
-        # Flip the sign to match our convention
-        result['amount'] = -result['amount']
-        return result

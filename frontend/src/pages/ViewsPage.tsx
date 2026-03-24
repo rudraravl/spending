@@ -16,6 +16,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
+import { SortableHtmlTh } from '@/components/sortable-table-head'
+import { columnLooksNumeric, cycleSort, sortByColumn, type ColumnSortState } from '@/lib/tableSort'
 import { queryKeys } from '../queryKeys'
 import { getAccounts } from '../api/accounts'
 import { getCategories, getSubcategories } from '../api/categories'
@@ -132,7 +134,13 @@ export default function ViewsPage() {
   const [maxAmount, setMaxAmount] = useState<number>(0)
 
   const [tab, setTab] = useState<'tag' | 'category' | 'subcategory'>('tag')
+  const [viewsTagSort, setViewsTagSort] = useState<ColumnSortState | null>(null)
+  const [viewsCategorySort, setViewsCategorySort] = useState<ColumnSortState | null>(null)
+  const [viewsSubcategorySort, setViewsSubcategorySort] = useState<ColumnSortState | null>(null)
+  const [viewsTxnSort, setViewsTxnSort] = useState<ColumnSortState | null>(null)
   const plotOk = typeof Plot === 'function' || (typeof Plot === 'object' && Boolean((Plot as any)?.$$typeof))
+
+  const viewsThStyle = { textAlign: 'left' as const, padding: 8, borderBottom: '1px solid var(--border)' }
 
   // Meta (accounts/categories/tags) comes from React Query.
 
@@ -206,6 +214,38 @@ export default function ViewsPage() {
   const data = viewsQuery.data ?? null
   const error = viewsQuery.error?.message ?? null
   const loading = viewsQuery.isLoading
+
+  const sortedViewsByTag = useMemo(() => {
+    if (!data?.by_tag?.length) return data?.by_tag ?? []
+    return sortByColumn(data.by_tag as Record<string, unknown>[], viewsTagSort, ['total', 'count', 'percent'])
+  }, [data?.by_tag, viewsTagSort])
+
+  const sortedViewsByCategory = useMemo(() => {
+    if (!data?.by_category?.length) return data?.by_category ?? []
+    return sortByColumn(data.by_category as Record<string, unknown>[], viewsCategorySort, [
+      'total',
+      'count',
+      'percent',
+    ])
+  }, [data?.by_category, viewsCategorySort])
+
+  const sortedViewsBySubcategory = useMemo(() => {
+    if (!data?.by_subcategory?.length) return data?.by_subcategory ?? []
+    return sortByColumn(data.by_subcategory as Record<string, unknown>[], viewsSubcategorySort, [
+      'total',
+      'count',
+      'percent',
+    ])
+  }, [data?.by_subcategory, viewsSubcategorySort])
+
+  const sortedViewsTransactions = useMemo(() => {
+    if (!data?.transactions?.length) return data?.transactions ?? []
+    const numeric =
+      viewsTxnSort && columnLooksNumeric(data.transactions as Record<string, unknown>[], viewsTxnSort.key)
+        ? [viewsTxnSort.key]
+        : []
+    return sortByColumn(data.transactions as Record<string, unknown>[], viewsTxnSort, numeric)
+  }, [data?.transactions, viewsTxnSort])
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
@@ -473,10 +513,34 @@ export default function ViewsPage() {
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                           <tr>
-                            <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>tag</th>
-                            <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>total</th>
-                            <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>count</th>
-                            <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>percent</th>
+                            <SortableHtmlTh
+                              label="tag"
+                              columnKey="tag"
+                              sort={viewsTagSort}
+                              onSort={(k) => setViewsTagSort((p) => cycleSort(p, k))}
+                              style={viewsThStyle}
+                            />
+                            <SortableHtmlTh
+                              label="total"
+                              columnKey="total"
+                              sort={viewsTagSort}
+                              onSort={(k) => setViewsTagSort((p) => cycleSort(p, k))}
+                              style={viewsThStyle}
+                            />
+                            <SortableHtmlTh
+                              label="count"
+                              columnKey="count"
+                              sort={viewsTagSort}
+                              onSort={(k) => setViewsTagSort((p) => cycleSort(p, k))}
+                              style={viewsThStyle}
+                            />
+                            <SortableHtmlTh
+                              label="percent"
+                              columnKey="percent"
+                              sort={viewsTagSort}
+                              onSort={(k) => setViewsTagSort((p) => cycleSort(p, k))}
+                              style={viewsThStyle}
+                            />
                           </tr>
                         </thead>
                         <tbody>
@@ -487,7 +551,7 @@ export default function ViewsPage() {
                               </td>
                             </tr>
                           ) : (
-                            data.by_tag.map((r, idx) => (
+                            sortedViewsByTag.map((r, idx) => (
                               <tr key={idx}>
                                 <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.tag}</td>
                                 <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>${Number(r.total).toFixed(2)}</td>
@@ -524,10 +588,34 @@ export default function ViewsPage() {
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                           <tr>
-                            <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>category</th>
-                            <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>total</th>
-                            <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>count</th>
-                            <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>percent</th>
+                            <SortableHtmlTh
+                              label="category"
+                              columnKey="category"
+                              sort={viewsCategorySort}
+                              onSort={(k) => setViewsCategorySort((p) => cycleSort(p, k))}
+                              style={viewsThStyle}
+                            />
+                            <SortableHtmlTh
+                              label="total"
+                              columnKey="total"
+                              sort={viewsCategorySort}
+                              onSort={(k) => setViewsCategorySort((p) => cycleSort(p, k))}
+                              style={viewsThStyle}
+                            />
+                            <SortableHtmlTh
+                              label="count"
+                              columnKey="count"
+                              sort={viewsCategorySort}
+                              onSort={(k) => setViewsCategorySort((p) => cycleSort(p, k))}
+                              style={viewsThStyle}
+                            />
+                            <SortableHtmlTh
+                              label="percent"
+                              columnKey="percent"
+                              sort={viewsCategorySort}
+                              onSort={(k) => setViewsCategorySort((p) => cycleSort(p, k))}
+                              style={viewsThStyle}
+                            />
                           </tr>
                         </thead>
                         <tbody>
@@ -538,7 +626,7 @@ export default function ViewsPage() {
                               </td>
                             </tr>
                           ) : (
-                            data.by_category.map((r, idx) => (
+                            sortedViewsByCategory.map((r, idx) => (
                               <tr key={idx}>
                                 <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.category}</td>
                                 <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>${Number(r.total).toFixed(2)}</td>
@@ -575,11 +663,41 @@ export default function ViewsPage() {
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                           <tr>
-                            <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>category</th>
-                            <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>subcategory</th>
-                            <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>total</th>
-                            <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>count</th>
-                            <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>percent</th>
+                            <SortableHtmlTh
+                              label="category"
+                              columnKey="category"
+                              sort={viewsSubcategorySort}
+                              onSort={(k) => setViewsSubcategorySort((p) => cycleSort(p, k))}
+                              style={viewsThStyle}
+                            />
+                            <SortableHtmlTh
+                              label="subcategory"
+                              columnKey="subcategory"
+                              sort={viewsSubcategorySort}
+                              onSort={(k) => setViewsSubcategorySort((p) => cycleSort(p, k))}
+                              style={viewsThStyle}
+                            />
+                            <SortableHtmlTh
+                              label="total"
+                              columnKey="total"
+                              sort={viewsSubcategorySort}
+                              onSort={(k) => setViewsSubcategorySort((p) => cycleSort(p, k))}
+                              style={viewsThStyle}
+                            />
+                            <SortableHtmlTh
+                              label="count"
+                              columnKey="count"
+                              sort={viewsSubcategorySort}
+                              onSort={(k) => setViewsSubcategorySort((p) => cycleSort(p, k))}
+                              style={viewsThStyle}
+                            />
+                            <SortableHtmlTh
+                              label="percent"
+                              columnKey="percent"
+                              sort={viewsSubcategorySort}
+                              onSort={(k) => setViewsSubcategorySort((p) => cycleSort(p, k))}
+                              style={viewsThStyle}
+                            />
                           </tr>
                         </thead>
                         <tbody>
@@ -590,7 +708,7 @@ export default function ViewsPage() {
                               </td>
                             </tr>
                           ) : (
-                            data.by_subcategory.map((r, idx) => (
+                            sortedViewsBySubcategory.map((r, idx) => (
                               <tr key={idx}>
                                 <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.category}</td>
                                 <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.subcategory}</td>
@@ -628,11 +746,63 @@ export default function ViewsPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
-                    {['Date', 'Merchant', 'Amount', 'Category', 'Subcategory', 'Tags', 'Notes', 'Acct'].map((k) => (
-                      <th key={k} style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>
-                        {k}
-                      </th>
-                    ))}
+                    <SortableHtmlTh
+                      label="Date"
+                      columnKey="Date"
+                      sort={viewsTxnSort}
+                      onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
+                      style={viewsThStyle}
+                    />
+                    <SortableHtmlTh
+                      label="Merchant"
+                      columnKey="Merchant"
+                      sort={viewsTxnSort}
+                      onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
+                      style={viewsThStyle}
+                    />
+                    <SortableHtmlTh
+                      label="Amount"
+                      columnKey="Amount"
+                      sort={viewsTxnSort}
+                      onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
+                      style={{ ...viewsThStyle, textAlign: 'right' }}
+                      align="right"
+                    />
+                    <SortableHtmlTh
+                      label="Category"
+                      columnKey="Category"
+                      sort={viewsTxnSort}
+                      onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
+                      style={viewsThStyle}
+                    />
+                    <SortableHtmlTh
+                      label="Subcategory"
+                      columnKey="Subcategory"
+                      sort={viewsTxnSort}
+                      onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
+                      style={viewsThStyle}
+                    />
+                    <SortableHtmlTh
+                      label="Tags"
+                      columnKey="Tags"
+                      sort={viewsTxnSort}
+                      onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
+                      style={viewsThStyle}
+                    />
+                    <SortableHtmlTh
+                      label="Notes"
+                      columnKey="Notes"
+                      sort={viewsTxnSort}
+                      onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
+                      style={viewsThStyle}
+                    />
+                    <SortableHtmlTh
+                      label="Acct"
+                      columnKey="Acct"
+                      sort={viewsTxnSort}
+                      onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
+                      style={viewsThStyle}
+                    />
                   </tr>
                 </thead>
                 <tbody>
@@ -643,16 +813,18 @@ export default function ViewsPage() {
                       </td>
                     </tr>
                   ) : (
-                    data.transactions.map((r: any, idx: number) => (
+                    sortedViewsTransactions.map((r: Record<string, unknown>, idx: number) => (
                       <tr key={idx}>
-                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.Date}</td>
-                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.Merchant}</td>
-                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>${Number(r.Amount).toFixed(2)}</td>
-                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.Category}</td>
-                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.Subcategory}</td>
-                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.Tags}</td>
-                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.Notes}</td>
-                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.Acct}</td>
+                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{String(r.Date ?? '')}</td>
+                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{String(r.Merchant ?? '')}</td>
+                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)', textAlign: 'right' }}>
+                          ${Number(r.Amount).toFixed(2)}
+                        </td>
+                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{String(r.Category ?? '')}</td>
+                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{String(r.Subcategory ?? '')}</td>
+                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{String(r.Tags ?? '')}</td>
+                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{String(r.Notes ?? '')}</td>
+                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{String(r.Acct ?? '')}</td>
                       </tr>
                     ))
                   )}

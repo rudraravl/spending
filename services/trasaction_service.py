@@ -41,7 +41,7 @@ def create_transaction(
     Args:
         session: Database session
         date_: Transaction date
-        amount: Transaction amount
+        amount: Signed amount (cash-flow: positive = inflow, negative = outflow)
         merchant: Merchant name
         account_id: ID of the account
         category_id: REQUIRED category ID

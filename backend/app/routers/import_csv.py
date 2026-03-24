@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import tempfile
-from datetime import date
 from typing import Any
 
 import pandas as pd
@@ -93,7 +92,8 @@ async def preview_import_csv(
         parsed_dates = None
         date_candidates = [col for col in preview_df.columns if "date" in str(col).lower()]
         for col in date_candidates:
-            candidate_dates = pd.to_datetime(preview_df[col], errors="coerce")
+            # Avoid per-element dateutil fallback + UserWarning; bank CSVs mix 2- and 4-digit years.
+            candidate_dates = pd.to_datetime(preview_df[col], errors="coerce", format="mixed")
             if candidate_dates.notna().any():
                 parsed_dates = candidate_dates
                 break

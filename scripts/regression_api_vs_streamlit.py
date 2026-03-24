@@ -113,7 +113,9 @@ def compute_expected_dashboard(
         sub = t.subcategory.name.lower() if t.subcategory and t.subcategory.name else ""
         if sub in PAYMENT_SUBCATEGORY_NAMES:
             continue
-        daily[t.date] = daily.get(t.date, 0.0) + float(t.amount)
+        raw = float(t.amount)
+        if raw < 0:
+            daily[t.date] = daily.get(t.date, 0.0) - raw
     spending_over_time = [
         {"date": d.isoformat(), "amount": amt}
         for d, amt in sorted(daily.items(), key=lambda x: x[0])
@@ -178,7 +180,9 @@ def compute_expected_views(session, *, start_date: date, end_date: date, account
         sub = t.subcategory.name.lower() if t.subcategory and t.subcategory.name else ""
         if sub in exclude_subcategories:
             continue
-        daily[t.date] = daily.get(t.date, 0.0) + float(t.amount)
+        raw = float(t.amount)
+        if raw < 0:
+            daily[t.date] = daily.get(t.date, 0.0) - raw
 
     spending_over_time = [{"date": d.isoformat(), "amount": amt} for d, amt in sorted(daily.items(), key=lambda x: x[0])]
 

@@ -194,6 +194,9 @@ export default function AddTransactionPage() {
                       value={field.value}
                       onChange={(e) => field.onChange(Number(e.target.value))}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Negative = spending or outflow; positive = income or inflow.
+                    </p>
                   </div>
                 )}
               />

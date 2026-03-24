@@ -121,10 +121,11 @@ def calculate_total(
     filters: Optional[TransactionFilter] = None,
 ) -> float:
     """
-    Net sum of all matching transaction amounts (debits and credits together).
+    Net sum of all matching transaction amounts (inflows and outflows).
 
-    Positive amounts add; negative amounts (credits) subtract. For dashboard-style
-    gross spending that pairs with calculate_total_income, use calculate_gross_spending.
+    Cash-flow convention: positive = inflow, negative = outflow. Net total is the
+    signed sum. For dashboard-style gross spending and income magnitudes, use
+    calculate_gross_spending and calculate_total_income.
 
     NOTE: Transactions in the Payments subcategory are excluded from totals.
 
@@ -179,15 +180,16 @@ def calculate_gross_spending(
     filters: Optional[TransactionFilter] = None,
 ) -> float:
     """
-    Sum of outflows (debits) only in the app's sign convention: positive amounts are spending.
+    Sum of outflow magnitudes (cash-flow: negative amounts are spending).
 
-    Credits (negative amounts) are excluded so they are not double-counted with
+    Inflows (positive amounts) are excluded so they are not double-counted with
     calculate_total_income when computing net as income - spending on the dashboard.
 
     Uses the same exclusions as calculate_total (no transfers, no Payments subcategory).
+    Returns a non-negative float for display.
     """
     gross = func.coalesce(
-        func.sum(case((Transaction.amount > 0, Transaction.amount), else_=0.0)),
+        func.sum(case((Transaction.amount < 0, -Transaction.amount), else_=0.0)),
         0.0,
     )
     query = session.query(gross)
@@ -231,14 +233,13 @@ def calculate_total_income(
     filters: Optional[TransactionFilter] = None,
 ) -> float:
     """
-    Sum of inflows (credits) in the app's sign convention: negative amounts are credits.
+    Sum of inflow magnitudes (cash-flow: positive amounts are income/refunds).
 
     Uses the same exclusions as calculate_total (no transfers, no Payments subcategory).
     Returns a non-negative float for display.
     """
-    # Sum of (-amount) for rows where amount < 0, else 0
     inflow = func.coalesce(
-        func.sum(case((Transaction.amount < 0, -Transaction.amount), else_=0.0)),
+        func.sum(case((Transaction.amount > 0, Transaction.amount), else_=0.0)),
         0.0,
     )
     query = session.query(inflow)
@@ -352,9 +353,9 @@ def summarize_by_tag(
     if len(df) == 0:
         return pd.DataFrame(columns=['tag', 'total', 'count', 'percent'])
     
-    # Calculate percentage
+    # Calculate percentage (totals may be negative under cash-flow for spending)
     total = df['total'].sum()
-    if total > 0:
+    if total != 0:
         df['percent'] = (df['total'] / total * 100).round(2)
     else:
         df['percent'] = 0.0
@@ -433,7 +434,7 @@ def summarize_by_category(
         return pd.DataFrame(columns=["category_id", "category", "total", "count", "percent"])
 
     total = df["total"].sum()
-    df["percent"] = (df["total"] / total * 100).round(2) if total > 0 else 0.0
+    df["percent"] = (df["total"] / total * 100).round(2) if total != 0 else 0.0
     df = df.sort_values("total", ascending=False).reset_index(drop=True)
 
     return df[["category_id", "category", "total", "count", "percent"]]
@@ -526,7 +527,7 @@ def summarize_by_subcategory(
         )
 
     total = df["total"].sum()
-    df["percent"] = (df["total"] / total * 100).round(2) if total > 0 else 0.0
+    df["percent"] = (df["total"] / total * 100).round(2) if total != 0 else 0.0
     df = df.sort_values("total", ascending=False).reset_index(drop=True)
 
     return df[

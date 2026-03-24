@@ -63,6 +63,20 @@ function Pie({
   )
 }
 
+function buildPieData(rows: Array<Record<string, any>>, labelKey: string): { labels: string[]; values: number[] } {
+  const labels: string[] = []
+  const values: number[] = []
+  for (const row of rows) {
+    const raw = Number(row.total)
+    if (!Number.isFinite(raw)) continue
+    const magnitude = Math.abs(raw)
+    if (magnitude <= 0) continue
+    labels.push(String(row[labelKey] ?? 'Unknown'))
+    values.push(magnitude)
+  }
+  return { labels, values }
+}
+
 type ViewsResponse = {
   start_date: string
   end_date: string
@@ -246,6 +260,13 @@ export default function ViewsPage() {
         : []
     return sortByColumn(data.transactions as Record<string, unknown>[], viewsTxnSort, numeric)
   }, [data?.transactions, viewsTxnSort])
+
+  const tagPieData = useMemo(() => buildPieData(data?.by_tag ?? [], 'tag'), [data?.by_tag])
+  const categoryPieData = useMemo(() => buildPieData(data?.by_category ?? [], 'category'), [data?.by_category])
+  const subcategoryPieData = useMemo(
+    () => buildPieData(data?.by_subcategory ?? [], 'subcategory'),
+    [data?.by_subcategory]
+  )
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
@@ -566,11 +587,11 @@ export default function ViewsPage() {
                   </div>
                   <div className="rounded-xl border bg-card shadow-card p-4">
                     <div style={{ fontWeight: 700, marginBottom: 8 }}>Spend by Tag</div>
-                    {data.by_tag.length ? (
+                    {tagPieData.values.length ? (
                       <Pie
                         plotOk={plotOk}
-                        labels={data.by_tag.map((r) => r.tag)}
-                        values={data.by_tag.map((r) => Number(r.total))}
+                        labels={tagPieData.labels}
+                        values={tagPieData.values}
                         title="Spend by Tag"
                       />
                     ) : (
@@ -641,11 +662,11 @@ export default function ViewsPage() {
                   </div>
                   <div className="rounded-xl border bg-card shadow-card p-4">
                     <div style={{ fontWeight: 700, marginBottom: 8 }}>Spend by Category</div>
-                    {data.by_category.length ? (
+                    {categoryPieData.values.length ? (
                       <Pie
                         plotOk={plotOk}
-                        labels={data.by_category.map((r) => r.category)}
-                        values={data.by_category.map((r) => Number(r.total))}
+                        labels={categoryPieData.labels}
+                        values={categoryPieData.values}
                         title="Spend by Category"
                       />
                     ) : (
@@ -724,11 +745,11 @@ export default function ViewsPage() {
                   </div>
                   <div className="rounded-xl border bg-card shadow-card p-4">
                     <div style={{ fontWeight: 700, marginBottom: 8 }}>Spend by Subcategory</div>
-                    {data.by_subcategory.length ? (
+                    {subcategoryPieData.values.length ? (
                       <Pie
                         plotOk={plotOk}
-                        labels={data.by_subcategory.map((r) => r.subcategory)}
-                        values={data.by_subcategory.map((r) => Number(r.total))}
+                        labels={subcategoryPieData.labels}
+                        values={subcategoryPieData.values}
                         title="Spend by Subcategory"
                       />
                     ) : (

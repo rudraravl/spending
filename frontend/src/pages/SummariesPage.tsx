@@ -115,6 +115,20 @@ function ChartPlaceholder({ message }: { message: string }) {
   )
 }
 
+function buildPieData(rows: SummaryRow[], labelKey: string): { labels: string[]; values: number[] } {
+  const labels: string[] = []
+  const values: number[] = []
+  for (const row of rows) {
+    const raw = Number(row.total)
+    if (!Number.isFinite(raw)) continue
+    const magnitude = Math.abs(raw)
+    if (magnitude <= 0) continue
+    labels.push(String(row[labelKey] ?? 'Unknown'))
+    values.push(magnitude)
+  }
+  return { labels, values }
+}
+
 export default function SummariesPage() {
   const [tab, setTab] = useState<(typeof rangeMap)[number]['key']>('month')
   const [tagSort, setTagSort] = useState<ColumnSortState | null>(null)
@@ -153,6 +167,13 @@ export default function SummariesPage() {
       'percent',
     ]) as SummaryRow[]
   }, [data?.by_subcategory, subcategorySort])
+
+  const tagPieData = useMemo(() => buildPieData(data?.by_tag ?? [], 'tag'), [data?.by_tag])
+  const categoryPieData = useMemo(() => buildPieData(data?.by_category ?? [], 'category'), [data?.by_category])
+  const subcategoryPieData = useMemo(
+    () => buildPieData(data?.by_subcategory ?? [], 'subcategory'),
+    [data?.by_subcategory]
+  )
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
@@ -274,13 +295,13 @@ export default function SummariesPage() {
             <div style={{ fontWeight: 700, marginBottom: 8 }}>Spend by Tag</div>
             {awaitingData ? (
               <ChartPlaceholder message="Loading chart…" />
-            ) : data!.by_tag.length === 0 ? (
+            ) : tagPieData.values.length === 0 ? (
               <div style={{ opacity: 0.7 }}>No data.</div>
             ) : (
               <Pie
                 plotOk={plotOk}
-                labels={data!.by_tag.map((r) => r.tag)}
-                values={data!.by_tag.map((r) => Number(r.total))}
+                labels={tagPieData.labels}
+                values={tagPieData.values}
                 title="Spend by Tag"
               />
             )}
@@ -363,13 +384,13 @@ export default function SummariesPage() {
             <div style={{ fontWeight: 700, marginBottom: 8 }}>Spend by Category</div>
             {awaitingData ? (
               <ChartPlaceholder message="Loading chart…" />
-            ) : data!.by_category.length === 0 ? (
+            ) : categoryPieData.values.length === 0 ? (
               <div style={{ opacity: 0.7 }}>No data.</div>
             ) : (
               <Pie
                 plotOk={plotOk}
-                labels={data!.by_category.map((r) => r.category)}
-                values={data!.by_category.map((r) => Number(r.total))}
+                labels={categoryPieData.labels}
+                values={categoryPieData.values}
                 title="Spend by Category"
               />
             )}
@@ -463,13 +484,13 @@ export default function SummariesPage() {
             <div style={{ fontWeight: 700, marginBottom: 8 }}>Spend by Subcategory</div>
             {awaitingData ? (
               <ChartPlaceholder message="Loading chart…" />
-            ) : data!.by_subcategory.length === 0 ? (
+            ) : subcategoryPieData.values.length === 0 ? (
               <div style={{ opacity: 0.7 }}>No data.</div>
             ) : (
               <Pie
                 plotOk={plotOk}
-                labels={data!.by_subcategory.map((r) => r.subcategory)}
-                values={data!.by_subcategory.map((r) => Number(r.total))}
+                labels={subcategoryPieData.labels}
+                values={subcategoryPieData.values}
                 title="Spend by Subcategory"
               />
             )}

@@ -74,6 +74,7 @@ export default function ImportCsvPage() {
   const genericMerchantCol = watch('generic_merchant_col')
 
   const [file, setFile] = useState<File | null>(null)
+  const [isDraggingFile, setIsDraggingFile] = useState(false)
 
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [feedbackTitle, setFeedbackTitle] = useState('')
@@ -144,6 +145,16 @@ export default function ImportCsvPage() {
       setValue('adapter_name', 'Generic')
     }
   }, [adapters, setValue])
+
+  const acceptCsvFile = (f: File) => {
+    const nameOk = f.name.toLowerCase().endsWith('.csv')
+    const typeOk =
+      f.type === 'text/csv' ||
+      f.type === 'application/csv' ||
+      f.type === 'application/vnd.ms-excel' ||
+      f.type === ''
+    if (nameOk || typeOk) setFile(f)
+  }
 
   const importMutation = useMutation({
     mutationFn: async (): Promise<CsvImportResult> => {
@@ -268,15 +279,49 @@ export default function ImportCsvPage() {
                 <CardDescription>Upload your CSV file and preview parsed transactions.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <label className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/30 p-8 cursor-pointer hover:bg-muted/50 transition-colors">
+                <label
+                  htmlFor="import-csv-file"
+                  onDragEnter={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setIsDraggingFile(true)
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                      setIsDraggingFile(false)
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setIsDraggingFile(false)
+                    const dropped = e.dataTransfer.files?.[0]
+                    if (dropped) acceptCsvFile(dropped)
+                  }}
+                  className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 cursor-pointer transition-colors ${
+                    isDraggingFile
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border bg-muted/30 hover:bg-muted/50'
+                  }`}
+                >
                   <Upload className="h-10 w-10 text-muted-foreground/50 mb-3" />
                   <p className="text-sm font-medium text-muted-foreground">Choose CSV file</p>
                   <p className="text-xs text-muted-foreground/70 mt-1">or drop here (click to browse)</p>
                   <input
+                    id="import-csv-file"
                     type="file"
                     accept=".csv"
                     className="sr-only"
-                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) setFile(f)
+                    }}
                   />
                 </label>
                 {file ? <p className="text-sm text-muted-foreground">{file.name}</p> : null}

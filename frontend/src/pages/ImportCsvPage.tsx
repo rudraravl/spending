@@ -153,7 +153,9 @@ export default function ImportCsvPage() {
       f.type === 'application/csv' ||
       f.type === 'application/vnd.ms-excel' ||
       f.type === ''
-    if (nameOk || typeOk) setFile(f)
+    const accepted = nameOk || typeOk
+    if (accepted) setFile(f)
+    return accepted
   }
 
   const importMutation = useMutation({
@@ -320,7 +322,12 @@ export default function ImportCsvPage() {
                     className="sr-only"
                     onChange={(e) => {
                       const f = e.target.files?.[0]
-                      if (f) setFile(f)
+                      if (!f) return
+                      const accepted = acceptCsvFile(f)
+                      if (!accepted) {
+                        setFile(null)
+                        e.currentTarget.value = ''
+                      }
                     }}
                   />
                 </label>

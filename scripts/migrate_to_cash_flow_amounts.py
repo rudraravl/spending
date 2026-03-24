@@ -2,7 +2,7 @@
 """
 One-time migration: legacy card-style signs -> cash-flow canonical signs.
 
-See docs/AMOUNT_CONVENTION.md. Backs up are your responsibility.
+See docs/AMOUNT_CONVENTION.md. Backups are your responsibility.
 
 Recorded in _schema_migrations. To re-run after restoring an old DB backup, delete that row:
   DELETE FROM _schema_migrations WHERE id = 'cash_flow_amounts_v1';

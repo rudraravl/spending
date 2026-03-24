@@ -33,9 +33,9 @@ class GenericAdapter(BaseAdapter):
         date_col,
         amount_col,
         merchant_col,
-        date_format: str,
-        has_header: bool,
-        auto_category = "",
+        date_format: str | None = None,
+        has_header: bool = True,
+        auto_category: str = "",
         *,
         invert_amounts_for_cash_flow: bool = True,
     ):
@@ -84,12 +84,11 @@ class GenericAdapter(BaseAdapter):
         # Create normalized dataframe
         result = pd.DataFrame()
         
-        # Parse dates
-        result['date'] = pd.to_datetime(
-            dataframe[self.date_col],
-            format=self.date_format,
-            errors='coerce'
-        ).dt.date
+        # Parse dates; if no explicit format is provided, let pandas infer.
+        to_datetime_kwargs = {'errors': 'coerce'}
+        if self.date_format:
+            to_datetime_kwargs['format'] = self.date_format
+        result['date'] = pd.to_datetime(dataframe[self.date_col], **to_datetime_kwargs).dt.date
         
         # Convert amounts to float
         result['amount'] = pd.to_numeric(

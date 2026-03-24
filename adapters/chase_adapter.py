@@ -22,7 +22,7 @@ class ChaseCreditCardAdapter(GenericAdapter):
             date_format='%m/%d/%Y',
             has_header=True,
             auto_category='',
-            invert_amounts_for_cash_flow=False,
+            invert_amounts_for_cash_flow=True,
         )
 
     

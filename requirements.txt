@@ -1,5 +1,13 @@
-SQLAlchemy==2.0.23
-pandas==2.1.3
-streamlit==1.28.1
-plotly==5.18.0
-openpyxl==3.1.2
+# Shared
+SQLAlchemy>=2.0.0
+pandas>=2.0.0
+
+# Streamlit app (app.py)
+streamlit>=1.28.0
+plotly>=5.18.0
+openpyxl>=3.1.0
+
+# FastAPI backend (backend/)
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9

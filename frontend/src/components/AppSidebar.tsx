@@ -7,7 +7,6 @@ import {
   List,
   BarChart3,
   FileText,
-  Link2,
   Repeat,
   Settings,
   Wallet,
@@ -30,10 +29,10 @@ const mainItems = [
   { title: "Accounts", url: "/accounts", icon: Landmark },
   { title: "Import CSV", url: "/import", icon: Upload },
   { title: "Add Transaction", url: "/add-transaction", icon: PlusCircle },
-  { title: "Transfer", url: "/transfer", icon: ArrowLeftRight },
-  { title: "Review transfers", url: "/transfers/review", icon: Link2 },
+  { title: "Transfers", url: "/transfer", icon: ArrowLeftRight },
   { title: "All Transactions", url: "/transactions", icon: List },
   { title: "Recurring charges", url: "/recurring", icon: Repeat },
+  { title: "Budgets", url: "/budgets", icon: Wallet },
 ];
 
 const analyticsItems = [

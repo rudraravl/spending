@@ -510,6 +510,68 @@ def link_transactions_as_transfer(
     return group
 
 
+def _get_other_uncategorized_ids(session: Session) -> tuple[int, int]:
+    other = session.query(Category).filter(Category.name == "Other").first()
+    if not other:
+        raise ValueError("Required category 'Other' not found")
+    uncategorized = (
+        session.query(Subcategory)
+        .filter(Subcategory.category_id == other.id, Subcategory.name == "Uncategorized")
+        .first()
+    )
+    if not uncategorized:
+        raise ValueError("Required subcategory 'Uncategorized' not found under 'Other'")
+    return int(other.id), int(uncategorized.id)
+
+
+def unlink_transfer_pair(
+    session: Session,
+    transaction_id_a: int,
+    transaction_id_b: int,
+) -> int:
+    """
+    Unlink two transactions that are currently linked as a transfer pair.
+
+    After unlinking, both transactions become normal rows and are recategorized to
+    Other -> Uncategorized so they remain valid non-transfer transactions.
+    Returns the unlinked transfer_group_id.
+    """
+    if transaction_id_a == transaction_id_b:
+        raise ValueError("Cannot unlink a transaction from itself")
+
+    t_a = session.query(Transaction).filter(Transaction.id == transaction_id_a).first()
+    t_b = session.query(Transaction).filter(Transaction.id == transaction_id_b).first()
+    if not t_a:
+        raise ValueError(f"Transaction with id {transaction_id_a} does not exist")
+    if not t_b:
+        raise ValueError(f"Transaction with id {transaction_id_b} does not exist")
+
+    if not t_a.is_transfer or t_a.transfer_group_id is None:
+        raise ValueError(f"Transaction {t_a.id} is not linked as a transfer")
+    if not t_b.is_transfer or t_b.transfer_group_id is None:
+        raise ValueError(f"Transaction {t_b.id} is not linked as a transfer")
+    if t_a.transfer_group_id != t_b.transfer_group_id:
+        raise ValueError("Selected transactions are not linked to the same transfer group")
+
+    group_id = int(t_a.transfer_group_id)
+    other_cat_id, unc_sub_id = _get_other_uncategorized_ids(session)
+
+    for t in (t_a, t_b):
+        t.is_transfer = False
+        t.transfer_group_id = None
+        if t.category_id is None:
+            t.category_id = other_cat_id
+        if t.subcategory_id is None:
+            t.subcategory_id = unc_sub_id
+
+    group = session.query(TransferGroup).filter(TransferGroup.id == group_id).first()
+    if group and len(group.transactions) == 0:
+        session.delete(group)
+
+    session.commit()
+    return group_id
+
+
 def count_transactions(
     session: Session,
     filters: Optional[TransactionFilter] = None,

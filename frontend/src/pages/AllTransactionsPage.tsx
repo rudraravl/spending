@@ -32,11 +32,13 @@ export default function AllTransactionsPage() {
         onSaveEdits={table.saveDirtyEdits}
         onDeleteSelected={table.deleteSelected}
         onLinkCardPayment={table.linkCardPayment}
+        onUnlinkTransfer={table.unlinkTransfer}
         getSelectedIds={table.getSelectedIds}
         metaReady={table.metaReady}
         savePending={table.saveDirtyPending}
         deletePending={table.deletePending}
         linkCardPaymentPending={table.linkCardPaymentPending}
+        unlinkTransferPending={table.unlinkTransferPending}
         onLoadMore={table.loadMore}
         canLoadMore={table.canLoadMore}
         loadMorePending={table.loadMorePending}

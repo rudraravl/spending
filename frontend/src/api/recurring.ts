@@ -1,5 +1,10 @@
-import { apiGet, apiPostJsonNoContent } from './client'
-import type { RecurringSeriesActionIn, RecurringSeriesCardOut } from '@/types/recurring'
+import { apiGet, apiPostJson, apiPostJsonNoContent } from './client'
+import type {
+  RecurringOccurrenceOut,
+  RecurringSeriesActionIn,
+  RecurringSeriesBulkCategoryUpdateIn,
+  RecurringSeriesCardOut,
+} from '@/types/recurring'
 
 export const getRecurringSuggestions = () =>
   apiGet<RecurringSeriesCardOut[]>('/api/recurring/suggestions')
@@ -12,4 +17,10 @@ export const ignoreRecurringSeries = (payload: RecurringSeriesActionIn) =>
 
 export const removeRecurringSeries = (payload: RecurringSeriesActionIn) =>
   apiPostJsonNoContent('/api/recurring/series/remove', payload)
+
+export const getRecurringSeriesOccurrences = (payload: RecurringSeriesActionIn) =>
+  apiPostJson<RecurringOccurrenceOut[]>('/api/recurring/series/occurrences', payload)
+
+export const bulkUpdateRecurringSeriesCategory = (payload: RecurringSeriesBulkCategoryUpdateIn) =>
+  apiPostJsonNoContent('/api/recurring/series/bulk-category', payload)
 

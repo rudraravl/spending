@@ -13,6 +13,8 @@ from backend.app.schemas import (
     TransferCreate,
     TransferLinkExisting,
     TransferLinkExistingResponse,
+    TransferUnlinkExisting,
+    TransferUnlinkExistingResponse,
     TransferMatchCandidatesResponse,
     TransactionCreate,
     TransactionOut,
@@ -27,6 +29,7 @@ from services.trasaction_service import (
     get_transactions,
     get_transaction_by_id,
     link_transactions_as_transfer,
+    unlink_transfer_pair,
     update_transaction,
 )
 from services.transfer_matching_service import find_card_payment_pair_candidates
@@ -237,6 +240,26 @@ def link_existing_transfer_endpoint(
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     return TransferLinkExistingResponse(transfer_group_id=group.id)
+
+
+@router.post(
+    "/api/transfers/unlink-existing",
+    response_model=TransferUnlinkExistingResponse,
+    status_code=status.HTTP_200_OK,
+)
+def unlink_existing_transfer_endpoint(
+    payload: TransferUnlinkExisting,
+    session: Session = Depends(get_db_session),
+) -> TransferUnlinkExistingResponse:
+    try:
+        group_id = unlink_transfer_pair(
+            session,
+            payload.transaction_id_a,
+            payload.transaction_id_b,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return TransferUnlinkExistingResponse(transfer_group_id=group_id)
 
 
 @router.get("/api/transfers/match-candidates", response_model=TransferMatchCandidatesResponse)

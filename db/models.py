@@ -265,6 +265,9 @@ class RecurringSeries(Base):
     status = Column(String, nullable=False, server_default="suggested")
     cadence_type = Column(String, nullable=True)  # weekly | biweekly | monthly | ...
     cadence_days = Column(Integer, nullable=True)
+    # Canonical budget mapping for this series (must be a single category/subcategory pair).
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
+    subcategory_id = Column(Integer, ForeignKey("subcategories.id"), nullable=True)
     created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
     updated_at = Column(
         DateTime,
@@ -282,8 +285,67 @@ class RecurringSeries(Base):
         Index("idx_recurring_series_status", "status"),
     )
 
+    category = relationship("Category")
+    subcategory = relationship("Subcategory")
+
     def __repr__(self):
         return (
             f"<RecurringSeries(id={self.id}, merchant_norm='{self.merchant_norm}', "
             f"amount_anchor_cents={self.amount_anchor_cents}, status='{self.status}')>"
         )
+
+
+class BudgetMonth(Base):
+    """Represents a single calendar-month budget container (month_start = first of month)."""
+
+    __tablename__ = "budget_months"
+
+    id = Column(Integer, primary_key=True)
+    month_start = Column(Date, nullable=False, unique=True)
+    created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
+
+    limits = relationship(
+        "BudgetLimit",
+        back_populates="budget_month",
+        cascade="all, delete-orphan",
+    )
+
+
+class BudgetLimit(Base):
+    """
+    Represents a budget limit for a category, optionally allocated to a subcategory.
+
+    - category-level cap: subcategory_id is NULL
+    - subcategory allocation: subcategory_id is set
+    """
+
+    __tablename__ = "budget_limits"
+
+    id = Column(Integer, primary_key=True)
+    budget_month_id = Column(Integer, ForeignKey("budget_months.id"), nullable=False)
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
+    subcategory_id = Column(Integer, ForeignKey("subcategories.id"), nullable=True)
+    limit_amount = Column(Float, nullable=False)
+    created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
+    updated_at = Column(
+        DateTime,
+        server_default=func.current_timestamp(),
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    budget_month = relationship("BudgetMonth", back_populates="limits")
+    category = relationship("Category")
+    subcategory = relationship("Subcategory")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "budget_month_id",
+            "category_id",
+            "subcategory_id",
+            name="uq_budget_limits_month_cat_subcat",
+        ),
+        Index("idx_budget_limits_month", "budget_month_id"),
+        Index("idx_budget_limits_cat", "category_id"),
+        Index("idx_budget_limits_subcat", "subcategory_id"),
+    )

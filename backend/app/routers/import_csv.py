@@ -100,10 +100,10 @@ async def preview_import_csv(
     merchant_col: str | None = Form(default=None),
 ) -> CsvPreviewResponse:
     """
-    Return raw CSV preview + inferred date range (same heuristic as the Streamlit UI).
+    Return raw CSV preview + inferred date range.
 
-    Note: We don't rely on adapter parsing for the date-range inference, because
-    the current Streamlit UI infers date range purely from the raw CSV columns.
+    Note: We don't rely on adapter parsing for the date-range inference;
+    inference runs directly on raw CSV columns.
     """
 
     temp_path = await _save_upload_to_temp_csv(file)
@@ -134,8 +134,7 @@ async def preview_import_csv(
         preview_rows = _rows_to_preview_records(preview_df, limit=20)
 
         # Optional: validate Generic mapping existence early (doesn't affect response).
-        # Streamlit lets users preview raw CSV before choosing mapping, so we only
-        # validate if the user already provided all 3 mapping fields.
+        # Validate Generic mapping only if all mapping fields were provided.
         if adapter_name == "Generic" and date_col and amount_col and merchant_col:
             _ = preview_csv(
                 temp_path,

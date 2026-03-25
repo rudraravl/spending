@@ -230,12 +230,12 @@ def views(
         max_amount=max_amount,
     )
 
-    # Matches Streamlit: exclude transfers from views.
+    # Exclude transfers from views.
     transactions = get_transactions(session, filters=filters, include_transfers=False)
 
     total = calculate_total(session, filters)
 
-    # Daily chart: gross outflows; exclude rent (Streamlit UI-only logic)
+    # Daily chart: gross outflows; exclude rent.
     exclude_subcategories = {"rent"}
     spending_over_time = net_spending_daily_series(
         transactions,

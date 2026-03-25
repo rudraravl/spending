@@ -1,6 +1,6 @@
 # Personal Budget App
 
-Local spending tracker backed by SQLite: import credit card CSVs, categorize transactions, and view summaries. Use the **Streamlit** UI (Python only) or the **React + FastAPI** stack.
+Local spending tracker backed by SQLite: import credit card CSVs, categorize transactions, and view summaries through the React UI and FastAPI backend.
 
 ## New user setup
 
@@ -19,14 +19,6 @@ mkdir -p data
 ```
 
 Or run `./setup.sh` to create the venv, install packages, and initialize the database.
-
-### Streamlit (no Node)
-
-```bash
-streamlit run app.py
-```
-
-Data lives in `data/budget.db`. Nothing runs in the cloud.
 
 ### Web app (React + FastAPI)
 
@@ -52,14 +44,7 @@ export VITE_API_BASE_URL=http://localhost:8000
 npm --prefix frontend run dev
 ```
 
-**Backend:** Uses the same DB as Streamlit (`data/budget.db`). Run `uvicorn` from the repo root so imports resolve (`db/`, `services/`, `adapters/`, etc.). On startup the API runs `init_db()` and a best-effort daily DB backup. CORS is open for local dev (`allow_origins=["*"]`).
-
-**Regression check (API vs domain):**
-
-```bash
-python scripts/regression_api_vs_streamlit.py
-```
-
+**Backend:** Uses `data/budget.db`. Run `uvicorn` from the repo root so imports resolve (`db/`, `services/`, `adapters/`, etc.). On startup the API runs `init_db()` and a best-effort daily DB backup. CORS is open for local dev (`allow_origins=["*"]`).
 
 ### OPTIONAL for Mac - set up app on Automator
 Open Automator, create new application in desired location, do "Run Applescript" and paste:

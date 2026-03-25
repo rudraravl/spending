@@ -27,7 +27,8 @@ from services.trasaction_service import (
 from services.summary_service import (
     PAYMENT_SUBCATEGORY_NAMES,
     calculate_total,
-    calculate_gross_spending,
+    calculate_net_spending_excluding_income,
+    net_spending_daily_series,
     summarize_by_tag,
     summarize_by_category,
     summarize_by_subcategory,
@@ -281,14 +282,14 @@ if page == "Dashboard":
     with section("Overview", "Key totals across your entire history"):
         col1, col2, col3 = st.columns(3)
 
-        # Gross outflows (all time), cash-flow sign in DB
-        total_spend = calculate_gross_spending(session)
+        # Net non-Income outflows (all time), cash-flow sign in DB
+        total_spend = calculate_net_spending_excluding_income(session)
         col1.metric("Total All-Time Spending", f"${total_spend:.2f}")
 
-        # Current month gross spending
+        # Current month net non-Income spending
         month_range = get_current_month_range()
         filters = TransactionFilter(start_date=month_range[0], end_date=month_range[1])
-        month_spend = calculate_gross_spending(session, filters)
+        month_spend = calculate_net_spending_excluding_income(session, filters)
         col2.metric("Current Month", f"${month_spend:.2f}")
 
         # Total transactions
@@ -302,27 +303,19 @@ if page == "Dashboard":
         trend_filters = TransactionFilter(start_date=start_30, end_date=today)
         trend_txns = get_transactions(session, filters=trend_filters, include_transfers=False)
 
-        daily_rows = []
-        for t in trend_txns:
-            sub = t.subcategory.name.lower() if t.subcategory and t.subcategory.name else ""
-            if sub in PAYMENT_SUBCATEGORY_NAMES:
-                continue
-            raw = float(t.amount)
-            if raw < 0:
-                daily_rows.append({"date": t.date, "amount": -raw})
-        if daily_rows:
-            daily_df = (
-                pd.DataFrame(daily_rows)
-                .groupby("date", as_index=False)["amount"]
-                .sum()
-                .sort_values("date")
-            )
+        spending_pts = net_spending_daily_series(
+            trend_txns,
+            exclude_subcategory_names=PAYMENT_SUBCATEGORY_NAMES,
+        )
+        if spending_pts:
+            daily_df = pd.DataFrame(spending_pts)
+            daily_df["date"] = pd.to_datetime(daily_df["date"])
             fig = px.bar(
                 daily_df,
                 x="date",
                 y="amount",
-                title="Daily spending (last 30 days)",
-                labels={"date": "Date", "amount": "Amount ($)"},
+                title="Daily net non-Income cash flow (last 30 days)",
+                labels={"date": "Date", "amount": "Net outflow ($)"},
             )
             fig.update_layout(
                 margin=dict(t=40, b=30, l=40, r=20),
@@ -330,7 +323,7 @@ if page == "Dashboard":
             )
             st.plotly_chart(fig, use_container_width=True, key="dashboard_recent_trend")
         else:
-            st.info("No spending yet in the last 30 days.")
+            st.info("No non-Income activity in the last 30 days.")
 
     # Recent transactions
     with section("Recent activity", "Last 10 transactions across all accounts"):

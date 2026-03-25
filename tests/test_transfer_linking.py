@@ -6,9 +6,9 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from db.models import Account, Base, Category, Subcategory, Transaction, TransactionSplit
+from db.models import Account, Base, Category, Subcategory, Transaction, TransactionSplit, TransferGroup
 from services.transfer_matching_service import find_card_payment_pair_candidates
-from services.trasaction_service import link_transactions_as_transfer
+from services.trasaction_service import link_transactions_as_transfer, unlink_transfer_pair
 
 
 def _seed_other(session):
@@ -316,6 +316,45 @@ class TestTransferLinking(unittest.TestCase):
         s.commit()
         pairs = find_card_payment_pair_candidates(s, seed_transaction_ids=[t_bank.id], lookback_days=365)
         self.assertEqual(len(pairs), 1)
+
+    def test_unlink_transfer_pair_resets_flags_and_group(self):
+        s = self.session
+        bank = Account(name="UnlinkBank", type="checking")
+        card = Account(name="UnlinkCard", type="credit")
+        s.add_all([bank, card])
+        s.flush()
+        t_bank = Transaction(
+            date=date(2025, 7, 1),
+            amount=-120.0,
+            merchant="ACH OUT",
+            account_id=bank.id,
+            category_id=self.cat_id,
+            subcategory_id=self.sub_id,
+        )
+        t_card = Transaction(
+            date=date(2025, 7, 2),
+            amount=120.0,
+            merchant="CARD PMT",
+            account_id=card.id,
+            category_id=self.cat_id,
+            subcategory_id=self.sub_id,
+        )
+        s.add_all([t_bank, t_card])
+        s.commit()
+
+        group = link_transactions_as_transfer(s, t_bank.id, t_card.id)
+        gid = group.id
+        unlink_transfer_pair(s, t_bank.id, t_card.id)
+
+        o_bank = s.get(Transaction, t_bank.id)
+        o_card = s.get(Transaction, t_card.id)
+        self.assertFalse(o_bank.is_transfer)
+        self.assertFalse(o_card.is_transfer)
+        self.assertIsNone(o_bank.transfer_group_id)
+        self.assertIsNone(o_card.transfer_group_id)
+        self.assertEqual(o_bank.category_id, self.cat_id)
+        self.assertEqual(o_card.category_id, self.cat_id)
+        self.assertIsNone(s.get(TransferGroup, gid))
 
 
 if __name__ == "__main__":

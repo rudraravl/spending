@@ -114,6 +114,21 @@ def _migrate_accounts_columns(conn) -> None:
         conn.execute(text("ALTER TABLE accounts ADD COLUMN reported_balance_at DATETIME"))
 
 
+def _migrate_recurring_series_columns(conn) -> None:
+    """Add category mapping columns to recurring_series without full rebuild."""
+    tables = {
+        row[0]
+        for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()
+    }
+    if "recurring_series" not in tables:
+        return
+    cols = {row[1] for row in conn.execute(text("PRAGMA table_info(recurring_series)")).fetchall()}
+    if "category_id" not in cols:
+        conn.execute(text("ALTER TABLE recurring_series ADD COLUMN category_id INTEGER"))
+    if "subcategory_id" not in cols:
+        conn.execute(text("ALTER TABLE recurring_series ADD COLUMN subcategory_id INTEGER"))
+
+
 def init_db():
     """
     Initialize the database by creating all tables and seeding required data.
@@ -178,6 +193,7 @@ def init_db():
         Base.metadata.create_all(bind=engine)
 
         _migrate_accounts_columns(conn)
+        _migrate_recurring_series_columns(conn)
         _migrate_remove_payments_subcategory(conn)
 
         # Ensure external dedupe index exists for imports

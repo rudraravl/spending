@@ -385,11 +385,13 @@ export type TransactionsTableProps = {
   onSaveEdits: () => void
   onDeleteSelected: () => void
   onLinkCardPayment: () => void
+  onUnlinkTransfer: () => void
   getSelectedIds: () => number[]
   metaReady: boolean
   savePending: boolean
   deletePending: boolean
   linkCardPaymentPending: boolean
+  unlinkTransferPending: boolean
   onLoadMore: () => void
   canLoadMore: boolean
   loadMorePending: boolean
@@ -418,11 +420,13 @@ export default function TransactionsTable({
   onSaveEdits,
   onDeleteSelected,
   onLinkCardPayment,
+  onUnlinkTransfer,
   getSelectedIds,
   metaReady,
   savePending,
   deletePending,
   linkCardPaymentPending,
+  unlinkTransferPending,
   onLoadMore,
   canLoadMore,
   loadMorePending,
@@ -605,16 +609,40 @@ export default function TransactionsTable({
             size="sm"
             onClick={onLinkCardPayment}
             disabled={
-              getSelectedIds().length !== 2 || linkCardPaymentPending || deletePending || !metaReady
+              getSelectedIds().length !== 2 ||
+              linkCardPaymentPending ||
+              unlinkTransferPending ||
+              deletePending ||
+              !metaReady
             }
           >
             Link as transfer
           </Button>
           <Button
+            variant="outline"
+            size="sm"
+            onClick={onUnlinkTransfer}
+            disabled={
+              getSelectedIds().length !== 2 ||
+              unlinkTransferPending ||
+              linkCardPaymentPending ||
+              deletePending ||
+              !metaReady
+            }
+          >
+            Unlink transfer
+          </Button>
+          <Button
             variant="destructive"
             size="sm"
             onClick={onDeleteSelected}
-            disabled={getSelectedIds().length === 0 || deletePending || !metaReady}
+            disabled={
+              getSelectedIds().length === 0 ||
+              deletePending ||
+              linkCardPaymentPending ||
+              unlinkTransferPending ||
+              !metaReady
+            }
           >
             Delete Selected
           </Button>

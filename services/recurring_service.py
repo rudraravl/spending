@@ -7,7 +7,7 @@ from typing import Any, Iterable, cast
 from sqlalchemy.orm import Session
 
 from backend.app.schemas import RecurringSeriesActionIn, RecurringSeriesCardOut, RecurringOccurrenceOut
-from db.models import RecurringSeries, Transaction
+from db.models import Category, RecurringSeries, Subcategory, Transaction
 
 
 AMOUNT_TOLERANCE_CENTS_DEFAULT = 3
@@ -346,14 +346,31 @@ def apply_series_action(session: Session, payload: RecurringSeriesActionIn, *, s
         existing_any = cast(Any, existing)
         existing_any.status = status_value
 
+    # When confirming, auto-persist mapping if all occurrences share one pair.
+    if status_value == "confirmed":
+        occs = list_series_occurrences(session, payload)
+        mapped_pairs = {
+            (
+                int(getattr(cast(Any, t), "category_id")),
+                int(getattr(cast(Any, t), "subcategory_id")),
+            )
+            for t in occs
+            if getattr(cast(Any, t), "category_id", None) is not None
+            and getattr(cast(Any, t), "subcategory_id", None) is not None
+        }
+        if len(mapped_pairs) == 1:
+            cid, sid = next(iter(mapped_pairs))
+            existing_any = cast(Any, existing)
+            existing_any.category_id = int(cid)
+            existing_any.subcategory_id = int(sid)
+
     session.commit()
 
 
-def list_recurring_suggestions(session: Session) -> list[RecurringSeriesCardOut]:
+def _detected_series(session: Session) -> tuple[list[_DetectedSeries], dict[int, Transaction], dict[tuple[str, int], RecurringSeries]]:
     tol_cents = AMOUNT_TOLERANCE_CENTS_DEFAULT
     tol_dom_days = DAY_OF_MONTH_TOLERANCE_DEFAULT
 
-    # Load saved states.
     saved = (
         session.query(RecurringSeries)
         .order_by(RecurringSeries.merchant_norm.asc(), RecurringSeries.amount_anchor_cents.asc())
@@ -363,7 +380,6 @@ def list_recurring_suggestions(session: Session) -> list[RecurringSeriesCardOut]
         (str(cast(Any, r).merchant_norm), int(cast(Any, r).amount_anchor_cents)): r for r in saved
     }
 
-    # Candidate transactions: exclude transfers; default to outflows (charges).
     candidates = (
         session.query(Transaction)
         .filter(Transaction.is_transfer.is_(False))
@@ -431,8 +447,99 @@ def list_recurring_suggestions(session: Session) -> list[RecurringSeriesCardOut]
         )
     )
 
-    # Index transaction details for occurrences.
     txn_by_id: dict[int, Transaction] = {int(getattr(cast(Any, t), "id")): t for t in candidates}
+    return detected, txn_by_id, saved_by_fp
+
+
+def list_series_occurrences(session: Session, payload: RecurringSeriesActionIn) -> list[Transaction]:
+    merchant_norm = _merchant_norm(payload.merchant_norm) or ANY_MERCHANT_FINGERPRINT
+    amount_anchor_cents = int(payload.amount_anchor_cents)
+    detected, txn_by_id, _ = _detected_series(session)
+    for series in detected:
+        if (
+            series.merchant_norm == merchant_norm
+            and int(series.amount_anchor_cents) == amount_anchor_cents
+        ):
+            txns = [txn_by_id[tid] for tid in series.transaction_ids if tid in txn_by_id]
+            txns.sort(key=lambda t: (t.date, t.id), reverse=True)
+            return txns
+    return []
+
+
+def series_occurrences_by_fingerprint(
+    session: Session,
+    *,
+    merchant_norm: str,
+    amount_anchor_cents: int,
+) -> list[Transaction]:
+    txns = list_series_occurrences(
+        session,
+        RecurringSeriesActionIn(
+            merchant_norm=merchant_norm,
+            amount_anchor_cents=int(amount_anchor_cents),
+        ),
+    )
+    txns.sort(key=lambda t: (t.date, t.id), reverse=True)
+    return txns
+
+
+def bulk_update_series_category(
+    session: Session,
+    payload: RecurringSeriesActionIn,
+    *,
+    category_id: int,
+    subcategory_id: int,
+) -> int:
+    category = session.query(Category).filter(Category.id == category_id).first()
+    if not category:
+        raise ValueError(f"Category with id {category_id} does not exist")
+    subcategory = session.query(Subcategory).filter(Subcategory.id == subcategory_id).first()
+    if not subcategory:
+        raise ValueError(f"Subcategory with id {subcategory_id} does not exist")
+    if int(getattr(cast(Any, subcategory), "category_id")) != int(category_id):
+        raise ValueError("Subcategory does not belong to category")
+
+    txns = list_series_occurrences(session, payload)
+    if not txns:
+        raise ValueError("No recurring occurrences found for this series")
+
+    updated = 0
+    for txn in txns:
+        txn_any = cast(Any, txn)
+        txn_any.category_id = int(category_id)
+        txn_any.subcategory_id = int(subcategory_id)
+        updated += 1
+
+    merchant_norm = _merchant_norm(payload.merchant_norm) or ANY_MERCHANT_FINGERPRINT
+    amount_anchor_cents = int(payload.amount_anchor_cents)
+    existing = (
+        session.query(RecurringSeries)
+        .filter(
+            RecurringSeries.merchant_norm == merchant_norm,
+            RecurringSeries.amount_anchor_cents == amount_anchor_cents,
+        )
+        .first()
+    )
+    if existing is None:
+        existing = RecurringSeries(
+            merchant_norm=merchant_norm,
+            amount_anchor_cents=amount_anchor_cents,
+            status="suggested",
+            category_id=int(category_id),
+            subcategory_id=int(subcategory_id),
+        )
+        session.add(existing)
+    else:
+        existing_any = cast(Any, existing)
+        existing_any.category_id = int(category_id)
+        existing_any.subcategory_id = int(subcategory_id)
+
+    session.commit()
+    return updated
+
+
+def list_recurring_suggestions(session: Session) -> list[RecurringSeriesCardOut]:
+    detected, txn_by_id, saved_by_fp = _detected_series(session)
 
     cards_by_fp: dict[tuple[str, int], RecurringSeriesCardOut] = {}
 
@@ -444,6 +551,8 @@ def list_recurring_suggestions(session: Session) -> list[RecurringSeriesCardOut]
         display_name: str | None = None,
         cadence_type: str | None = None,
         cadence_days: int | None = None,
+        category_id: int | None = None,
+        subcategory_id: int | None = None,
         occurrences: list[RecurringOccurrenceOut] | None = None,
     ) -> None:
         fp = (merchant_norm, int(amount_anchor_cents))
@@ -457,6 +566,8 @@ def list_recurring_suggestions(session: Session) -> list[RecurringSeriesCardOut]
                 status=status,
                 cadence_type=cadence_type,
                 cadence_days=cadence_days,
+                category_id=category_id,
+                subcategory_id=subcategory_id,
                 occurrences=occurrences or [],
             )
             return
@@ -471,6 +582,10 @@ def list_recurring_suggestions(session: Session) -> list[RecurringSeriesCardOut]
         if existing.display_name is None and display_name is not None:
             existing.display_name = display_name
         existing.status = status
+        if category_id is not None:
+            existing.category_id = int(category_id)
+        if subcategory_id is not None:
+            existing.subcategory_id = int(subcategory_id)
 
     # First, add detected series as suggested/confirmed depending on saved state.
     for s in detected:
@@ -515,11 +630,21 @@ def list_recurring_suggestions(session: Session) -> list[RecurringSeriesCardOut]
                 if saved_any is not None and getattr(saved_any, "cadence_days", None) is not None
                 else (s.cadence_days or (guess.cadence_days if guess else None))
             ),
+            category_id=(
+                int(getattr(saved_any, "category_id"))
+                if saved_any is not None and getattr(saved_any, "category_id", None) is not None
+                else None
+            ),
+            subcategory_id=(
+                int(getattr(saved_any, "subcategory_id"))
+                if saved_any is not None and getattr(saved_any, "subcategory_id", None) is not None
+                else None
+            ),
             occurrences=occs,
         )
 
     # Then, ensure confirmed series always show even if we didn't detect them in current window.
-    for r in saved:
+    for r in saved_by_fp.values():
         r_any = cast(Any, r)
         status_value = str(getattr(r_any, "status"))
         if status_value in {"ignored", "removed"}:
@@ -534,6 +659,8 @@ def list_recurring_suggestions(session: Session) -> list[RecurringSeriesCardOut]
             display_name=None,
             cadence_type=getattr(r_any, "cadence_type", None),
             cadence_days=getattr(r_any, "cadence_days", None),
+            category_id=getattr(r_any, "category_id", None),
+            subcategory_id=getattr(r_any, "subcategory_id", None),
             occurrences=[],
         )
 

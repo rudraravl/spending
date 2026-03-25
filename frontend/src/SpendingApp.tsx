@@ -13,6 +13,7 @@ import AllTransactionsPage from './pages/AllTransactionsPage'
 import DashboardPage from './pages/DashboardPage'
 import ImportCsvPage from './pages/ImportCsvPage'
 import NotFoundPage from './pages/NotFoundPage'
+import BudgetsPage from '@/pages/BudgetsPage'
 import RecurringChargesPage from './pages/RecurringChargesPage'
 import SettingsPage from './pages/SettingsPage'
 import SummariesPage from './pages/SummariesPage'
@@ -39,6 +40,7 @@ export default function SpendingApp() {
                 <Route path="/transfers/review" element={<TransferReviewPage />} />
                 <Route path="/transactions" element={<AllTransactionsPage />} />
                 <Route path="/recurring" element={<RecurringChargesPage />} />
+                <Route path="/budgets" element={<BudgetsPage />} />
                 <Route path="/views" element={<ViewsPage />} />
                 <Route path="/summaries" element={<SummariesPage />} />
                 <Route path="/settings" element={<SettingsPage />} />

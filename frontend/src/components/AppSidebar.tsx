@@ -34,6 +34,7 @@ const mainItems = [
   { title: "Review transfers", url: "/transfers/review", icon: Link2 },
   { title: "All Transactions", url: "/transactions", icon: List },
   { title: "Recurring charges", url: "/recurring", icon: Repeat },
+  { title: "Budgets", url: "/budgets", icon: Wallet },
 ];
 
 const analyticsItems = [

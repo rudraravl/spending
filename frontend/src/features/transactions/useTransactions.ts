@@ -5,7 +5,7 @@ import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } f
 import { apiGet } from '../../api/client'
 import { getAccounts } from '../../api/accounts'
 import { getCategories, getSubcategories } from '../../api/categories'
-import { linkExistingTransfer } from '../../api/transfers'
+import { linkExistingTransfer, unlinkExistingTransfer } from '../../api/transfers'
 import {
   deleteTransaction,
   getTransactionSplits,
@@ -336,6 +336,41 @@ export function useTransactions() {
     },
   })
 
+  const unlinkTransferMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      if (ids.length !== 2) {
+        throw new Error('Select exactly two transactions to unlink a transfer.')
+      }
+      const txns = allTransactions.filter((t) => ids.includes(t.id))
+      if (txns.length !== 2) {
+        throw new Error('Could not resolve selected transactions; refresh and try again.')
+      }
+      const [a, b] = txns
+      if (!a.is_transfer || !b.is_transfer) {
+        throw new Error('Both selected transactions must be linked transfers.')
+      }
+      if (!a.transfer_group_id || !b.transfer_group_id || a.transfer_group_id !== b.transfer_group_id) {
+        throw new Error('Select the two legs of the same linked transfer.')
+      }
+      await unlinkExistingTransfer({
+        transaction_id_a: ids[0],
+        transaction_id_b: ids[1],
+      })
+    },
+    onSuccess: () => {
+      setError(null)
+      setRowSelection({})
+      queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['views'] })
+      queryClient.invalidateQueries({ queryKey: ['summaries'] })
+    },
+    onError: (e: unknown) => {
+      setError(e instanceof Error ? e.message : 'Could not unlink transfer')
+    },
+  })
+
   const deleteSelectedMutation = useMutation({
     mutationFn: async (ids: number[]) => {
       for (const id of ids) {
@@ -395,6 +430,11 @@ export function useTransactions() {
   function linkCardPayment() {
     if (!metaReady) return
     linkCardPaymentMutation.mutate(getSelectedIds())
+  }
+
+  function unlinkTransfer() {
+    if (!metaReady) return
+    unlinkTransferMutation.mutate(getSelectedIds())
   }
 
   function processRowUpdate(newRow: TransactionRow) {
@@ -461,6 +501,8 @@ export function useTransactions() {
       deletePending: deleteSelectedMutation.isPending,
       linkCardPayment,
       linkCardPaymentPending: linkCardPaymentMutation.isPending,
+      unlinkTransfer,
+      unlinkTransferPending: unlinkTransferMutation.isPending,
       loadMore,
       canLoadMore:
         metaReady &&

@@ -60,3 +60,10 @@ export function linkExistingTransfer(payload: {
 }): Promise<{ transfer_group_id: number }> {
   return apiPostJson<{ transfer_group_id: number }>('/api/transfers/link-existing', payload)
 }
+
+export function unlinkExistingTransfer(payload: {
+  transaction_id_a: number
+  transaction_id_b: number
+}): Promise<{ transfer_group_id: number }> {
+  return apiPostJson<{ transfer_group_id: number }>('/api/transfers/unlink-existing', payload)
+}

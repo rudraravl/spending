@@ -1,16 +1,31 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { CheckCircle2, EyeOff, Trash2 } from 'lucide-react'
 import {
+  bulkUpdateRecurringSeriesCategory,
   confirmRecurringSeries,
+  getRecurringSeriesOccurrences,
   getRecurringSuggestions,
   ignoreRecurringSeries,
   removeRecurringSeries,
 } from '@/api/recurring'
+import { getCategories, getSubcategories } from '@/api/categories'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import type { RecurringSeriesCardOut } from '@/types/recurring'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import type { CategoryOut, SubcategoryOut } from '@/types'
+import type { RecurringOccurrenceOut, RecurringSeriesCardOut } from '@/types/recurring'
 
 const queryKey = ['recurringSuggestions']
 
@@ -34,6 +49,10 @@ function cadenceLabel(row: RecurringSeriesCardOut) {
 
 export default function RecurringChargesPage() {
   const qc = useQueryClient()
+  const [selectedSeries, setSelectedSeries] = useState<RecurringSeriesCardOut | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [categoryId, setCategoryId] = useState<string>('')
+  const [subcategoryId, setSubcategoryId] = useState<string>('')
 
   const { data, error, isLoading, isFetching } = useQuery<RecurringSeriesCardOut[], Error>({
     queryKey,
@@ -53,8 +72,91 @@ export default function RecurringChargesPage() {
     mutationFn: removeRecurringSeries,
     onSuccess: () => qc.invalidateQueries({ queryKey }),
   })
+  const bulkCategoryMut = useMutation({
+    mutationFn: bulkUpdateRecurringSeriesCategory,
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey }),
+        qc.invalidateQueries({ queryKey: ['transactions'] }),
+      ])
+    },
+  })
 
-  const pending = confirmMut.isPending || ignoreMut.isPending || removeMut.isPending
+  const pending =
+    confirmMut.isPending || ignoreMut.isPending || removeMut.isPending || bulkCategoryMut.isPending
+
+  const { data: categories = [] } = useQuery<CategoryOut[], Error>({
+    queryKey: ['categories'],
+    queryFn: () => getCategories(),
+  })
+
+  const { data: subcategories = [] } = useQuery<SubcategoryOut[], Error>({
+    queryKey: ['recurringPageSubcategories', categoryId],
+    queryFn: () => getSubcategories(Number(categoryId)),
+    enabled: dialogOpen && categoryId.length > 0,
+  })
+
+  const { data: occurrences = [], isFetching: isLoadingOccurrences } = useQuery<RecurringOccurrenceOut[], Error>({
+    queryKey: ['recurringSeriesOccurrences', selectedSeries?.merchant_norm, selectedSeries?.amount_anchor_cents],
+    queryFn: () =>
+      getRecurringSeriesOccurrences({
+        merchant_norm: selectedSeries?.merchant_norm ?? '',
+        amount_anchor_cents: selectedSeries?.amount_anchor_cents ?? 0,
+      }),
+    enabled: dialogOpen && selectedSeries != null,
+  })
+
+  useEffect(() => {
+    if (!dialogOpen) return
+    if (!categoryId && categories.length > 0) {
+      setCategoryId(String(categories[0].id))
+    }
+  }, [dialogOpen, categoryId, categories])
+
+  useEffect(() => {
+    if (!dialogOpen || !occurrences.length) return
+    const categorized = occurrences.filter((o) => o.category_id != null && o.subcategory_id != null)
+    if (categorized.length !== occurrences.length || categorized.length === 0) return
+    const first = categorized[0]
+    const same = categorized.every(
+      (o) => o.category_id === first.category_id && o.subcategory_id === first.subcategory_id,
+    )
+    if (!same || first.category_id == null || first.subcategory_id == null) return
+    setCategoryId(String(first.category_id))
+    setSubcategoryId(String(first.subcategory_id))
+  }, [dialogOpen, occurrences])
+
+  useEffect(() => {
+    if (!dialogOpen || !categoryId) return
+    const first = subcategories[0]
+    if (!first) {
+      setSubcategoryId('')
+      return
+    }
+    if (!subcategories.some((s) => String(s.id) === subcategoryId)) {
+      setSubcategoryId(String(first.id))
+    }
+  }, [dialogOpen, categoryId, subcategories, subcategoryId])
+
+  const selectedCategoryName = useMemo(() => {
+    const id = Number(categoryId)
+    return categories.find((c) => c.id === id)?.name ?? 'category'
+  }, [categoryId, categories])
+
+  const categorizationSummary = useMemo(() => {
+    if (!occurrences.length) return 'No instances to validate yet.'
+    const categorized = occurrences.filter((o) => o.category_id != null && o.subcategory_id != null)
+    if (!categorized.length) return 'All instances are uncategorized.'
+    if (categorized.length !== occurrences.length) {
+      return 'Mixed categorization: some instances are uncategorized.'
+    }
+    const first = categorized[0]
+    const same = categorized.every(
+      (o) => o.category_id === first.category_id && o.subcategory_id === first.subcategory_id,
+    )
+    if (!same) return 'Mixed categorization across instances.'
+    return `Current categorization: ${first.category_name ?? 'Unknown'} / ${first.subcategory_name ?? 'Unknown'}`
+  }, [occurrences])
 
   if (error) {
     return (
@@ -89,7 +191,14 @@ export default function RecurringChargesPage() {
             const last = occs.length ? occs[0] : null
             const title = row.display_name || row.merchant_norm
             return (
-              <Card key={`${row.merchant_norm}:${row.amount_anchor_cents}`}>
+              <Card
+                key={`${row.merchant_norm}:${row.amount_anchor_cents}`}
+                className="cursor-pointer transition-colors hover:bg-muted/20"
+                onClick={() => {
+                  setSelectedSeries(row)
+                  setDialogOpen(true)
+                }}
+              >
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -131,29 +240,33 @@ export default function RecurringChargesPage() {
                 </CardContent>
 
                 <CardFooter className="gap-2 flex-wrap">
-                  <Button
-                    size="sm"
-                    disabled={pending || row.status === 'confirmed'}
-                    onClick={() =>
-                      confirmMut.mutate({
-                        merchant_norm: row.merchant_norm,
-                        amount_anchor_cents: row.amount_anchor_cents,
-                      })
-                    }
-                  >
-                    <CheckCircle2 className="h-4 w-4" />
-                    Confirm
-                  </Button>
+                  {row.status !== 'confirmed' ? (
+                    <Button
+                      size="sm"
+                      disabled={pending}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        confirmMut.mutate({
+                          merchant_norm: row.merchant_norm,
+                          amount_anchor_cents: row.amount_anchor_cents,
+                        })
+                      }}
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      Confirm
+                    </Button>
+                  ) : null}
                   <Button
                     size="sm"
                     variant="outline"
                     disabled={pending}
-                    onClick={() =>
+                    onClick={(e) => {
+                      e.stopPropagation()
                       ignoreMut.mutate({
                         merchant_norm: row.merchant_norm,
                         amount_anchor_cents: row.amount_anchor_cents,
                       })
-                    }
+                    }}
                   >
                     <EyeOff className="h-4 w-4" />
                     Not recurring
@@ -162,12 +275,13 @@ export default function RecurringChargesPage() {
                     size="sm"
                     variant="destructive"
                     disabled={pending}
-                    onClick={() =>
+                    onClick={(e) => {
+                      e.stopPropagation()
                       removeMut.mutate({
                         merchant_norm: row.merchant_norm,
                         amount_anchor_cents: row.amount_anchor_cents,
                       })
-                    }
+                    }}
                   >
                     <Trash2 className="h-4 w-4" />
                     Remove
@@ -178,6 +292,107 @@ export default function RecurringChargesPage() {
           })}
         </div>
       )}
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{selectedSeries?.display_name || selectedSeries?.merchant_norm || 'Recurring charge'}</DialogTitle>
+            <DialogDescription>
+              View all detected instances and apply one category/subcategory to every instance.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              {categorizationSummary}
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Category</Label>
+                <Select
+                  value={categoryId}
+                  onValueChange={(next) => {
+                    setCategoryId(next)
+                    setSubcategoryId('')
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Subcategory</Label>
+                <Select value={subcategoryId} onValueChange={setSubcategoryId} disabled={!categoryId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select subcategory" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {subcategories.map((s) => (
+                      <SelectItem key={s.id} value={String(s.id)}>
+                        {s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="rounded-md border">
+              <div className="px-3 py-2 text-xs font-medium text-muted-foreground">
+                All instances ({occurrences.length})
+              </div>
+              <div className="max-h-72 overflow-auto border-t">
+                {isLoadingOccurrences ? (
+                  <p className="p-3 text-sm text-muted-foreground">Loading instances…</p>
+                ) : !occurrences.length ? (
+                  <p className="p-3 text-sm text-muted-foreground">No instances found for this recurring charge.</p>
+                ) : (
+                  <ul className="divide-y">
+                    {occurrences.map((o) => (
+                      <li key={o.transaction_id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                        <div>
+                          <div className="font-medium">{o.merchant}</div>
+                          <div className="text-xs text-muted-foreground">{o.date}</div>
+                        </div>
+                        <div className="font-medium">{formatMoneyFromCents(Math.round(o.amount * 100))}</div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              Close
+            </Button>
+            <Button
+              disabled={!selectedSeries || !categoryId || !subcategoryId || bulkCategoryMut.isPending}
+              onClick={() => {
+                if (!selectedSeries) return
+                bulkCategoryMut.mutate({
+                  merchant_norm: selectedSeries.merchant_norm,
+                  amount_anchor_cents: selectedSeries.amount_anchor_cents,
+                  category_id: Number(categoryId),
+                  subcategory_id: Number(subcategoryId),
+                })
+              }}
+            >
+              {bulkCategoryMut.isPending ? 'Updating…' : `Apply to all (${selectedCategoryName})`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

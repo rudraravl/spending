@@ -26,7 +26,8 @@ def _integrity_error_to_http(detail: str) -> HTTPException:
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
 
 
-def _account_to_out(a: Account) -> AccountOut:
+def _account_to_out(session: Session, a: Account) -> AccountOut:
+    display, _ledger = account_display_balance(session, a)
     return AccountOut(
         id=a.id,
         name=a.name,
@@ -40,12 +41,13 @@ def _account_to_out(a: Account) -> AccountOut:
         last_synced_at=a.last_synced_at,
         reported_balance=a.reported_balance,
         reported_balance_at=a.reported_balance_at,
+        balance=display,
     )
 
 
 @router.get("/api/accounts", response_model=list[AccountOut])
 def list_accounts(session: Session = Depends(get_db_session)) -> list[AccountOut]:
-    return [_account_to_out(a) for a in session.query(Account).order_by(Account.id.asc()).all()]
+    return [_account_to_out(session, a) for a in session.query(Account).order_by(Account.id.asc()).all()]
 
 
 @router.get("/api/accounts/{account_id}", response_model=AccountOut)
@@ -53,7 +55,7 @@ def get_account(account_id: int, session: Session = Depends(get_db_session)) -> 
     account = session.query(Account).filter(Account.id == account_id).first()
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
-    return _account_to_out(account)
+    return _account_to_out(session, account)
 
 
 @router.get("/api/accounts/{account_id}/summary", response_model=AccountSummaryOut)
@@ -87,7 +89,7 @@ def create_account(
         session.rollback()
         raise _integrity_error_to_http(str(e)) from e
 
-    return _account_to_out(account)
+    return _account_to_out(session, account)
 
 
 @router.delete("/api/accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT)

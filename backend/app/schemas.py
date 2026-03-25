@@ -21,6 +21,8 @@ class AccountOut(BaseModel):
     last_synced_at: datetime | None = None
     reported_balance: float | None = None
     reported_balance_at: datetime | None = None
+    # Display balance (same logic as GET …/summary: reported for asset types when set, else ledger sum)
+    balance: float
 
 
 class AccountCreate(BaseModel):

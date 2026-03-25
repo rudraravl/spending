@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { ArrowRight, Info, Scale, TrendingDown, TrendingUp } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { ArrowRight, Info, Scale, TrendingDown, TrendingUp, Wallet } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Bar,
@@ -18,6 +18,8 @@ import {
   YAxis,
 } from 'recharts'
 import { apiGet } from '../api/client'
+import { getAccounts } from '../api/accounts'
+import { queryKeys } from '../queryKeys'
 import { SortableTableHead } from '@/components/sortable-table-head'
 import { cycleSort, sortBySelector, type ColumnSortState } from '@/lib/tableSort'
 import { Badge } from '@/components/ui/badge'
@@ -35,6 +37,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
 
 type RangeKey = 'this_month' | 'last_month' | 'year' | 'custom'
 
@@ -118,6 +122,22 @@ function buildDashboardUrl(preset: RangeKey, customStart: string, customEnd: str
   return `/api/dashboard?${p.toString()}`
 }
 
+const DASHBOARD_SHOW_NET_WORTH_KEY = 'dashboard-show-net-worth'
+
+function readShowNetWorthPreference(): boolean {
+  try {
+    const v = localStorage.getItem(DASHBOARD_SHOW_NET_WORTH_KEY)
+    if (v === null) return true
+    return v === '1' || v === 'true'
+  } catch {
+    return true
+  }
+}
+
+function formatMoney(amount: number, currency: string) {
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)
+}
+
 function fmtShortDate(iso: string) {
   try {
     const d = new Date(iso + (iso.length <= 10 ? 'T12:00:00' : ''))
@@ -133,8 +153,34 @@ export default function DashboardPage() {
   const [customEnd, setCustomEnd] = useState('')
   const [pinnedCategoryId, setPinnedCategoryId] = useState<number | null>(null)
   const [recentSort, setRecentSort] = useState<ColumnSortState | null>(null)
+  const [showNetWorth, setShowNetWorth] = useState(readShowNetWorthPreference)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(DASHBOARD_SHOW_NET_WORTH_KEY, showNetWorth ? '1' : '0')
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }, [showNetWorth])
 
   const customReady = preset !== 'custom' || (Boolean(customStart) && Boolean(customEnd))
+
+  const { data: accounts } = useQuery({
+    queryKey: queryKeys.accounts(),
+    queryFn: () => getAccounts(),
+  })
+
+  const netWorthTotals = useMemo(() => {
+    const list = accounts ?? []
+    if (list.length === 0) {
+      return { total: 0, singleCurrency: 'USD', mixed: false }
+    }
+    const curSet = new Set(list.map((a) => a.currency))
+    const mixed = curSet.size > 1
+    const total = list.reduce((s, a) => s + Number(a.balance), 0)
+    const singleCurrency = [...curSet][0]!
+    return { total, singleCurrency, mixed }
+  }, [accounts])
 
   const { data, error, isLoading } = useQuery<DashboardResponse, Error>({
     queryKey: ['dashboard', preset, preset === 'custom' ? customStart : '', preset === 'custom' ? customEnd : ''],
@@ -225,6 +271,17 @@ export default function DashboardPage() {
               {label}
             </Button>
           ))}
+          <div className="hidden sm:block h-6 w-px bg-border shrink-0" aria-hidden />
+          <div className="flex items-center gap-2">
+            <Switch
+              id="dashboard-net-worth"
+              checked={showNetWorth}
+              onCheckedChange={setShowNetWorth}
+            />
+            <Label htmlFor="dashboard-net-worth" className="text-xs text-muted-foreground cursor-pointer">
+              Net worth
+            </Label>
+          </div>
           <div className="flex-1 min-w-[120px]" />
           <Button variant="outline" size="sm" className="text-xs" asChild>
             <Link to="/add-transaction">Add transaction</Link>
@@ -266,7 +323,59 @@ export default function DashboardPage() {
           <div className="text-sm text-muted-foreground">Loading…</div>
         ) : (
           <>
-            <motion.div variants={item} className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+            <motion.div
+              variants={item}
+              className={`grid grid-cols-1 gap-4 mb-8 ${showNetWorth ? 'sm:grid-cols-2 xl:grid-cols-4' : 'sm:grid-cols-3'}`}
+            >
+              {showNetWorth ? (
+                <div className="rounded-xl border bg-card p-5 shadow-card">
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                      <Wallet className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs font-medium text-muted-foreground">Net worth</p>
+                      <Tooltip>
+                        <TooltipTrigger type="button">
+                          <Info className="h-3 w-3 text-muted-foreground/50" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs max-w-[220px]">
+                            Sum of current balances across all accounts. Not filtered by the date range
+                            above.
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </div>
+                  {accounts === undefined ? (
+                    <p className="text-sm text-muted-foreground">Loading…</p>
+                  ) : (
+                    <>
+                      <p
+                        className={`text-2xl font-bold tabular-nums font-mono ${netWorthTotals.total >= 0 ? 'text-foreground' : 'text-expense'}`}
+                      >
+                        {netWorthTotals.mixed ? (
+                          <>
+                            {netWorthTotals.total < 0 ? '−' : ''}
+                            {Math.abs(netWorthTotals.total).toLocaleString('en-US', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </>
+                        ) : (
+                          formatMoney(netWorthTotals.total, netWorthTotals.singleCurrency)
+                        )}
+                      </p>
+                      {netWorthTotals.mixed ? (
+                        <p className="text-[10px] text-muted-foreground mt-1.5 leading-snug">
+                          Mixed currencies — summed without conversion.
+                        </p>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              ) : null}
               <div className="rounded-xl border bg-card p-5 shadow-card">
                 <div className="flex items-center gap-2 mb-2.5">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-expense/10">

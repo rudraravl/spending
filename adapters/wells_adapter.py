@@ -17,7 +17,7 @@ class WellsAdapter(GenericAdapter):
             amount_col=1,
             merchant_col=4,
             has_header=False,
-            date_format='%m/%d/%Y',  # 4-digit year (e.g. 2/13/2026)
+            date_format='%m/%d/%y',  # 4-digit year (e.g. 2/13/2026)
             auto_category='',
             invert_amounts_for_cash_flow=False,
         )

@@ -5,6 +5,12 @@ export type TransactionFilterParams = {
   startDate?: string
   endDate?: string
   accountId?: number
+  categoryId?: number
+  subcategoryId?: number
+  tagIds?: number[]
+  tagsMatchAny?: boolean
+  minAmount?: number
+  maxAmount?: number
   limit?: number
   offset?: number
 }
@@ -18,6 +24,22 @@ export const getTransactions = <T,>(params: TransactionFilterParams) => {
   }
   if (params.accountId != null) {
     query.set('account_id', String(params.accountId))
+  }
+  if (params.categoryId != null) {
+    query.set('category_id', String(params.categoryId))
+  }
+  if (params.subcategoryId != null) {
+    query.set('subcategory_id', String(params.subcategoryId))
+  }
+  if (params.tagIds && params.tagIds.length > 0) {
+    for (const id of params.tagIds) query.append('tag_ids', String(id))
+    if (params.tagsMatchAny != null) query.set('tags_match_any', params.tagsMatchAny ? 'true' : 'false')
+  }
+  if (params.minAmount != null) {
+    query.set('min_amount', String(params.minAmount))
+  }
+  if (params.maxAmount != null) {
+    query.set('max_amount', String(params.maxAmount))
   }
   if (params.limit != null) {
     query.set('limit', String(params.limit))

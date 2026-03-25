@@ -14,8 +14,25 @@ export const queryKeys = {
     includeTransfers: boolean
     startDate?: string
     endDate?: string
+    accountId?: number | null
+    categoryId?: number | null
+    subcategoryId?: number | null
+    tagIdsKey?: string | null
+    tagsMatchAny?: boolean | null
+    limit?: number | null
   }) =>
-    ['transactions', params.includeTransfers, params.startDate ?? null, params.endDate ?? null] as const,
+    [
+      'transactions',
+      params.includeTransfers,
+      params.startDate ?? null,
+      params.endDate ?? null,
+      params.accountId ?? null,
+      params.categoryId ?? null,
+      params.subcategoryId ?? null,
+      params.tagIdsKey ?? null,
+      params.tagsMatchAny ?? null,
+      params.limit ?? null,
+    ] as const,
 
   /** Transactions scoped to one account (hub / account detail). */
   transactionsForAccount: (accountId: number, includeTransfers: boolean) =>

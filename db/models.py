@@ -246,3 +246,44 @@ class Rule(Base):
 
     def __repr__(self):
         return f"<Rule(id={self.id}, priority={self.priority}, field='{self.field}', operator='{self.operator}', value='{self.value}', category_id={self.category_id}, subcategory_id={self.subcategory_id})>"
+
+
+class RecurringSeries(Base):
+    """
+    User-tracked recurring charge series.
+
+    Fingerprint is merchant-only + amount anchor in cents, so the app can apply
+    a tolerance when matching suggestions while still keeping a stable key.
+    """
+
+    __tablename__ = "recurring_series"
+
+    id = Column(Integer, primary_key=True)
+    merchant_norm = Column(String, nullable=False)
+    amount_anchor_cents = Column(Integer, nullable=False)
+    # suggested | confirmed | ignored | removed
+    status = Column(String, nullable=False, server_default="suggested")
+    cadence_type = Column(String, nullable=True)  # weekly | biweekly | monthly | ...
+    cadence_days = Column(Integer, nullable=True)
+    created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
+    updated_at = Column(
+        DateTime,
+        server_default=func.current_timestamp(),
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "merchant_norm",
+            "amount_anchor_cents",
+            name="uq_recurring_series_fingerprint",
+        ),
+        Index("idx_recurring_series_status", "status"),
+    )
+
+    def __repr__(self):
+        return (
+            f"<RecurringSeries(id={self.id}, merchant_norm='{self.merchant_norm}', "
+            f"amount_anchor_cents={self.amount_anchor_cents}, status='{self.status}')>"
+        )

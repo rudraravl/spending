@@ -8,6 +8,7 @@ import {
   BarChart3,
   FileText,
   Link2,
+  Repeat,
   Settings,
   Wallet,
 } from "lucide-react";
@@ -32,6 +33,7 @@ const mainItems = [
   { title: "Transfer", url: "/transfer", icon: ArrowLeftRight },
   { title: "Review transfers", url: "/transfers/review", icon: Link2 },
   { title: "All Transactions", url: "/transactions", icon: List },
+  { title: "Recurring charges", url: "/recurring", icon: Repeat },
 ];
 
 const analyticsItems = [

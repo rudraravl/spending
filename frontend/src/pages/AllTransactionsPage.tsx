@@ -37,6 +37,10 @@ export default function AllTransactionsPage() {
         savePending={table.saveDirtyPending}
         deletePending={table.deletePending}
         linkCardPaymentPending={table.linkCardPaymentPending}
+        onLoadMore={table.loadMore}
+        canLoadMore={table.canLoadMore}
+        loadMorePending={table.loadMorePending}
+        loadedCount={table.loadedCount}
       />
 
       <TransactionForm

@@ -248,3 +248,30 @@ class RuleMeta(BaseModel):
     allowed_fields: list[str]
     allowed_operators: list[str]
 
+
+class RecurringSeriesFingerprint(BaseModel):
+    merchant_norm: str
+    amount_anchor_cents: int
+
+
+class RecurringSeriesActionIn(RecurringSeriesFingerprint):
+    pass
+
+
+class RecurringOccurrenceOut(BaseModel):
+    transaction_id: int
+    date: Date
+    amount: float
+    merchant: str
+
+
+class RecurringSeriesCardOut(BaseModel):
+    merchant_norm: str
+    display_name: str | None = None
+    amount_anchor_cents: int
+    amount_anchor: float
+    status: str
+    cadence_type: str | None = None
+    cadence_days: int | None = None
+    occurrences: list[RecurringOccurrenceOut] = []
+

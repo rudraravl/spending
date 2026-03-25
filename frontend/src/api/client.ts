@@ -42,6 +42,20 @@ export async function apiPostJson<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T
 }
 
+export async function apiPostJsonNoContent(path: string, body: unknown): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const detail = await parseJsonSafe(res)
+    throw new Error(
+      typeof detail === 'string' ? detail : detail?.detail ?? `HTTP ${res.status}`,
+    )
+  }
+}
+
 export async function apiPatchJson<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method: 'PATCH',

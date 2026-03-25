@@ -390,6 +390,10 @@ export type TransactionsTableProps = {
   savePending: boolean
   deletePending: boolean
   linkCardPaymentPending: boolean
+  onLoadMore: () => void
+  canLoadMore: boolean
+  loadMorePending: boolean
+  loadedCount: number
 }
 
 export default function TransactionsTable({
@@ -419,6 +423,10 @@ export default function TransactionsTable({
   savePending,
   deletePending,
   linkCardPaymentPending,
+  onLoadMore,
+  canLoadMore,
+  loadMorePending,
+  loadedCount,
 }: TransactionsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
 
@@ -734,6 +742,21 @@ export default function TransactionsTable({
             )}
           </TableBody>
         </Table>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 mt-3">
+        <p className="text-xs text-muted-foreground">
+          Showing <span className="font-medium text-foreground">{gridRows.length}</span> rows
+          {loadedCount !== gridRows.length ? (
+            <>
+              {' '}
+              (loaded <span className="font-medium text-foreground">{loadedCount}</span>)
+            </>
+          ) : null}
+        </p>
+        <Button variant="outline" size="sm" onClick={onLoadMore} disabled={!canLoadMore || loadMorePending}>
+          {loadMorePending ? 'Loading…' : 'Load more'}
+        </Button>
       </div>
     </div>
   )

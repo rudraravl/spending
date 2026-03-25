@@ -10,6 +10,7 @@ const pageMeta: Record<string, { title: string; description: string }> = {
   "/transfer": { title: "Transfer", description: "Move money between accounts" },
   "/transfers/review": { title: "Review transfers", description: "Link card payments across accounts" },
   "/transactions": { title: "All Transactions", description: "Review your transaction history" },
+  "/recurring": { title: "Recurring charges", description: "Confirm or ignore detected recurring charges" },
   "/views": { title: "Views", description: "Custom filtered analytics" },
   "/summaries": { title: "Summaries", description: "Period rollup reports" },
   "/settings": { title: "Settings", description: "Manage accounts, categories & rules" },

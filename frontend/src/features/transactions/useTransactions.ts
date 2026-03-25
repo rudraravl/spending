@@ -1,7 +1,7 @@
 import type { RowSelectionState } from '@tanstack/react-table'
 import { useEffect, useMemo, useState } from 'react'
 import { useFieldArray, useForm } from 'react-hook-form'
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiGet } from '../../api/client'
 import { getAccounts } from '../../api/accounts'
 import { getCategories, getSubcategories } from '../../api/categories'
@@ -27,6 +27,8 @@ type TransactionPatchPayload = {
   subcategory_id?: number
   tag_ids: number[]
 }
+
+const PAGE_SIZE = 250
 
 export function useTransactions() {
   const queryClient = useQueryClient()
@@ -123,26 +125,56 @@ export function useTransactions() {
     return { startDate, endDate }
   }, [showOnlyRecent])
 
-  const transactionsQuery = useQuery<TransactionOut[], Error>({
+  const serverCategoryId = useMemo(
+    () => (fCategory === 'All' ? undefined : categoryNameToId.get(fCategory)),
+    [fCategory, categoryNameToId],
+  )
+  const serverTagIds = useMemo(() => {
+    if (fTag === 'All') return undefined
+    const id = tagNameToId.get(fTag)
+    return id ? [id] : undefined
+  }, [fTag, tagNameToId])
+
+  const tagIdsKey = useMemo(() => (serverTagIds?.length ? serverTagIds.join(',') : ''), [serverTagIds])
+
+  const transactionsQuery = useInfiniteQuery<TransactionOut[], Error>({
     queryKey: queryKeys.transactions({
       includeTransfers: true,
       startDate: recentRange.startDate,
       endDate: recentRange.endDate,
+      accountId: fAccountId,
+      categoryId: serverCategoryId ?? null,
+      tagIdsKey,
+      tagsMatchAny: true,
+      limit: PAGE_SIZE,
     }),
-    queryFn: async () =>
+    queryFn: ({ pageParam }) =>
       getTransactions<TransactionOut[]>({
         includeTransfers: true,
         startDate: recentRange.startDate,
         endDate: recentRange.endDate,
+        accountId: fAccountId ?? undefined,
+        categoryId: serverCategoryId,
+        tagIds: serverTagIds,
+        tagsMatchAny: true,
+        limit: PAGE_SIZE,
+        offset: typeof pageParam === 'number' ? pageParam : 0,
       }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => {
+      if (!lastPage || lastPage.length < PAGE_SIZE) return undefined
+      return allPages.length * PAGE_SIZE
+    },
   })
+
+  const allTransactions = useMemo(() => {
+    const pages = transactionsQuery.data?.pages ?? []
+    return pages.flat()
+  }, [transactionsQuery.data])
 
   const filteredRows = useMemo(() => {
     const needle = merchantSearch.trim().toLowerCase()
-    let filtered = transactionsQuery.data ?? []
-    if (fCategory !== 'All') filtered = filtered.filter((t) => t.category_name === fCategory)
-    if (fTag !== 'All') filtered = filtered.filter((t) => t.tag_names.includes(fTag))
-    if (fAccountId != null) filtered = filtered.filter((t) => t.account_id === fAccountId)
+    let filtered = allTransactions
     if (needle) {
       filtered = filtered.filter((t) => {
         const hay = `${t.merchant ?? ''} ${t.notes ?? ''}`.toLowerCase()
@@ -162,13 +194,23 @@ export function useTransactions() {
       Acct: t.account_name ?? '',
       Split: t.has_splits ? 'Split' : '',
     }))
-  }, [transactionsQuery.data, merchantSearch, fCategory, fTag, fAccountId])
+  }, [allTransactions, merchantSearch])
 
   useEffect(() => {
     if (metaLoading || transactionsQuery.isPending) return
-    setGridRows(filteredRows)
-    setDirtyIds(new Set())
+    setGridRows((prev) => {
+      // Preserve local edits for dirty rows while refreshing/adding server data.
+      const prevById = new Map(prev.map((r) => [r.id, r]))
+      const next: TransactionRow[] = []
+      for (const r of filteredRows) {
+        if (dirtyIds.has(r.id)) next.push(prevById.get(r.id) ?? r)
+        else next.push(r)
+      }
+      return next
+    })
+    // If filters changed (or a refetch happened) while there are no pending edits, clear selection.
     setRowSelection({})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredRows, metaLoading, transactionsQuery.isPending])
 
   const splitsQuery = useQuery<TransactionSplitOut[], Error>({
@@ -263,7 +305,7 @@ export function useTransactions() {
       if (ids.length !== 2) {
         throw new Error('Select exactly two transactions to link as a transfer.')
       }
-      const txns = (transactionsQuery.data ?? []).filter((t) => ids.includes(t.id))
+      const txns = allTransactions.filter((t) => ids.includes(t.id))
       if (txns.length !== 2) {
         throw new Error('Could not resolve selected transactions; refresh and try again.')
       }
@@ -365,6 +407,14 @@ export function useTransactions() {
     return newRow
   }
 
+  function loadMore() {
+    if (!metaReady) return
+    if (dirtyIds.size > 0) return
+    if (!transactionsQuery.hasNextPage) return
+    if (transactionsQuery.isFetchingNextPage) return
+    transactionsQuery.fetchNextPage()
+  }
+
   function saveSplits() {
     setSplitError(null)
     if (!metaReady) return
@@ -411,6 +461,15 @@ export function useTransactions() {
       deletePending: deleteSelectedMutation.isPending,
       linkCardPayment,
       linkCardPaymentPending: linkCardPaymentMutation.isPending,
+      loadMore,
+      canLoadMore:
+        metaReady &&
+        dirtyIds.size === 0 &&
+        !!transactionsQuery.hasNextPage &&
+        !transactionsQuery.isFetchingNextPage &&
+        !transactionsQuery.isPending,
+      loadMorePending: transactionsQuery.isFetchingNextPage,
+      loadedCount: allTransactions.length,
     },
     splits: {
       splitsControl,

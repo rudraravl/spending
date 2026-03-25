@@ -1,6 +1,7 @@
 import { QueryClientProvider } from '@tanstack/react-query'
 import { ThemeProvider } from 'next-themes'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { Navigate } from 'react-router-dom'
 import AppLayout from '@/components/AppLayout'
 import { Toaster as Sonner } from '@/components/ui/sonner'
 import { Toaster } from '@/components/ui/toaster'
@@ -18,7 +19,6 @@ import RecurringChargesPage from './pages/RecurringChargesPage'
 import SettingsPage from './pages/SettingsPage'
 import SummariesPage from './pages/SummariesPage'
 import TransferPage from './pages/TransferPage'
-import TransferReviewPage from './pages/TransferReviewPage'
 import ViewsPage from './pages/ViewsPage'
 
 export default function SpendingApp() {
@@ -37,7 +37,7 @@ export default function SpendingApp() {
                 <Route path="/import" element={<ImportCsvPage />} />
                 <Route path="/add-transaction" element={<AddTransactionPage />} />
                 <Route path="/transfer" element={<TransferPage />} />
-                <Route path="/transfers/review" element={<TransferReviewPage />} />
+                <Route path="/transfers/review" element={<Navigate to="/transfer" replace />} />
                 <Route path="/transactions" element={<AllTransactionsPage />} />
                 <Route path="/recurring" element={<RecurringChargesPage />} />
                 <Route path="/budgets" element={<BudgetsPage />} />

@@ -17,9 +17,6 @@ from db.models import Transaction, Tag, Category, Subcategory, TransactionSplit
 from utils.filters import TransactionFilter
 
 
-# Subcategory name(s) to exclude from spending totals (case-insensitive)
-PAYMENT_SUBCATEGORY_NAMES = {'payments'}
-
 # Dashboard income totals use this category only (split-aware); refunds stay in spend categories.
 INCOME_CATEGORY_NAME = "Income"
 
@@ -28,14 +25,10 @@ def _exclude_non_spend_transactions(query):
     """
     Exclude non-spending activity from aggregates:
     - Transfers (is_transfer = TRUE)
-    - Payments subcategory (e.g., card payments)
+
+    Card paydowns should be recorded as transfers between bank and credit accounts.
     """
-    query = query.filter(Transaction.is_transfer.is_(False))
-    return query.filter(
-        ~Transaction.subcategory.has(
-            func.lower(Subcategory.name).in_(list(PAYMENT_SUBCATEGORY_NAMES))
-        )
-    )
+    return query.filter(Transaction.is_transfer.is_(False))
 
 
 def _apply_filters_base(query, filters: Optional[TransactionFilter]):
@@ -131,14 +124,14 @@ def calculate_total(
     signed sum. For dashboard headline totals, use calculate_net_spending_excluding_income
     and calculate_total_income (Income category only; refunds offset in non-Income categories).
 
-    NOTE: Transactions in the Payments subcategory are excluded from totals.
+    NOTE: Transfers are excluded from totals.
 
     Args:
         session: Database session
         filters: TransactionFilter object
 
     Returns:
-        Net total (sum of matching transaction amounts excluding Payments subcategory)
+        Net total (signed sum of matching non-transfer transaction amounts)
     """
     query = session.query(func.sum(Transaction.amount))
     query = _exclude_non_spend_transactions(query)
@@ -191,7 +184,7 @@ def calculate_net_spending_excluding_income(
     positive values mean net outflow; negative means net inflow (e.g. refunds) in
     non-Income categories.
 
-    Same exclusions as calculate_total (no transfers, no Payments subcategory).
+    Same exclusions as calculate_total (no transfers).
     """
     split_q = (
         session.query(TransactionSplit.amount.label("amount"))
@@ -229,8 +222,7 @@ def calculate_total_income(
     Signed sum of amounts allocated to the Income category (split-aware).
 
     Paychecks and other Income-category rows only; refunds in other categories are
-    excluded from this total. Same exclusions as calculate_total (no transfers,
-    no Payments subcategory).
+    excluded from this total. Same exclusions as calculate_total (no transfers).
     """
     split_q = (
         session.query(TransactionSplit.amount.label("amount"))
@@ -366,7 +358,7 @@ def summarize_by_tag(
     """
     Summarize spending by tag (contextual reporting only, tags have no accounting meaning).
 
-    NOTE: Transactions in the Payments subcategory are excluded from this summary.
+    NOTE: Transfers are excluded from this summary.
 
     Args:
         session: Database session

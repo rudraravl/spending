@@ -384,10 +384,12 @@ export type TransactionsTableProps = {
   onProcessRowUpdate: (newRow: TransactionRow) => TransactionRow
   onSaveEdits: () => void
   onDeleteSelected: () => void
+  onLinkCardPayment: () => void
   getSelectedIds: () => number[]
   metaReady: boolean
   savePending: boolean
   deletePending: boolean
+  linkCardPaymentPending: boolean
 }
 
 export default function TransactionsTable({
@@ -411,10 +413,12 @@ export default function TransactionsTable({
   onProcessRowUpdate,
   onSaveEdits,
   onDeleteSelected,
+  onLinkCardPayment,
   getSelectedIds,
   metaReady,
   savePending,
   deletePending,
+  linkCardPaymentPending,
 }: TransactionsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
 
@@ -587,6 +591,16 @@ export default function TransactionsTable({
         <div className="flex items-center justify-end gap-2">
           <Button variant="outline" size="sm" onClick={onSaveEdits} disabled={savePending || !metaReady}>
             Save Edits
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onLinkCardPayment}
+            disabled={
+              getSelectedIds().length !== 2 || linkCardPaymentPending || deletePending || !metaReady
+            }
+          >
+            Link as card payment
           </Button>
           <Button
             variant="destructive"

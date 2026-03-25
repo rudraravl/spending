@@ -8,6 +8,7 @@ const pageMeta: Record<string, { title: string; description: string }> = {
   "/import": { title: "Import CSV", description: "Upload bank statements" },
   "/add-transaction": { title: "Add Transaction", description: "Record a new expense or income" },
   "/transfer": { title: "Transfer", description: "Move money between accounts" },
+  "/transfers/review": { title: "Review transfers", description: "Link card payments across accounts" },
   "/transactions": { title: "All Transactions", description: "Review your transaction history" },
   "/views": { title: "Views", description: "Custom filtered analytics" },
   "/summaries": { title: "Summaries", description: "Period rollup reports" },

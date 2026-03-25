@@ -4,11 +4,24 @@ import { motion } from 'framer-motion'
 import { Upload } from 'lucide-react'
 import FeedbackDialog from '../components/FeedbackDialog'
 import { apiGet, apiPostForm } from '../api/client'
+import {
+  getTransferMatchCandidates,
+  linkExistingTransfer,
+  type TransferMatchCandidate,
+} from '../api/transfers'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '../queryKeys'
 import { getAccounts } from '../api/accounts'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -33,6 +46,12 @@ type CsvPreview = {
 type CsvImportResult = {
   num_imported: number
   skipped: Array<{ date?: string; amount?: number; merchant?: string; reason?: string }>
+  imported_transaction_ids: number[]
+  transfer_match_candidates: TransferMatchCandidate[]
+}
+
+function formatMoney(amount: number) {
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(amount)
 }
 
 type ImportCsvFormValues = {
@@ -80,6 +99,15 @@ export default function ImportCsvPage() {
   const [feedbackTitle, setFeedbackTitle] = useState('')
   const [feedbackMessage, setFeedbackMessage] = useState('')
   const [previewSort, setPreviewSort] = useState<ColumnSortState | null>(null)
+
+  const [matchDialogOpen, setMatchDialogOpen] = useState(false)
+  const [matchQueue, setMatchQueue] = useState<TransferMatchCandidate[]>([])
+  const [matchIndex, setMatchIndex] = useState(0)
+  const [matchLinkError, setMatchLinkError] = useState<string | null>(null)
+  const [pendingImportSummary, setPendingImportSummary] = useState<{
+    num_imported: number
+    skipped: number
+  } | null>(null)
 
   const isGeneric = adapterName === 'Generic'
 
@@ -182,11 +210,6 @@ export default function ImportCsvPage() {
       return apiPostForm<CsvImportResult>('/api/import/csv', form)
     },
     onSuccess: (res) => {
-      const lines = [`Imported ${res.num_imported} transactions.`]
-      if (res.skipped.length > 0) lines.push(`Skipped ${res.skipped.length} duplicate rows.`)
-      setFeedbackTitle('Import complete')
-      setFeedbackMessage(lines.join('\n'))
-      setFeedbackOpen(true)
       queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
       if (accountId != null) {
         queryClient.invalidateQueries({ queryKey: queryKeys.accountDetail(accountId) })
@@ -196,6 +219,22 @@ export default function ImportCsvPage() {
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['views'] })
       queryClient.invalidateQueries({ queryKey: ['summaries'] })
+
+      const candidates = res.transfer_match_candidates ?? []
+      if (candidates.length > 0) {
+        setPendingImportSummary({ num_imported: res.num_imported, skipped: res.skipped.length })
+        setMatchQueue(candidates)
+        setMatchIndex(0)
+        setMatchLinkError(null)
+        setMatchDialogOpen(true)
+        return
+      }
+
+      const lines = [`Imported ${res.num_imported} transactions.`]
+      if (res.skipped.length > 0) lines.push(`Skipped ${res.skipped.length} duplicate rows.`)
+      setFeedbackTitle('Import complete')
+      setFeedbackMessage(lines.join('\n'))
+      setFeedbackOpen(true)
     },
     onError: (e: unknown) => {
       setFeedbackTitle('Import failed')
@@ -203,6 +242,68 @@ export default function ImportCsvPage() {
       setFeedbackOpen(true)
     },
   })
+
+  const currentMatch = matchQueue[matchIndex] ?? null
+
+  const finishImportFeedback = () => {
+    if (!pendingImportSummary) return
+    const summary = pendingImportSummary
+    setPendingImportSummary(null)
+    setMatchQueue([])
+    setMatchIndex(0)
+    const lines = [`Imported ${summary.num_imported} transactions.`]
+    if (summary.skipped > 0) {
+      lines.push(`Skipped ${summary.skipped} duplicate rows.`)
+    }
+    setFeedbackTitle('Import complete')
+    setFeedbackMessage(lines.join('\n'))
+    setFeedbackOpen(true)
+  }
+
+  const advanceMatchQueue = () => {
+    setMatchLinkError(null)
+    if (matchIndex + 1 < matchQueue.length) {
+      setMatchIndex((i) => i + 1)
+    } else {
+      setMatchDialogOpen(false)
+    }
+  }
+
+  const confirmCurrentMatch = async () => {
+    if (!currentMatch) return
+    setMatchLinkError(null)
+    try {
+      await linkExistingTransfer({
+        transaction_id_a: currentMatch.asset_transaction_id,
+        transaction_id_b: currentMatch.credit_transaction_id,
+        canonical_amount: currentMatch.canonical_amount,
+      })
+      queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      advanceMatchQueue()
+    } catch (e) {
+      setMatchLinkError(e instanceof Error ? e.message : 'Could not link transactions')
+    }
+  }
+
+  const skipCurrentMatch = () => {
+    advanceMatchQueue()
+  }
+
+  const refetchMatchesOnly = async () => {
+    setMatchLinkError(null)
+    try {
+      const { candidates } = await getTransferMatchCandidates({ lookbackDays: 365 })
+      setMatchQueue(candidates)
+      setMatchIndex(0)
+      if (candidates.length === 0) {
+        setMatchDialogOpen(false)
+      }
+    } catch (e) {
+      setMatchLinkError(e instanceof Error ? e.message : 'Could not refresh suggestions')
+    }
+  }
 
   return (
     <div className="p-6 lg:p-8 max-w-6xl mx-auto">
@@ -485,6 +586,56 @@ export default function ImportCsvPage() {
         message={feedbackMessage}
         onClose={() => setFeedbackOpen(false)}
       />
+
+      <Dialog
+        open={matchDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setMatchDialogOpen(false)
+            finishImportFeedback()
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Possible card payment (transfer)</DialogTitle>
+            <DialogDescription>
+              Link these two transactions as a transfer between your bank and credit card? ({matchIndex + 1} of{' '}
+              {matchQueue.length})
+            </DialogDescription>
+          </DialogHeader>
+          {currentMatch ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+              <div className="rounded-lg border p-3 space-y-1">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Bank (outflow)</p>
+                <p className="font-medium">{currentMatch.asset.account_name}</p>
+                <p className="text-muted-foreground">{currentMatch.asset.merchant}</p>
+                <p className="tabular-nums">{formatMoney(currentMatch.asset.amount)}</p>
+                <p className="text-xs text-muted-foreground">{currentMatch.asset.date}</p>
+              </div>
+              <div className="rounded-lg border p-3 space-y-1">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Card (payment)</p>
+                <p className="font-medium">{currentMatch.credit.account_name}</p>
+                <p className="text-muted-foreground">{currentMatch.credit.merchant}</p>
+                <p className="tabular-nums">{formatMoney(currentMatch.credit.amount)}</p>
+                <p className="text-xs text-muted-foreground">{currentMatch.credit.date}</p>
+              </div>
+            </div>
+          ) : null}
+          {matchLinkError ? <p className="text-sm text-destructive">{matchLinkError}</p> : null}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={() => void refetchMatchesOnly()}>
+              Refresh suggestions
+            </Button>
+            <Button type="button" variant="secondary" onClick={skipCurrentMatch}>
+              Skip
+            </Button>
+            <Button type="button" onClick={() => void confirmCurrentMatch()}>
+              Link as transfer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

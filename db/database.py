@@ -31,6 +31,64 @@ SCHEMA_VERSION = "2026-03-22-accounts-linkage"
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+def _migrate_remove_payments_subcategory(conn) -> None:
+    """
+    Remove legacy Bills → Payments subcategory: reassign transactions and rules to
+    Other / Uncategorized, then delete the subcategory row.
+    """
+    tables = {
+        row[0]
+        for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()
+    }
+    if "subcategories" not in tables or "transactions" not in tables:
+        return
+
+    row = conn.execute(
+        text(
+            """
+            SELECT s.id FROM subcategories s
+            JOIN categories c ON c.id = s.category_id
+            WHERE lower(trim(s.name)) = 'payments' AND c.name = 'Bills'
+            LIMIT 1
+            """
+        )
+    ).fetchone()
+    if not row:
+        return
+    payments_sub_id = int(row[0])
+
+    other = conn.execute(text("SELECT id FROM categories WHERE name = 'Other' LIMIT 1")).fetchone()
+    if not other:
+        return
+    other_cat_id = int(other[0])
+    uncat = conn.execute(
+        text(
+            "SELECT id FROM subcategories WHERE category_id = :cid AND name = 'Uncategorized' LIMIT 1"
+        ),
+        {"cid": other_cat_id},
+    ).fetchone()
+    if not uncat:
+        return
+    unc_sub_id = int(uncat[0])
+
+    conn.execute(
+        text(
+            "UPDATE transactions SET category_id = :cid, subcategory_id = :uid "
+            "WHERE subcategory_id = :sid"
+        ),
+        {"cid": other_cat_id, "uid": unc_sub_id, "sid": payments_sub_id},
+    )
+    if "rules" in tables:
+        conn.execute(
+            text(
+                "UPDATE rules SET category_id = :cid, subcategory_id = :uid "
+                "WHERE subcategory_id = :sid"
+            ),
+            {"cid": other_cat_id, "uid": unc_sub_id, "sid": payments_sub_id},
+        )
+    conn.execute(text("DELETE FROM subcategories WHERE id = :sid"), {"sid": payments_sub_id})
+
+
 def _migrate_accounts_columns(conn) -> None:
     """Add linkage columns to existing SQLite `accounts` rows without full rebuild."""
     if "accounts" not in {
@@ -120,6 +178,7 @@ def init_db():
         Base.metadata.create_all(bind=engine)
 
         _migrate_accounts_columns(conn)
+        _migrate_remove_payments_subcategory(conn)
 
         # Ensure external dedupe index exists for imports
         conn.execute(
@@ -158,7 +217,7 @@ def _seed_required_data(session: Session) -> None:
     subcategories_seed = {
         "Food": ["Grocery", "Eating Out", "Drinks"],
         "Travel": ["Flights", "Lodging", "Transportation"],
-        "Bills": ["Rent", "Payments"],
+        "Bills": ["Rent"],
         "Shopping": ["Clothes"],
         "Leisure": ["Leisure"],
         "Other": ["Uncategorized"],  # Default subcategory for imports

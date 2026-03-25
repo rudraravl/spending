@@ -98,6 +98,7 @@ class TransactionOut(BaseModel):
 
     is_transfer: bool = False
     has_splits: bool = False
+    transfer_group_id: int | None = None
 
 
 class TransactionCreate(BaseModel):
@@ -133,6 +134,43 @@ class TransferCreate(BaseModel):
     notes: str | None = None
 
 
+class TransferLinkExisting(BaseModel):
+    """Unordered pair of transaction ids (one asset-account leg, one credit-account leg)."""
+
+    transaction_id_a: int
+    transaction_id_b: int
+    canonical_amount: float | None = None
+    notes: str | None = None
+
+
+class TransferMatchTxnBrief(BaseModel):
+    id: int
+    date: str
+    amount: float
+    merchant: str
+    account_id: int
+    account_name: str | None = None
+    account_type: str | None = None
+
+
+class TransferMatchCandidateOut(BaseModel):
+    asset_transaction_id: int
+    credit_transaction_id: int
+    canonical_amount: float
+    amount_delta: float
+    date_delta_days: int
+    asset: TransferMatchTxnBrief
+    credit: TransferMatchTxnBrief
+
+
+class TransferMatchCandidatesResponse(BaseModel):
+    candidates: list[TransferMatchCandidateOut]
+
+
+class TransferLinkExistingResponse(BaseModel):
+    transfer_group_id: int
+
+
 class TransactionSplitIn(BaseModel):
     category_id: int
     subcategory_id: int
@@ -165,6 +203,15 @@ class CsvPreviewResponse(BaseModel):
 class CsvImportResult(BaseModel):
     num_imported: int
     skipped: list[dict[str, object]] = []
+    imported_transaction_ids: list[int] = []
+    transfer_match_candidates: list[TransferMatchCandidateOut] = []
+
+
+class PaymentsHoldoutResponse(BaseModel):
+    """Rows still categorized under Bills → Payments (for migration review)."""
+
+    count: int
+    transaction_ids: list[int] = []
 
 
 class RuleOut(BaseModel):

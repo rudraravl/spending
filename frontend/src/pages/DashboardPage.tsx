@@ -390,7 +390,7 @@ export default function DashboardPage() {
                       <TooltipContent>
                         <p className="text-xs max-w-[220px]">
                           Net non-Income activity: purchases minus refunds in spend categories. Excludes
-                          transfers, card payments, and the Income category. Negative means net credits in
+                          transfers and the Income category. Negative means net credits in
                           the period.
                         </p>
                       </TooltipContent>

@@ -16,12 +16,14 @@ Transfers are stored as **two** linked rows (`is_transfer = 1`) with the same ma
 
 Do **not** apply bulk sign flips to transfer rows when migrating or normalizing data.
 
+**Credit card payments** from a bank account should be recorded as a transfer: **bank leg negative**, **credit card leg positive**, both rows linked with `is_transfer` (see Transfer flow in the app or **Review transfers** after import).
+
 ## Imports
 
 CSV adapters must normalize bank-specific columns so that parsed `amount` values match this convention before insert. See `adapters/generic_adapter.py` and per-bank adapters.
 
 ## Aggregations
 
-- **Dashboard total income**: signed sum of amounts allocated to the **Income** category only (split-aware), after excluding transfers and **Payments** subcategory rows. Paychecks and similar should use **Income / Paycheck** (or other Income subcategories). Refunds and other positive credits stay in their spend categories and **do not** count here.
-- **Dashboard total spending**: **negative** of the signed sum of amounts for **non-Income** categories (split-aware; uncategorized parents count as non-Income), with the same transfer / Payments exclusions. Refunds in those categories reduce this headline (e.g. −50 then +50 in Groceries nets to **0**). The value is positive when you had net outflows and can be **negative** when refunds exceed purchases in the period.
+- **Dashboard total income**: signed sum of amounts allocated to the **Income** category only (split-aware), after excluding **transfers**. Paychecks and similar should use **Income / Paycheck** (or other Income subcategories). Refunds and other positive credits stay in their spend categories and **do not** count here.
+- **Dashboard total spending**: **negative** of the signed sum of amounts for **non-Income** categories (split-aware; uncategorized parents count as non-Income), with the same **transfer** exclusion. Refunds in those categories reduce this headline (e.g. −50 then +50 in Groceries nets to **0**). The value is positive when you had net outflows and can be **negative** when refunds exceed purchases in the period.
 - **Category rollups** (`summarize_by_category`, etc.): signed sums per category so refunds net within the same category.

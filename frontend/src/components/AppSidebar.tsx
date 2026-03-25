@@ -7,6 +7,7 @@ import {
   List,
   BarChart3,
   FileText,
+  Link2,
   Settings,
   Wallet,
 } from "lucide-react";
@@ -29,6 +30,7 @@ const mainItems = [
   { title: "Import CSV", url: "/import", icon: Upload },
   { title: "Add Transaction", url: "/add-transaction", icon: PlusCircle },
   { title: "Transfer", url: "/transfer", icon: ArrowLeftRight },
+  { title: "Review transfers", url: "/transfers/review", icon: Link2 },
   { title: "All Transactions", url: "/transactions", icon: List },
 ];
 

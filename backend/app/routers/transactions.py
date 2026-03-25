@@ -4,24 +4,32 @@ from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.app.deps import get_db_session
 from backend.app.schemas import (
+    PaymentsHoldoutResponse,
     TransferCreate,
+    TransferLinkExisting,
+    TransferLinkExistingResponse,
+    TransferMatchCandidatesResponse,
     TransactionCreate,
     TransactionOut,
     TransactionUpdate,
 )
-from db.models import Transaction
+from backend.app.transfer_helpers import transfer_pair_to_candidate_out
+from db.models import Subcategory, Transaction
 from services.trasaction_service import (
     create_transaction,
     create_transfer,
     delete_transaction,
     get_transactions,
     get_transaction_by_id,
+    link_transactions_as_transfer,
     update_transaction,
 )
+from services.transfer_matching_service import find_card_payment_pair_candidates
 from utils.filters import TransactionFilter
 
 
@@ -53,6 +61,7 @@ def _txn_to_out(txn: Transaction) -> TransactionOut:
         tag_names=[t.name for t in tags],
         is_transfer=bool(getattr(txn, "is_transfer", False)),
         has_splits=has_splits,
+        transfer_group_id=getattr(txn, "transfer_group_id", None),
     )
 
 
@@ -207,3 +216,55 @@ def create_transfer_endpoint(
 
     return {"transfer_group_id": group.id}
 
+
+@router.post(
+    "/api/transfers/link-existing",
+    response_model=TransferLinkExistingResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def link_existing_transfer_endpoint(
+    payload: TransferLinkExisting,
+    session: Session = Depends(get_db_session),
+) -> TransferLinkExistingResponse:
+    try:
+        group = link_transactions_as_transfer(
+            session,
+            payload.transaction_id_a,
+            payload.transaction_id_b,
+            canonical_amount=payload.canonical_amount,
+            notes=payload.notes,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return TransferLinkExistingResponse(transfer_group_id=group.id)
+
+
+@router.get("/api/transfers/match-candidates", response_model=TransferMatchCandidatesResponse)
+def transfer_match_candidates(
+    seed_ids: list[int] | None = Query(default=None, alias="seed_ids"),
+    lookback_days: int = Query(default=365, ge=1, le=3650),
+    session: Session = Depends(get_db_session),
+) -> TransferMatchCandidatesResponse:
+    pairs = find_card_payment_pair_candidates(
+        session,
+        seed_transaction_ids=seed_ids,
+        lookback_days=lookback_days,
+    )
+    return TransferMatchCandidatesResponse(
+        candidates=[transfer_pair_to_candidate_out(session, p) for p in pairs],
+    )
+
+
+@router.get("/api/transfers/payments-holdouts", response_model=PaymentsHoldoutResponse)
+def payments_subcategory_holdouts(
+    session: Session = Depends(get_db_session),
+) -> PaymentsHoldoutResponse:
+    rows = (
+        session.query(Transaction.id)
+        .join(Subcategory, Transaction.subcategory_id == Subcategory.id)
+        .filter(func.lower(Subcategory.name) == "payments")
+        .order_by(Transaction.id.asc())
+        .all()
+    )
+    ids = [r[0] for r in rows]
+    return PaymentsHoldoutResponse(count=len(ids), transaction_ids=ids)

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import PlotlyDefault from 'react-plotly.js'
@@ -118,6 +118,9 @@ export default function ViewsPage() {
   const [accountId, setAccountId] = useState<number | null>(null)
   const [categoryId, setCategoryId] = useState<number | null>(null)
   const [subcategoryId, setSubcategoryId] = useState<number | null>(null)
+  // When the user explicitly selects "All subcategories", keep `subcategoryId = null`
+  // and don't let the subcategory-loading effect auto-pick the first subcategory.
+  const subcategoryAllExplicitRef = useRef(false)
 
   const subcategoriesQuery = useQuery<SubcategoryOut[], Error>({
     queryKey: queryKeys.subcategories(categoryId),
@@ -131,14 +134,24 @@ export default function ViewsPage() {
       setSubcategories([])
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setSubcategoryId(null)
+      subcategoryAllExplicitRef.current = false
       return
     }
     if (!subcategoriesQuery.data) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSubcategories(subcategoriesQuery.data)
+    if (subcategoryAllExplicitRef.current) return
+
+    const firstId = subcategoriesQuery.data[0]?.id ?? null
+    if (subcategoryId == null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSubcategoryId(firstId)
+      return
+    }
+
     if (!subcategoriesQuery.data.find((s) => s.id === subcategoryId)) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSubcategoryId(subcategoriesQuery.data[0]?.id ?? null)
+      setSubcategoryId(firstId)
     }
   }, [categoryId, subcategoriesQuery.data, subcategoryId])
 
@@ -381,7 +394,11 @@ export default function ViewsPage() {
                 </Label>
                 <Select
                   value={subcategoryId != null ? String(subcategoryId) : '__all__'}
-                  onValueChange={(v) => setSubcategoryId(v === '__all__' ? null : Number(v))}
+                  onValueChange={(v) => {
+                    const next = v === '__all__' ? null : Number(v)
+                    subcategoryAllExplicitRef.current = next === null
+                    setSubcategoryId(next)
+                  }}
                   disabled={!categoryId}
                 >
                   <SelectTrigger id="views-subcategory">

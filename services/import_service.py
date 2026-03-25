@@ -8,7 +8,7 @@ Handles:
 - Account and category management
 """
 
-from typing import List, Tuple, Optional
+from typing import List, Optional, NamedTuple
 import pandas as pd
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
@@ -43,6 +43,12 @@ def get_available_adapters() -> List[str]:
     return list(ADAPTERS.keys())
 
 
+class ImportCsvOutcome(NamedTuple):
+    num_imported: int
+    skipped: List[dict]
+    imported_transaction_ids: List[int]
+
+
 def preview_csv(
     file_path: str,
     adapter_name: str,
@@ -75,19 +81,11 @@ def import_csv(
     account_id: int,
     adapter_name: str,
     **adapter_kwargs,
-) -> Tuple[int, List[dict]]:
+) -> ImportCsvOutcome:
     """
     Import CSV file into database.
-    
-    Args:
-        session: Database session
-        file_path: Path to CSV file
-        account_id: ID of the account to assign to imported transactions
-        adapter_name: Name of adapter to use
-        **adapter_kwargs: Additional arguments for the adapter
-        
-    Returns:
-        Tuple of (num_imported, list of skipped rows)
+
+    Returns imported row ids for transfer matching after commit.
     """
     # Verify account exists
     account = session.query(Account).filter(Account.id == account_id).first()
@@ -101,7 +99,8 @@ def import_csv(
     # Import transactions
     num_imported = 0
     skipped = []
-    
+    imported_transaction_ids: List[int] = []
+
     for _, row in parsed.iterrows():
         try:
             # Source/external_id are optional and adapter-specific; default to simple
@@ -141,8 +140,10 @@ def import_csv(
             session.add(transaction)
             # Apply auto-categorization rules during import only.
             apply_rules_to_transaction(session, transaction)
+            session.flush()
+            imported_transaction_ids.append(transaction.id)
             num_imported += 1
-            
+
         except Exception as e:
             skipped.append({
                 'date': row.get('date'),
@@ -158,8 +159,8 @@ def import_csv(
         account.reported_balance_at = datetime.now(timezone.utc)
 
     session.commit()
-    
-    return num_imported, skipped
+
+    return ImportCsvOutcome(num_imported, skipped, imported_transaction_ids)
 
 
 def _get_adapter(adapter_name: str, **kwargs) -> BaseAdapter:

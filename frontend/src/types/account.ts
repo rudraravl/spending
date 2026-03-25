@@ -11,6 +11,8 @@ export interface AccountOut {
   last_synced_at?: string | null
   reported_balance?: number | null
   reported_balance_at?: string | null
+  /** Display balance (matches account detail / summary). */
+  balance: number
 }
 
 /** Response from GET /api/accounts/{id}/summary */

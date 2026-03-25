@@ -11,7 +11,9 @@ from sqlalchemy.orm import Session
 
 from backend.app.deps import get_db_session
 from backend.app.schemas import CsvImportResult, CsvInferredDateRange, CsvPreviewResponse
+from backend.app.transfer_helpers import transfer_pair_to_candidate_out
 from services.import_service import get_available_adapters, import_csv, preview_csv
+from services.transfer_matching_service import find_card_payment_pair_candidates
 
 
 router = APIRouter(tags=["import"])
@@ -187,7 +189,7 @@ async def import_csv_endpoint(
                 )
 
         try:
-            num_imported, skipped = import_csv(
+            outcome = import_csv(
                 session,
                 temp_path,
                 account_id,
@@ -197,7 +199,22 @@ async def import_csv_endpoint(
         except Exception as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
-        return CsvImportResult(num_imported=num_imported, skipped=skipped)
+        candidates = (
+            find_card_payment_pair_candidates(
+                session,
+                seed_transaction_ids=outcome.imported_transaction_ids,
+            )
+            if outcome.imported_transaction_ids
+            else []
+        )
+        return CsvImportResult(
+            num_imported=outcome.num_imported,
+            skipped=outcome.skipped,
+            imported_transaction_ids=outcome.imported_transaction_ids,
+            transfer_match_candidates=[
+                transfer_pair_to_candidate_out(session, p) for p in candidates
+            ],
+        )
     finally:
         try:
             os.remove(temp_path)

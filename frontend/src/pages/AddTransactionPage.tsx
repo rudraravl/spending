@@ -163,7 +163,12 @@ export default function AddTransactionPage() {
     <div className="p-6 lg:p-8 max-w-4xl mx-auto">
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
         <h1 className="text-2xl font-semibold mb-1">Add transaction</h1>
-        <p className="text-muted-foreground mb-8">Capture a single purchase or income with full context.</p>
+        <p className="text-muted-foreground mb-2">
+          Capture a single purchase or income with full context.
+        </p>
+        <div className="mb-8 px-4 py-2 bg-yellow-50 border-l-4 border-yellow-400 text-yellow-800 rounded">
+          <span className="font-semibold">Note:</span> Adding transactions on accounts that report a balance <em>will eventually cause accounting issues</em> as reported balances will not align with your ledger balances. We recommend adding manual transactions under a separate account (such as Cash, Venmo, etc.) to maintain proper accounting.
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card className="shadow-card">

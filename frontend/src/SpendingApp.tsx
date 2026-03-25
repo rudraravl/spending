@@ -16,6 +16,7 @@ import NotFoundPage from './pages/NotFoundPage'
 import SettingsPage from './pages/SettingsPage'
 import SummariesPage from './pages/SummariesPage'
 import TransferPage from './pages/TransferPage'
+import TransferReviewPage from './pages/TransferReviewPage'
 import ViewsPage from './pages/ViewsPage'
 
 export default function SpendingApp() {
@@ -34,6 +35,7 @@ export default function SpendingApp() {
                 <Route path="/import" element={<ImportCsvPage />} />
                 <Route path="/add-transaction" element={<AddTransactionPage />} />
                 <Route path="/transfer" element={<TransferPage />} />
+                <Route path="/transfers/review" element={<TransferReviewPage />} />
                 <Route path="/transactions" element={<AllTransactionsPage />} />
                 <Route path="/views" element={<ViewsPage />} />
                 <Route path="/summaries" element={<SummariesPage />} />

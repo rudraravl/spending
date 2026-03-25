@@ -12,7 +12,6 @@ from backend.app.deps import get_db_session
 from db.models import Transaction
 from services.trasaction_service import get_transactions
 from services.summary_service import (
-    PAYMENT_SUBCATEGORY_NAMES,
     calculate_net_spending_excluding_income,
     calculate_total,
     calculate_total_income,
@@ -145,7 +144,6 @@ def dashboard(
         trend_txns,
         start,
         end,
-        exclude_subcategory_names=PAYMENT_SUBCATEGORY_NAMES,
     )
 
     recent_txns = get_transactions(
@@ -237,8 +235,8 @@ def views(
 
     total = calculate_total(session, filters)
 
-    # Daily chart: gross outflows; exclude payments AND rent (Streamlit UI-only logic)
-    exclude_subcategories = {"payments", "rent"}
+    # Daily chart: gross outflows; exclude rent (Streamlit UI-only logic)
+    exclude_subcategories = {"rent"}
     spending_over_time = net_spending_daily_series(
         transactions,
         exclude_subcategory_names=exclude_subcategories,

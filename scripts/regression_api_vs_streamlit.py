@@ -20,7 +20,6 @@ from db.models import Account, Tag
 from services.trasaction_service import get_transactions
 from backend.app.routers import reports as reports_router
 from services.summary_service import (
-    PAYMENT_SUBCATEGORY_NAMES,
     calculate_net_spending_excluding_income,
     calculate_total,
     calculate_total_income,
@@ -123,7 +122,6 @@ def compute_expected_dashboard(
         trend_txns,
         start,
         end,
-        exclude_subcategory_names=PAYMENT_SUBCATEGORY_NAMES,
     )
 
     recent_txns = get_transactions(session, limit=10, include_transfers=False)
@@ -179,7 +177,7 @@ def compute_expected_views(session, *, start_date: date, end_date: date, account
     transactions = get_transactions(session, filters=filters, include_transfers=False)
     total = calculate_total(session, filters)
 
-    exclude_subcategories = {"payments", "rent"}
+    exclude_subcategories = {"rent"}
     spending_over_time = net_spending_daily_series(
         transactions,
         exclude_subcategory_names=exclude_subcategories,

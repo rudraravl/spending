@@ -5,6 +5,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 import { apiGet } from '../../api/client'
 import { getAccounts } from '../../api/accounts'
 import { getCategories, getSubcategories } from '../../api/categories'
+import { linkExistingTransfer } from '../../api/transfers'
 import {
   deleteTransaction,
   getTransactionSplits,
@@ -257,6 +258,42 @@ export function useTransactions() {
     },
   })
 
+  const linkCardPaymentMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      if (ids.length !== 2) {
+        throw new Error('Select exactly two transactions to link as a transfer.')
+      }
+      const txns = (transactionsQuery.data ?? []).filter((t) => ids.includes(t.id))
+      if (txns.length !== 2) {
+        throw new Error('Could not resolve selected transactions; refresh and try again.')
+      }
+      for (const t of txns) {
+        if (t.is_transfer) {
+          throw new Error(`Transaction ${t.id} is already a transfer.`)
+        }
+        if (t.has_splits) {
+          throw new Error(`Transaction ${t.id} has splits. Clear splits before linking.`)
+        }
+      }
+      await linkExistingTransfer({
+        transaction_id_a: ids[0],
+        transaction_id_b: ids[1],
+      })
+    },
+    onSuccess: () => {
+      setError(null)
+      setRowSelection({})
+      queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['views'] })
+      queryClient.invalidateQueries({ queryKey: ['summaries'] })
+    },
+    onError: (e: unknown) => {
+      setError(e instanceof Error ? e.message : 'Could not link as transfer')
+    },
+  })
+
   const deleteSelectedMutation = useMutation({
     mutationFn: async (ids: number[]) => {
       for (const id of ids) {
@@ -313,6 +350,11 @@ export function useTransactions() {
     deleteSelectedMutation.mutate(selectedIds)
   }
 
+  function linkCardPayment() {
+    if (!metaReady) return
+    linkCardPaymentMutation.mutate(getSelectedIds())
+  }
+
   function processRowUpdate(newRow: TransactionRow) {
     setGridRows((prev) => prev.map((r) => (r.id === newRow.id ? newRow : r)))
     setDirtyIds((prev) => {
@@ -367,6 +409,8 @@ export function useTransactions() {
       metaReady,
       saveDirtyPending: saveDirtyEditsMutation.isPending,
       deletePending: deleteSelectedMutation.isPending,
+      linkCardPayment,
+      linkCardPaymentPending: linkCardPaymentMutation.isPending,
     },
     splits: {
       splitsControl,

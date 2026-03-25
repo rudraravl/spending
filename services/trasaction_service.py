@@ -13,10 +13,12 @@ from datetime import date
 from typing import List, Optional, cast
 from sqlalchemy.orm import Session
 from db.models import Transaction, Tag, Account, Category, Subcategory, TransferGroup, TransactionSplit
+from services.transfer_matching_service import CARD_PAYMENT_AMOUNT_TOLERANCE
 from utils.filters import TransactionFilter
 
 
 SPLIT_TOLERANCE = .01
+LINK_AMOUNT_TOLERANCE = CARD_PAYMENT_AMOUNT_TOLERANCE
 
 
 _UNSET = object()
@@ -410,6 +412,101 @@ def create_transfer(
     session.add(credit_txn)
     session.commit()
 
+    return group
+
+
+def link_transactions_as_transfer(
+    session: Session,
+    transaction_id_a: int,
+    transaction_id_b: int,
+    *,
+    canonical_amount: float | None = None,
+    notes: str | None = None,
+) -> TransferGroup:
+    """
+    Convert two existing transactions into one transfer pair.
+
+    Works for any two different accounts (e.g. checking -> investment, checking -> credit).
+    One leg must be an outflow and the other an inflow so direction is unambiguous.
+
+    Original transaction dates are preserved (e.g. bank post vs brokerage settle).
+    """
+    if transaction_id_a == transaction_id_b:
+        raise ValueError("Cannot link a transaction to itself")
+
+    t_a = session.query(Transaction).filter(Transaction.id == transaction_id_a).first()
+    t_b = session.query(Transaction).filter(Transaction.id == transaction_id_b).first()
+    if not t_a:
+        raise ValueError(f"Transaction with id {transaction_id_a} does not exist")
+    if not t_b:
+        raise ValueError(f"Transaction with id {transaction_id_b} does not exist")
+
+    for t in (t_a, t_b):
+        if t.is_transfer or t.transfer_group_id is not None:
+            raise ValueError(f"Transaction {t.id} is already a transfer")
+        if t.splits:
+            raise ValueError(
+                f"Transaction {t.id} has splits; clear splits before linking as a transfer"
+            )
+
+    acct_a = session.query(Account).filter(Account.id == t_a.account_id).first()
+    acct_b = session.query(Account).filter(Account.id == t_b.account_id).first()
+    if not acct_a or not acct_b:
+        raise ValueError("Account missing for one of the transactions")
+    if t_a.account_id == t_b.account_id:
+        raise ValueError("Both transactions are on the same account")
+
+    # Infer transfer direction by signs: source(outflow) is negative, destination(inflow) positive.
+    if float(t_a.amount) < 0 and float(t_b.amount) > 0:
+        source_txn, destination_txn = t_a, t_b
+    elif float(t_b.amount) < 0 and float(t_a.amount) > 0:
+        source_txn, destination_txn = t_b, t_a
+    else:
+        raise ValueError(
+            "Need one outflow and one inflow to link as transfer; "
+            "update signs first if needed"
+        )
+
+    mag_source = abs(float(source_txn.amount))
+    mag_destination = abs(float(destination_txn.amount))
+    if canonical_amount is None:
+        if abs(mag_source - mag_destination) > LINK_AMOUNT_TOLERANCE:
+            raise ValueError(
+                "Amounts differ by more than "
+                f"{LINK_AMOUNT_TOLERANCE}; provide canonical_amount explicitly"
+            )
+        canonical = max(mag_source, mag_destination)
+    else:
+        canonical = float(canonical_amount)
+        if canonical <= 0:
+            raise ValueError("canonical_amount must be positive")
+        if abs(mag_source - canonical) > LINK_AMOUNT_TOLERANCE or abs(
+            mag_destination - canonical
+        ) > LINK_AMOUNT_TOLERANCE:
+            raise ValueError(
+                "canonical_amount does not match both transactions within tolerance"
+            )
+
+    group = TransferGroup(notes=notes)
+    session.add(group)
+    session.flush()
+
+    link_line = "Linked as transfer."
+
+    source_txn.amount = -canonical
+    destination_txn.amount = canonical
+    source_txn.is_transfer = True
+    destination_txn.is_transfer = True
+    source_txn.transfer_group_id = group.id
+    destination_txn.transfer_group_id = group.id
+    source_txn.category_id = None
+    source_txn.subcategory_id = None
+    destination_txn.category_id = None
+    destination_txn.subcategory_id = None
+    for t in (source_txn, destination_txn):
+        t.notes = f"{t.notes}\n{link_line}" if t.notes else link_line
+
+    session.commit()
     return group
 
 

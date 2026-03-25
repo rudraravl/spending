@@ -25,7 +25,6 @@ from services.trasaction_service import (
     set_transaction_splits,
 )
 from services.summary_service import (
-    PAYMENT_SUBCATEGORY_NAMES,
     calculate_total,
     calculate_net_spending_excluding_income,
     net_spending_daily_series,
@@ -303,10 +302,7 @@ if page == "Dashboard":
         trend_filters = TransactionFilter(start_date=start_30, end_date=today)
         trend_txns = get_transactions(session, filters=trend_filters, include_transfers=False)
 
-        spending_pts = net_spending_daily_series(
-            trend_txns,
-            exclude_subcategory_names=PAYMENT_SUBCATEGORY_NAMES,
-        )
+        spending_pts = net_spending_daily_series(trend_txns)
         if spending_pts:
             daily_df = pd.DataFrame(spending_pts)
             daily_df["date"] = pd.to_datetime(daily_df["date"])
@@ -472,13 +468,15 @@ elif page == "Import CSV":
                                 temp_file.write(uploaded_file.getvalue())
                                 temp_path = temp_file.name
 
-                            num_imported, skipped = import_csv(
+                            outcome = import_csv(
                                 session,
                                 temp_path,
                                 account.id,
                                 adapter_name,
                                 **kwargs,
                             )
+                            num_imported = outcome.num_imported
+                            skipped = outcome.skipped
                         finally:
                             if temp_path and os.path.exists(temp_path):
                                 os.remove(temp_path)
@@ -1291,8 +1289,8 @@ elif page == "Views":
                 )
 
         with top_col2:
-            with section("Spending over time", "Daily totals (excluding payments and rent)."):
-                exclude_subcategories = {"payments", "rent"}
+            with section("Spending over time", "Daily totals (excluding rent)."):
+                exclude_subcategories = {"rent"}
                 daily_txn_rows = []
                 for t in transactions:
                     if (

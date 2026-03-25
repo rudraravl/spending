@@ -19,5 +19,6 @@ export interface TransactionOut {
 
   is_transfer: boolean
   has_splits: boolean
+  transfer_group_id: number | null
 }
 

@@ -31,10 +31,12 @@ export default function AllTransactionsPage() {
         onProcessRowUpdate={table.processRowUpdate}
         onSaveEdits={table.saveDirtyEdits}
         onDeleteSelected={table.deleteSelected}
+        onLinkCardPayment={table.linkCardPayment}
         getSelectedIds={table.getSelectedIds}
         metaReady={table.metaReady}
         savePending={table.saveDirtyPending}
         deletePending={table.deletePending}
+        linkCardPaymentPending={table.linkCardPaymentPending}
       />
 
       <TransactionForm

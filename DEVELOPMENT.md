@@ -5,7 +5,9 @@ This document describes how to extend and modify the Personal Budget App MVP.
 ## Architecture Overview
 
 ```
-Streamlit UI (app.py)
+React UI (frontend/)
+    ↓ HTTP
+FastAPI (backend/)
     ↓
 Service Layer (services/)
     ├── transaction_service.py (CRUD)
@@ -85,30 +87,11 @@ def bulk_assign_tags(
     session.commit()
 ```
 
-### Adding a New Streamlit Page
+### Adding a New React Page
 
-In `app.py`, add to page navigation:
-
-```python
-page = st.sidebar.radio(
-    "Navigation",
-    [
-        "Dashboard",
-        "Import CSV",
-        "My New Page",  # Add here
-        ...
-    ],
-)
-
-# Add new section
-elif page == "My New Page":
-    st.title("🆕 My New Page")
-    session = get_db_session()
-    
-    # Your page logic here
-    
-    close_session(session)
-```
+1. Add a route and page component under `frontend/src/pages`.
+2. Add API calls in `frontend/src/api` and a matching router in `backend/app/routers` if needed.
+3. Keep business logic in `services/` and avoid duplicating logic in route handlers.
 
 ### Adding Database Model
 
@@ -299,10 +282,10 @@ python3 demo.py  # Recreates with sample data
 - ***_service.py**: Business logic and queries
 - **adapters/*.py**: CSV parsing (no DB access)
 - **utils/*.py**: Helper functions (no DB access)
-- **app.py**: UI only (delegates to services)
+- **frontend/src/**: UI only (delegates to backend APIs)
 
 Keep this separation clean:
-- Services never call Streamlit functions
+- Services stay framework-agnostic
 - UI never queries database directly
 - Adapters never touch the database
 
@@ -349,7 +332,7 @@ Solution: Ensure you're running from the project root directory:
 
 ```bash
 cd /path/to/your/repo
-python3 app.py
+uvicorn backend.main:app --reload --port 8000
 ```
 
 ### Database Locked
@@ -372,5 +355,5 @@ Check:
 Refer to:
 - README.md for usage
 - Code comments in relevant modules
-- Streamlit docs: https://docs.streamlit.io
+- FastAPI docs: https://fastapi.tiangolo.com
 - SQLAlchemy docs: https://docs.sqlalchemy.org

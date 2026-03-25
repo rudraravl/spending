@@ -11,7 +11,6 @@ def backup_db_once_per_day() -> None:
     """
     Best-effort DB backup (at most once per day per server start).
 
-    Mirrors the Streamlit behavior:
     - Create `db_backup_<timestamp>.db` in the same folder as `DB_PATH`
     - Keep at most 5 backups, delete oldest when above limit
     - Ignore backup failures (non-fatal)

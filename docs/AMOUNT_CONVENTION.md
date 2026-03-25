@@ -22,5 +22,6 @@ CSV adapters must normalize bank-specific columns so that parsed `amount` values
 
 ## Aggregations
 
-- **Gross spending** (dashboard-style): sum of **outflow magnitudes** — typically `sum(-amount)` over rows with `amount < 0` (excluding transfers and payment subcategories as defined in code).
-- **Total income**: sum of **inflows** — `sum(amount)` where `amount > 0`.
+- **Dashboard total income**: signed sum of amounts allocated to the **Income** category only (split-aware), after excluding transfers and **Payments** subcategory rows. Paychecks and similar should use **Income / Paycheck** (or other Income subcategories). Refunds and other positive credits stay in their spend categories and **do not** count here.
+- **Dashboard total spending**: **negative** of the signed sum of amounts for **non-Income** categories (split-aware; uncategorized parents count as non-Income), with the same transfer / Payments exclusions. Refunds in those categories reduce this headline (e.g. −50 then +50 in Groceries nets to **0**). The value is positive when you had net outflows and can be **negative** when refunds exceed purchases in the period.
+- **Category rollups** (`summarize_by_category`, etc.): signed sums per category so refunds net within the same category.

@@ -145,7 +145,7 @@ def init_db():
 
 def _seed_required_data(session: Session) -> None:
     """Seed required categories/subcategories (tags start empty)."""
-    categories_seed = ["Food", "Travel", "Leisure", "Bills", "Shopping", "Other"]
+    categories_seed = ["Food", "Travel", "Leisure", "Bills", "Shopping", "Other", "Income"]
     existing = {str(c.name): c for c in session.query(Category).all()}
 
     for name in categories_seed:
@@ -162,6 +162,7 @@ def _seed_required_data(session: Session) -> None:
         "Shopping": ["Clothes"],
         "Leisure": ["Leisure"],
         "Other": ["Uncategorized"],  # Default subcategory for imports
+        "Income": ["Paycheck"],
     }
 
     for category_name, subcats in subcategories_seed.items():

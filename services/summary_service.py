@@ -8,16 +8,20 @@ Provides:
 - Export to CSV format
 """
 
-from typing import List, Optional, Dict, Tuple
+from datetime import date, timedelta
+from typing import Dict, List, Optional, Set, Tuple
 import pandas as pd
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, union_all, case
+from sqlalchemy import func, or_, union_all
 from db.models import Transaction, Tag, Category, Subcategory, TransactionSplit
 from utils.filters import TransactionFilter
 
 
 # Subcategory name(s) to exclude from spending totals (case-insensitive)
 PAYMENT_SUBCATEGORY_NAMES = {'payments'}
+
+# Dashboard income totals use this category only (split-aware); refunds stay in spend categories.
+INCOME_CATEGORY_NAME = "Income"
 
 
 def _exclude_non_spend_transactions(query):
@@ -124,8 +128,8 @@ def calculate_total(
     Net sum of all matching transaction amounts (inflows and outflows).
 
     Cash-flow convention: positive = inflow, negative = outflow. Net total is the
-    signed sum. For dashboard-style gross spending and income magnitudes, use
-    calculate_gross_spending and calculate_total_income.
+    signed sum. For dashboard headline totals, use calculate_net_spending_excluding_income
+    and calculate_total_income (Income category only; refunds offset in non-Income categories).
 
     NOTE: Transactions in the Payments subcategory are excluded from totals.
 
@@ -175,57 +179,46 @@ def calculate_total(
     return float(result) if result else 0.0
 
 
-def calculate_gross_spending(
+def calculate_net_spending_excluding_income(
     session: Session,
     filters: Optional[TransactionFilter] = None,
 ) -> float:
     """
-    Sum of outflow magnitudes (cash-flow: negative amounts are spending).
+    Net cash flow for non-Income categories, split-aware, as a spending headline.
 
-    Inflows (positive amounts) are excluded so they are not double-counted with
-    calculate_total_income when computing net as income - spending on the dashboard.
+    Sums signed amounts on split rows and unsplit transactions whose category is not
+    Income (uncategorized parents count as non-Income). Returns **minus** that sum so
+    positive values mean net outflow; negative means net inflow (e.g. refunds) in
+    non-Income categories.
 
-    Uses the same exclusions as calculate_total (no transfers, no Payments subcategory).
-    Returns a non-negative float for display.
+    Same exclusions as calculate_total (no transfers, no Payments subcategory).
     """
-    gross = func.coalesce(
-        func.sum(case((Transaction.amount < 0, -Transaction.amount), else_=0.0)),
-        0.0,
+    split_q = (
+        session.query(TransactionSplit.amount.label("amount"))
+        .select_from(TransactionSplit)
+        .join(TransactionSplit.category)
+        .join(TransactionSplit.transaction)
+        .filter(Category.name != INCOME_CATEGORY_NAME)
     )
-    query = session.query(gross)
-    query = _exclude_non_spend_transactions(query)
+    split_q = _exclude_non_spend_transactions(split_q)
+    split_q = _apply_filters_splits(split_q, filters)
 
-    if filters:
-        if filters.start_date:
-            query = query.filter(Transaction.date >= filters.start_date)
+    base_q = (
+        session.query(Transaction.amount.label("amount"))
+        .select_from(Transaction)
+        .outerjoin(Transaction.category)
+        .filter(~Transaction.splits.any())
+        .filter(
+            or_(Category.id.is_(None), Category.name != INCOME_CATEGORY_NAME),
+        )
+    )
+    base_q = _exclude_non_spend_transactions(base_q)
+    base_q = _apply_filters_base(base_q, filters)
 
-        if filters.end_date:
-            query = query.filter(Transaction.date <= filters.end_date)
-
-        if filters.account_id:
-            query = query.filter(Transaction.account_id == filters.account_id)
-
-        if filters.min_amount is not None:
-            query = query.filter(Transaction.amount >= filters.min_amount)
-
-        if filters.max_amount is not None:
-            query = query.filter(Transaction.amount <= filters.max_amount)
-
-        if filters.tag_ids:
-            if getattr(filters, "tags_match_any", False):
-                query = query.filter(Transaction.tags.any(Tag.id.in_(filters.tag_ids)))
-            else:
-                for tag_id in filters.tag_ids:
-                    query = query.filter(Transaction.tags.any(Tag.id == tag_id))
-
-        if filters.category_id:
-            query = query.filter(Transaction.category_id == filters.category_id)
-
-        if filters.subcategory_id:
-            query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
-
-    result = query.scalar()
-    return float(result) if result else 0.0
+    combined = union_all(split_q, base_q).subquery("non_income_rows")
+    raw_sum = session.query(func.coalesce(func.sum(combined.c.amount), 0.0)).scalar()
+    s = float(raw_sum) if raw_sum is not None else 0.0
+    return -s
 
 
 def calculate_total_income(
@@ -233,49 +226,137 @@ def calculate_total_income(
     filters: Optional[TransactionFilter] = None,
 ) -> float:
     """
-    Sum of inflow magnitudes (cash-flow: positive amounts are income/refunds).
+    Signed sum of amounts allocated to the Income category (split-aware).
 
-    Uses the same exclusions as calculate_total (no transfers, no Payments subcategory).
-    Returns a non-negative float for display.
+    Paychecks and other Income-category rows only; refunds in other categories are
+    excluded from this total. Same exclusions as calculate_total (no transfers,
+    no Payments subcategory).
     """
-    inflow = func.coalesce(
-        func.sum(case((Transaction.amount > 0, Transaction.amount), else_=0.0)),
-        0.0,
+    split_q = (
+        session.query(TransactionSplit.amount.label("amount"))
+        .select_from(TransactionSplit)
+        .join(TransactionSplit.category)
+        .join(TransactionSplit.transaction)
+        .filter(Category.name == INCOME_CATEGORY_NAME)
     )
-    query = session.query(inflow)
-    query = _exclude_non_spend_transactions(query)
+    split_q = _exclude_non_spend_transactions(split_q)
+    split_q = _apply_filters_splits(split_q, filters)
 
-    if filters:
-        if filters.start_date:
-            query = query.filter(Transaction.date >= filters.start_date)
+    base_q = (
+        session.query(Transaction.amount.label("amount"))
+        .select_from(Transaction)
+        .join(Transaction.category)
+        .filter(~Transaction.splits.any())
+        .filter(Category.name == INCOME_CATEGORY_NAME)
+    )
+    base_q = _exclude_non_spend_transactions(base_q)
+    base_q = _apply_filters_base(base_q, filters)
 
-        if filters.end_date:
-            query = query.filter(Transaction.date <= filters.end_date)
+    combined = union_all(split_q, base_q).subquery("income_rows")
+    result = session.query(func.coalesce(func.sum(combined.c.amount), 0.0)).scalar()
+    return float(result) if result is not None else 0.0
 
-        if filters.account_id:
-            query = query.filter(Transaction.account_id == filters.account_id)
 
-        if filters.min_amount is not None:
-            query = query.filter(Transaction.amount >= filters.min_amount)
+def filter_dashboard_breakdowns(
+    by_category_df: pd.DataFrame,
+    by_subcategory_df: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Drop Income from dashboard category/subcategory frames and recompute percents
+    over the remaining rows (spending-focused charts).
+    """
+    cat = by_category_df.copy() if by_category_df is not None else pd.DataFrame()
+    sub = by_subcategory_df.copy() if by_subcategory_df is not None else pd.DataFrame()
 
-        if filters.max_amount is not None:
-            query = query.filter(Transaction.amount <= filters.max_amount)
+    if len(cat) > 0 and "category" in cat.columns:
+        cat = cat[cat["category"] != INCOME_CATEGORY_NAME].reset_index(drop=True)
+        grand = cat["total"].sum()
+        cat["percent"] = (cat["total"] / grand * 100).round(2) if grand != 0 else 0.0
 
-        if filters.tag_ids:
-            if getattr(filters, "tags_match_any", False):
-                query = query.filter(Transaction.tags.any(Tag.id.in_(filters.tag_ids)))
-            else:
-                for tag_id in filters.tag_ids:
-                    query = query.filter(Transaction.tags.any(Tag.id == tag_id))
+    if len(sub) > 0 and "category" in sub.columns:
+        sub = sub[sub["category"] != INCOME_CATEGORY_NAME].reset_index(drop=True)
+        grand_sub = sub["total"].sum()
+        sub["percent"] = (sub["total"] / grand_sub * 100).round(2) if grand_sub != 0 else 0.0
 
-        if filters.category_id:
-            query = query.filter(Transaction.category_id == filters.category_id)
+    return cat, sub
 
-        if filters.subcategory_id:
-            query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
 
-    result = query.scalar()
-    return float(result) if result else 0.0
+def net_spending_daily_series(
+    transactions: List[Transaction],
+    *,
+    exclude_subcategory_names: Optional[Set[str]] = None,
+    exclude_income_category: bool = True,
+) -> List[Dict[str, object]]:
+    """
+    Per-day signed sum of transaction amounts (after exclusions), returned as
+    ``amount`` = negative of that sum so positive values mean net outflow.
+
+    Parent transaction amounts only (split allocation not applied here).
+    """
+    excl = {s.lower() for s in (exclude_subcategory_names or set())}
+    daily: Dict = {}
+    for t in transactions:
+        sub = t.subcategory.name.lower() if t.subcategory and t.subcategory.name else ""
+        if sub in excl:
+            continue
+        if exclude_income_category:
+            cat_name = t.category.name if t.category else None
+            if cat_name == INCOME_CATEGORY_NAME:
+                continue
+        raw = float(t.amount)
+        daily[t.date] = daily.get(t.date, 0.0) + raw
+    return [
+        {"date": d.isoformat(), "amount": -amt}
+        for d, amt in sorted(daily.items(), key=lambda x: x[0])
+    ]
+
+
+def dashboard_bilateral_daily_series(
+    transactions: List[Transaction],
+    range_start: date,
+    range_end: date,
+    *,
+    exclude_subcategory_names: Optional[Set[str]] = None,
+    exclude_income_category: bool = True,
+) -> List[Dict[str, object]]:
+    """
+    One row per calendar day in ``[range_start, range_end]`` (inclusive).
+
+    ``spending`` = sum of outflow magnitudes that day (non-Income, after exclusions).
+    ``credits`` = sum of inflow amounts that day (positive leg, same rules).
+    Parent transaction amounts only (splits not allocated here).
+    """
+    excl = {s.lower() for s in (exclude_subcategory_names or set())}
+    spend_by_day: Dict[date, float] = {}
+    credit_by_day: Dict[date, float] = {}
+    for t in transactions:
+        sub = t.subcategory.name.lower() if t.subcategory and t.subcategory.name else ""
+        if sub in excl:
+            continue
+        if exclude_income_category:
+            cat_name = t.category.name if t.category else None
+            if cat_name == INCOME_CATEGORY_NAME:
+                continue
+        raw = float(t.amount)
+        d = t.date
+        if raw < 0:
+            spend_by_day[d] = spend_by_day.get(d, 0.0) - raw
+        elif raw > 0:
+            credit_by_day[d] = credit_by_day.get(d, 0.0) + raw
+
+    out: List[Dict[str, object]] = []
+    d = range_start
+    step = timedelta(days=1)
+    while d <= range_end:
+        out.append(
+            {
+                "date": d.isoformat(),
+                "spending": float(spend_by_day.get(d, 0.0)),
+                "credits": float(credit_by_day.get(d, 0.0)),
+            }
+        )
+        d += step
+    return out
 
 
 def summarize_by_tag(
@@ -604,6 +685,3 @@ def export_transactions(
     df.to_csv(filename, index=False)
 
     return filename
-
-
-    # NOTE: split-aware behavior is implemented directly in summarize_by_category

@@ -8,9 +8,12 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  Legend,
   Pie,
   PieChart,
+  ReferenceLine,
   ResponsiveContainer,
+  Tooltip as RechartsTooltip,
   XAxis,
   YAxis,
 } from 'recharts'
@@ -52,7 +55,7 @@ type SubcategoryRow = {
   percent: number
 }
 
-type TrendPoint = { date: string; amount: number }
+type TrendPoint = { date: string; spending: number; credits: number }
 
 type RecentRow = {
   id: number
@@ -171,10 +174,11 @@ export default function DashboardPage() {
   }, [data, selectedCategoryId])
 
   const dailyBars = useMemo(() => {
-    if (!data?.spending_over_time.length) return []
+    if (!data?.spending_over_time?.length) return []
     return data.spending_over_time.map((r) => ({
       day: fmtShortDate(r.date),
-      amount: Math.abs(Number(r.amount)),
+      spending: Number(r.spending),
+      creditsNeg: -Number(r.credits),
     }))
   }, [data])
 
@@ -275,13 +279,20 @@ export default function DashboardPage() {
                         <Info className="h-3 w-3 text-muted-foreground/50" />
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p className="text-xs">Excludes transfers and card payments</p>
+                        <p className="text-xs max-w-[220px]">
+                          Net non-Income activity: purchases minus refunds in spend categories. Excludes
+                          transfers, card payments, and the Income category. Negative means net credits in
+                          the period.
+                        </p>
                       </TooltipContent>
                     </Tooltip>
                   </div>
                 </div>
-                <p className="text-2xl font-bold tabular-nums font-mono">
-                  ${Number(data.total_spending).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                <p
+                  className={`text-2xl font-bold tabular-nums font-mono ${Number(data.total_spending) >= 0 ? 'text-expense' : 'text-income'}`}
+                >
+                  {Number(data.total_spending) < 0 ? '-' : ''}$
+                  {Math.abs(Number(data.total_spending)).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </p>
               </div>
 
@@ -297,7 +308,10 @@ export default function DashboardPage() {
                         <Info className="h-3 w-3 text-muted-foreground/50" />
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p className="text-xs">Credits to your accounts</p>
+                        <p className="text-xs max-w-[220px]">
+                          Sum of transactions in the Income category (e.g. Paycheck). Refunds in other
+                          categories are not included.
+                        </p>
                       </TooltipContent>
                     </Tooltip>
                   </div>
@@ -323,40 +337,96 @@ export default function DashboardPage() {
               </div>
             </motion.div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-              <motion.div variants={item} className="lg:col-span-2 rounded-xl border bg-card p-6 shadow-card">
-                <h2 className="text-sm font-semibold mb-4">Daily Spending</h2>
-                <div className="h-56">
-                  {dailyBars.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No daily activity in this period.</p>
-                  ) : (
+            {/* Full-width daily chart */}
+            <div className="mb-8">
+              <motion.div variants={item} className="rounded-xl border bg-card p-6 shadow-card">
+                <h2 className="text-sm font-semibold mb-1">Daily spending (excl. Income)</h2>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Red = money out; green = credits/refunds.
+                </p>
+                {dailyBars.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-12 text-center">No data for this range.</p>
+                ) : (
+                  <div className="h-[min(42vh,380px)] min-h-[280px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={dailyBars} barSize={14}>
+                      <BarChart
+                        data={dailyBars}
+                        stackOffset="sign"
+                        margin={{ top: 8, right: 12, left: 4, bottom: 8 }}
+                      >
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(220, 12%, 90%)" />
                         <XAxis
                           dataKey="day"
-                          tick={{ fontSize: 10, fill: 'hsl(220, 10%, 50%)' }}
+                          tick={{ fontSize: 10, fill: 'hsl(220, 10%, 45%)' }}
                           tickLine={false}
                           axisLine={false}
                           interval="preserveStartEnd"
+                          height={36}
                         />
                         <YAxis
-                          tick={{ fontSize: 10, fill: 'hsl(220, 10%, 50%)' }}
+                          tick={{ fontSize: 10, fill: 'hsl(220, 10%, 45%)' }}
                           tickLine={false}
                           axisLine={false}
-                          tickFormatter={(v) => `$${v}`}
-                          width={45}
+                          width={56}
+                          tickFormatter={(v) => {
+                            const n = Number(v)
+                            const s = Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 })
+                            if (n < 0) return `−$${s}`
+                            if (n > 0) return `$${s}`
+                            return '$0'
+                          }}
                         />
-                        <Bar dataKey="amount" radius={[4, 4, 0, 0]} fill="hsl(158, 50%, 38%)" opacity={0.85} />
+                        <ReferenceLine y={0} stroke="hsl(220, 12%, 70%)" strokeWidth={1.5} />
+                        <RechartsTooltip
+                          formatter={(value: number, name: string) => {
+                            const n = typeof value === 'number' ? value : Number(value)
+                            const abs = Math.abs(n).toLocaleString('en-US', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })
+                            const label =
+                              name === 'creditsNeg' || name === 'Credits' ? 'Credits' : 'Spending'
+                            return [`$${abs}`, label]
+                          }}
+                          labelFormatter={(label) => label}
+                          contentStyle={{
+                            fontSize: 12,
+                            borderRadius: 8,
+                            border: '1px solid hsl(220, 12%, 90%)',
+                          }}
+                        />
+                        <Legend
+                          wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+                          formatter={(value) => (value === 'creditsNeg' ? 'Credits' : value)}
+                        />
+                        <Bar
+                          dataKey="spending"
+                          name="Spending"
+                          stackId="stack"
+                          fill="hsl(var(--expense))"
+                          maxBarSize={28}
+                          radius={[3, 3, 0, 0]}
+                        />
+                        <Bar
+                          dataKey="creditsNeg"
+                          name="Credits"
+                          stackId="stack"
+                          fill="hsl(var(--income))"
+                          maxBarSize={28}
+                          radius={[3, 3, 0, 0]}
+                        />
                       </BarChart>
                     </ResponsiveContainer>
-                  )}
-                </div>
+                  </div>
+                )}
               </motion.div>
+            </div>
 
-              <motion.div variants={item} className="rounded-xl border bg-card p-6 shadow-card">
+            {/* Category (2 cols) + Subcategories (1 col) */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+              <motion.div variants={item} className="lg:col-span-2 rounded-xl border bg-card p-6 shadow-card">
                 <h2 className="text-sm font-semibold mb-4">By Category</h2>
-                <div className="h-36 mb-4">
+                <div className="h-40 sm:h-44 mb-4">
                   {categoryPieData.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No spending in this period.</p>
                   ) : (
@@ -368,8 +438,8 @@ export default function DashboardPage() {
                           nameKey="name"
                           cx="50%"
                           cy="50%"
-                          innerRadius={36}
-                          outerRadius={60}
+                          innerRadius={40}
+                          outerRadius={68}
                           paddingAngle={2}
                           strokeWidth={0}
                           onClick={(_, index) => {
@@ -409,58 +479,66 @@ export default function DashboardPage() {
                   ))}
                 </div>
               </motion.div>
-            </div>
 
-            {selectedCategoryId != null && subPieData.length > 0 ? (
-              <motion.div variants={item} className="rounded-xl border bg-card p-6 shadow-card mb-8">
+              <motion.div variants={item} className="lg:col-span-1 rounded-xl border bg-card p-6 shadow-card min-h-[280px] flex flex-col">
                 <h2 className="text-sm font-semibold mb-1">Subcategories</h2>
-                <p className="text-xs text-muted-foreground mb-4">{selectedCategoryName}</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  <div className="h-48 min-h-[12rem]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={subPieData}
-                          dataKey="amount"
-                          nameKey="name"
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={32}
-                          outerRadius={56}
-                          paddingAngle={2}
-                          strokeWidth={0}
+                <p className="text-xs text-muted-foreground mb-4 truncate" title={selectedCategoryName}>
+                  {selectedCategoryName || '—'}
+                </p>
+                {subPieData.length > 0 ? (
+                  <>
+                    <div className="h-44 w-full shrink-0 mb-4">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={subPieData}
+                            dataKey="amount"
+                            nameKey="name"
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={28}
+                            outerRadius={52}
+                            paddingAngle={2}
+                            strokeWidth={0}
+                          >
+                            {subPieData.map((_, i) => (
+                              <Cell key={i} fill={pieColors[i % pieColors.length]} />
+                            ))}
+                          </Pie>
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="space-y-2 min-w-0 flex-1 overflow-auto">
+                      {subPieData.map((sub, i) => (
+                        <div
+                          key={`${sub.name}-${i}`}
+                          className="flex w-full items-center justify-between text-sm rounded-md px-1 py-0.5"
                         >
-                          {subPieData.map((_, i) => (
-                            <Cell key={i} fill={pieColors[i % pieColors.length]} />
-                          ))}
-                        </Pie>
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <div className="space-y-2 min-w-0 self-center">
-                    {subPieData.map((sub, i) => (
-                      <div
-                        key={`${sub.name}-${i}`}
-                        className="flex w-full items-center justify-between text-sm rounded-md px-1 py-0.5"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div
-                            className="h-2.5 w-2.5 shrink-0 rounded-full"
-                            style={{ backgroundColor: pieColors[i % pieColors.length] }}
-                          />
-                          <span className="text-foreground truncate" title={sub.name}>
-                            {sub.name}
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div
+                              className="h-2.5 w-2.5 shrink-0 rounded-full"
+                              style={{ backgroundColor: pieColors[i % pieColors.length] }}
+                            />
+                            <span className="text-foreground truncate" title={sub.name}>
+                              {sub.name}
+                            </span>
+                          </div>
+                          <span className="font-mono text-xs tabular-nums text-muted-foreground shrink-0">
+                            {sub.percent.toFixed(0)}%
                           </span>
                         </div>
-                        <span className="font-mono text-xs tabular-nums text-muted-foreground shrink-0">
-                          {sub.percent.toFixed(0)}%
-                        </span>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex flex-1 flex-col items-center justify-center text-center text-sm text-muted-foreground px-2 py-8">
+                    {categoryPieData.length === 0
+                      ? 'Add categorized transactions to see subcategories.'
+                      : 'Click a category (chart or list) to see its subcategories.'}
                   </div>
-                </div>
+                )}
               </motion.div>
-            ) : null}
+            </div>
 
             <motion.div variants={item} className="rounded-xl border bg-card shadow-card overflow-hidden">
               <div className="flex items-center justify-between px-6 pt-5 pb-3">

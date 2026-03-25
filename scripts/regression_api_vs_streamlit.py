@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 import math
+import sys
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Any
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 import numpy as np
 import pandas as pd
@@ -15,9 +21,12 @@ from services.trasaction_service import get_transactions
 from backend.app.routers import reports as reports_router
 from services.summary_service import (
     PAYMENT_SUBCATEGORY_NAMES,
-    calculate_gross_spending,
+    calculate_net_spending_excluding_income,
     calculate_total,
     calculate_total_income,
+    dashboard_bilateral_daily_series,
+    filter_dashboard_breakdowns,
+    net_spending_daily_series,
     summarize_by_category,
     summarize_by_subcategory,
     summarize_by_tag,
@@ -102,24 +111,20 @@ def compute_expected_dashboard(
         raise ValueError(f"Unsupported dashboard range: {range_preset}")
 
     filters = TransactionFilter(start_date=start, end_date=end)
-    total_spending = calculate_gross_spending(session, filters)
+    total_spending = calculate_net_spending_excluding_income(session, filters)
     total_income = calculate_total_income(session, filters)
-    by_category = summarize_by_category(session, filters)
-    by_subcategory = summarize_by_subcategory(session, filters)
+    by_category, by_subcategory = filter_dashboard_breakdowns(
+        summarize_by_category(session, filters),
+        summarize_by_subcategory(session, filters),
+    )
 
     trend_txns = get_transactions(session, filters=filters, include_transfers=False)
-    daily: dict[date, float] = {}
-    for t in trend_txns:
-        sub = t.subcategory.name.lower() if t.subcategory and t.subcategory.name else ""
-        if sub in PAYMENT_SUBCATEGORY_NAMES:
-            continue
-        raw = float(t.amount)
-        if raw < 0:
-            daily[t.date] = daily.get(t.date, 0.0) - raw
-    spending_over_time = [
-        {"date": d.isoformat(), "amount": amt}
-        for d, amt in sorted(daily.items(), key=lambda x: x[0])
-    ]
+    spending_over_time = dashboard_bilateral_daily_series(
+        trend_txns,
+        start,
+        end,
+        exclude_subcategory_names=PAYMENT_SUBCATEGORY_NAMES,
+    )
 
     recent_txns = get_transactions(session, limit=10, include_transfers=False)
     recent_transactions = [reports_router._transaction_table_row(t) for t in recent_txns]
@@ -175,16 +180,10 @@ def compute_expected_views(session, *, start_date: date, end_date: date, account
     total = calculate_total(session, filters)
 
     exclude_subcategories = {"payments", "rent"}
-    daily: dict[date, float] = {}
-    for t in transactions:
-        sub = t.subcategory.name.lower() if t.subcategory and t.subcategory.name else ""
-        if sub in exclude_subcategories:
-            continue
-        raw = float(t.amount)
-        if raw < 0:
-            daily[t.date] = daily.get(t.date, 0.0) - raw
-
-    spending_over_time = [{"date": d.isoformat(), "amount": amt} for d, amt in sorted(daily.items(), key=lambda x: x[0])]
+    spending_over_time = net_spending_daily_series(
+        transactions,
+        exclude_subcategory_names=exclude_subcategories,
+    )
 
     by_tag = summarize_by_tag(session, filters)
     by_category = summarize_by_category(session, filters)

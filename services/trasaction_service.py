@@ -13,7 +13,6 @@ from datetime import date
 from typing import List, Optional, cast
 from sqlalchemy.orm import Session
 from db.models import Transaction, Tag, Account, Category, Subcategory, TransferGroup, TransactionSplit
-from services.account_service import ASSET_ACCOUNT_TYPES
 from services.transfer_matching_service import CARD_PAYMENT_AMOUNT_TOLERANCE
 from utils.filters import TransactionFilter
 
@@ -425,10 +424,12 @@ def link_transactions_as_transfer(
     notes: str | None = None,
 ) -> TransferGroup:
     """
-    Convert two existing transactions into one card-payment (or similar) transfer pair.
+    Convert two existing transactions into one transfer pair.
 
-    One row must be on an asset account (checking/savings/cash/investment) and one on
-    credit. Amounts are normalized to -/+ canonical_amount on asset/credit respectively.
+    Works for any two different accounts (e.g. checking -> investment, checking -> credit).
+    One leg must be an outflow and the other an inflow so direction is unambiguous.
+
+    Original transaction dates are preserved (e.g. bank post vs brokerage settle).
     """
     if transaction_id_a == transaction_id_b:
         raise ValueError("Cannot link a transaction to itself")
@@ -455,34 +456,32 @@ def link_transactions_as_transfer(
     if t_a.account_id == t_b.account_id:
         raise ValueError("Both transactions are on the same account")
 
-    types = {acct_a.type, acct_b.type}
-    if acct_a.type not in ASSET_ACCOUNT_TYPES and acct_b.type not in ASSET_ACCOUNT_TYPES:
-        raise ValueError("At least one transaction must be on an asset account")
-    if acct_a.type != "credit" and acct_b.type != "credit":
-        raise ValueError("At least one transaction must be on a credit account")
-
-    if acct_a.type in ASSET_ACCOUNT_TYPES and acct_b.type == "credit":
-        asset_txn, credit_txn = t_a, t_b
-    elif acct_b.type in ASSET_ACCOUNT_TYPES and acct_a.type == "credit":
-        asset_txn, credit_txn = t_b, t_a
+    # Infer transfer direction by signs: source(outflow) is negative, destination(inflow) positive.
+    if float(t_a.amount) < 0 and float(t_b.amount) > 0:
+        source_txn, destination_txn = t_a, t_b
+    elif float(t_b.amount) < 0 and float(t_a.amount) > 0:
+        source_txn, destination_txn = t_b, t_a
     else:
-        raise ValueError("Need exactly one asset account and one credit account")
+        raise ValueError(
+            "Need one outflow and one inflow to link as transfer; "
+            "update signs first if needed"
+        )
 
-    mag_asset = abs(float(asset_txn.amount))
-    mag_credit = abs(float(credit_txn.amount))
+    mag_source = abs(float(source_txn.amount))
+    mag_destination = abs(float(destination_txn.amount))
     if canonical_amount is None:
-        if abs(mag_asset - mag_credit) > LINK_AMOUNT_TOLERANCE:
+        if abs(mag_source - mag_destination) > LINK_AMOUNT_TOLERANCE:
             raise ValueError(
                 "Amounts differ by more than "
                 f"{LINK_AMOUNT_TOLERANCE}; provide canonical_amount explicitly"
             )
-        canonical = max(mag_asset, mag_credit)
+        canonical = max(mag_source, mag_destination)
     else:
         canonical = float(canonical_amount)
         if canonical <= 0:
             raise ValueError("canonical_amount must be positive")
-        if abs(mag_asset - canonical) > LINK_AMOUNT_TOLERANCE or abs(
-            mag_credit - canonical
+        if abs(mag_source - canonical) > LINK_AMOUNT_TOLERANCE or abs(
+            mag_destination - canonical
         ) > LINK_AMOUNT_TOLERANCE:
             raise ValueError(
                 "canonical_amount does not match both transactions within tolerance"
@@ -492,22 +491,19 @@ def link_transactions_as_transfer(
     session.add(group)
     session.flush()
 
-    transfer_date = asset_txn.date
-    link_line = "Linked as card payment transfer."
+    link_line = "Linked as transfer."
 
-    asset_txn.date = transfer_date
-    credit_txn.date = transfer_date
-    asset_txn.amount = -canonical
-    credit_txn.amount = canonical
-    asset_txn.is_transfer = True
-    credit_txn.is_transfer = True
-    asset_txn.transfer_group_id = group.id
-    credit_txn.transfer_group_id = group.id
-    asset_txn.category_id = None
-    asset_txn.subcategory_id = None
-    credit_txn.category_id = None
-    credit_txn.subcategory_id = None
-    for t in (asset_txn, credit_txn):
+    source_txn.amount = -canonical
+    destination_txn.amount = canonical
+    source_txn.is_transfer = True
+    destination_txn.is_transfer = True
+    source_txn.transfer_group_id = group.id
+    destination_txn.transfer_group_id = group.id
+    source_txn.category_id = None
+    source_txn.subcategory_id = None
+    destination_txn.category_id = None
+    destination_txn.subcategory_id = None
+    for t in (source_txn, destination_txn):
         t.notes = f"{t.notes}\n{link_line}" if t.notes else link_line
 
     session.commit()

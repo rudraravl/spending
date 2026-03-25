@@ -600,7 +600,7 @@ export default function TransactionsTable({
               getSelectedIds().length !== 2 || linkCardPaymentPending || deletePending || !metaReady
             }
           >
-            Link as card payment
+            Link as transfer
           </Button>
           <Button
             variant="destructive"

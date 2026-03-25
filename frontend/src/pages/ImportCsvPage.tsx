@@ -601,7 +601,8 @@ export default function ImportCsvPage() {
             <DialogTitle>Possible card payment (transfer)</DialogTitle>
             <DialogDescription>
               Link these two transactions as a transfer between your bank and credit card? ({matchIndex + 1} of{' '}
-              {matchQueue.length})
+              {matchQueue.length}) If the same bank charge appears again with a different card line, pick the match
+              that fits and skip the others.
             </DialogDescription>
           </DialogHeader>
           {currentMatch ? (

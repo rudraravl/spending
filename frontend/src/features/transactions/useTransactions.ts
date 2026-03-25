@@ -261,7 +261,7 @@ export function useTransactions() {
   const linkCardPaymentMutation = useMutation({
     mutationFn: async (ids: number[]) => {
       if (ids.length !== 2) {
-        throw new Error('Select exactly two transactions to link as a card payment transfer.')
+        throw new Error('Select exactly two transactions to link as a transfer.')
       }
       const txns = (transactionsQuery.data ?? []).filter((t) => ids.includes(t.id))
       if (txns.length !== 2) {

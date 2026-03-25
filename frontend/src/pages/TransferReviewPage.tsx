@@ -88,7 +88,9 @@ export default function TransferReviewPage() {
           <div>
             <CardTitle className="text-base">Suggested pairs</CardTitle>
             <CardDescription>
-              Same amount within $0.05 and within one calendar day (bank negative, card positive).
+              Same amount within $0.03 and within 8 calendar days (bank negative, card positive). If one bank
+              debit could match several card credits, every possibility is listed—link the right one and skip the
+              rest.
             </CardDescription>
           </div>
           <div className="flex gap-2">

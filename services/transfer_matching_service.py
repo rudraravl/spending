@@ -14,11 +14,11 @@ from db.models import Account, Transaction
 from services.account_service import ASSET_ACCOUNT_TYPES
 
 # Max |asset| vs |credit| difference for a suggested or auto-link pair
-CARD_PAYMENT_AMOUNT_TOLERANCE = 0.05
+CARD_PAYMENT_AMOUNT_TOLERANCE = 0.03
 # Legs must post within this many calendar days of each other
-CARD_PAYMENT_DATE_WINDOW_DAYS = 1
+CARD_PAYMENT_DATE_WINDOW_DAYS = 8
 # Wider window when querying DB around a seed date
-SEARCH_PADDING_DAYS = 2
+SEARCH_PADDING_DAYS = 8
 
 
 @dataclass
@@ -103,8 +103,17 @@ def _dates_compatible(d1: date, d2: date) -> bool:
     return abs((d1 - d2).days) <= CARD_PAYMENT_DATE_WINDOW_DAYS
 
 
-def _pair_score(date_delta: int, amount_delta: float) -> tuple[int, float]:
-    return (date_delta, amount_delta)
+def _dedupe_pairs(pairs: list[CardPaymentCandidatePair]) -> list[CardPaymentCandidatePair]:
+    """Keep unique (asset_id, credit_id); allow same leg in multiple pairs when ambiguous."""
+    seen: set[tuple[int, int]] = set()
+    out: list[CardPaymentCandidatePair] = []
+    for p in pairs:
+        key = (p.asset_transaction_id, p.credit_transaction_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(p)
+    return out
 
 
 def _counterparts_for_seed(session: Session, seed: Transaction) -> list[Transaction]:
@@ -168,8 +177,14 @@ def find_card_payment_pair_candidates(
 ) -> list[CardPaymentCandidatePair]:
     """
     Suggest card payment transfer pairs. Either constrained to counterparts of seed
-    ids (import flow) or full greedy scan over recent unmatched legs.
+    ids (import flow) or full scan over recent unmatched legs.
+
+    When multiple CC credits could match one bank debit (or vice versa), **every**
+    valid pair is returned so the user can choose; we only dedupe identical
+    (asset_id, credit_id) tuples.
     """
+    seed_set = set(seed_transaction_ids) if seed_transaction_ids else None
+
     if seed_transaction_ids:
         seeds = (
             session.query(Transaction)
@@ -177,7 +192,7 @@ def find_card_payment_pair_candidates(
             .filter(Transaction.id.in_(seed_transaction_ids))
             .all()
         )
-        raw: list[tuple[Transaction, Transaction, float, int]] = []
+        raw: list[CardPaymentCandidatePair] = []
         for s in seeds:
             for other in _counterparts_for_seed(session, s):
                 if _is_asset_card_payment_leg(s) and _is_credit_card_payment_leg(other):
@@ -187,20 +202,13 @@ def find_card_payment_pair_candidates(
                 else:
                     continue
                 pair = _build_pair_objects(asset_txn, credit_txn)
-                score = _pair_score(pair.date_delta_days, pair.amount_delta)
-                raw.append((asset_txn, credit_txn, score[0], score[1]))
-        raw.sort(key=lambda x: (x[2], x[3]))
-        used: set[int] = set()
-        out: list[CardPaymentCandidatePair] = []
-        for asset_txn, credit_txn, _, _ in raw:
-            if asset_txn.id in used or credit_txn.id in used:
-                continue
-            if not (asset_txn.id in seed_transaction_ids or credit_txn.id in seed_transaction_ids):
-                continue
-            used.add(asset_txn.id)
-            used.add(credit_txn.id)
-            out.append(_build_pair_objects(asset_txn, credit_txn))
-        return out
+                if seed_set is not None and not (
+                    asset_txn.id in seed_set or credit_txn.id in seed_set
+                ):
+                    continue
+                raw.append(pair)
+        raw.sort(key=lambda p: (p.date_delta_days, p.amount_delta))
+        return _dedupe_pairs(raw)
 
     # Full scan: recent eligible legs only
     since = date.today() - timedelta(days=lookback_days)
@@ -220,7 +228,7 @@ def find_card_payment_pair_candidates(
         .filter(Transaction.date >= since)
         .all()
     )
-    raw_pairs: list[tuple[Transaction, Transaction, int, float]] = []
+    raw_pairs: list[CardPaymentCandidatePair] = []
     for a in asset_legs:
         mag_a = abs(float(a.amount))
         for c in credit_legs:
@@ -229,15 +237,6 @@ def find_card_payment_pair_candidates(
                 continue
             if not _dates_compatible(a.date, c.date):
                 continue
-            pair = _build_pair_objects(a, c)
-            raw_pairs.append((a, c, pair.date_delta_days, pair.amount_delta))
-    raw_pairs.sort(key=lambda x: (x[2], x[3]))
-    used_ids: set[int] = set()
-    result: list[CardPaymentCandidatePair] = []
-    for a, c, _, _ in raw_pairs:
-        if a.id in used_ids or c.id in used_ids:
-            continue
-        used_ids.add(a.id)
-        used_ids.add(c.id)
-        result.append(_build_pair_objects(a, c))
-    return result
+            raw_pairs.append(_build_pair_objects(a, c))
+    raw_pairs.sort(key=lambda p: (p.date_delta_days, p.amount_delta))
+    return _dedupe_pairs(raw_pairs)

@@ -44,6 +44,9 @@ export default function AppLayout() {
           <main className="flex-1 overflow-auto">
             <Outlet />
           </main>
+          <footer className="shrink-0 border-t border-border bg-card/30 px-4 py-2.5 text-center text-[11px] text-muted-foreground">
+            Made by Rudra Raval
+          </footer>
         </div>
       </div>
     </SidebarProvider>

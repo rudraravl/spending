@@ -20,6 +20,10 @@ export default {
         ring: 'hsl(var(--ring))',
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
+        brand: {
+          azure: 'hsl(var(--brand-azure))',
+          golden: 'hsl(var(--brand-golden))',
+        },
         primary: {
           DEFAULT: 'hsl(var(--primary))',
           foreground: 'hsl(var(--primary-foreground))',
@@ -62,6 +66,10 @@ export default {
         warning: 'hsl(var(--warning))',
         income: 'hsl(var(--income))',
         expense: 'hsl(var(--expense))',
+        money: {
+          income: 'hsl(var(--money-income))',
+          expense: 'hsl(var(--money-expense))',
+        },
       },
       borderRadius: {
         lg: 'var(--radius)',
@@ -73,9 +81,9 @@ export default {
         mono: ["'JetBrains Mono'", 'monospace'],
       },
       boxShadow: {
-        card: '0 1px 3px 0 hsl(220 20% 14% / 0.04), 0 1px 2px -1px hsl(220 20% 14% / 0.04)',
-        'card-hover': '0 4px 12px 0 hsl(220 20% 14% / 0.08), 0 2px 4px -1px hsl(220 20% 14% / 0.04)',
-        elevated: '0 8px 24px 0 hsl(220 20% 14% / 0.1), 0 2px 8px -2px hsl(220 20% 14% / 0.06)',
+        card: '0 1px 3px 0 hsl(220 11% 9% / 0.05), 0 1px 2px -1px hsl(220 11% 9% / 0.04)',
+        'card-hover': '0 4px 12px 0 hsl(220 11% 9% / 0.09), 0 2px 4px -1px hsl(220 11% 9% / 0.05)',
+        elevated: '0 8px 24px 0 hsl(220 11% 9% / 0.11), 0 2px 8px -2px hsl(220 11% 9% / 0.06)',
       },
       keyframes: {
         'accordion-down': {

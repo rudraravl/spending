@@ -4,111 +4,132 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Token reference: docs/BRAND_COLORS.md */
+
 @layer base {
   :root {
     color-scheme: light;
-    --background: 40 25% 97%;
-    --foreground: 220 20% 14%;
+    /* Page shell – #F7FAF9 bright snow + #141519 onyx */
+    --background: 164 23% 97%;
+    --foreground: 225 11% 9%;
 
     --card: 0 0% 100%;
-    --card-foreground: 220 20% 14%;
+    --card-foreground: 225 11% 9%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 220 20% 14%;
+    --popover-foreground: 225 11% 9%;
 
-    --primary: 158 50% 38%;
+    /* Brand: azure blue – primary actions, links, focus */
+    --brand-azure: 217 91% 60%;
+    --brand-golden: 38 92% 50%;
+    --primary: var(--brand-azure);
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 40 20% 94%;
-    --secondary-foreground: 220 20% 14%;
+    /* Neutrals on snow */
+    --secondary: 165 18% 93%;
+    --secondary-foreground: 225 11% 9%;
 
-    --muted: 40 15% 93%;
-    --muted-foreground: 220 10% 50%;
+    --muted: 165 14% 92%;
+    --muted-foreground: 225 9% 42%;
 
-    --accent: 24 80% 55%;
-    --accent-foreground: 0 0% 100%;
+    /* Golden orange – sparse highlights (accent surfaces) */
+    --accent: 38 85% 94%;
+    --accent-foreground: 28 55% 28%;
 
-    --destructive: 0 65% 52%;
+    /* Errors; aligned with expense red family */
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 220 12% 90%;
-    --input: 220 12% 90%;
-    --ring: 158 50% 38%;
+    --border: 210 14% 88%;
+    --input: 210 14% 88%;
+    --ring: var(--brand-azure);
 
     --radius: 0.75rem;
 
-    --sidebar-background: 220 20% 14%;
-    --sidebar-foreground: 220 10% 75%;
-    --sidebar-primary: 158 50% 48%;
+    /* Sidebar: deep onyx field; brand accents */
+    --sidebar-background: 225 11% 9%;
+    --sidebar-foreground: 210 18% 78%;
+    --sidebar-primary: var(--brand-azure);
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 18% 20%;
-    --sidebar-accent-foreground: 0 0% 95%;
-    --sidebar-border: 220 15% 22%;
-    --sidebar-ring: 158 50% 48%;
+    --sidebar-accent: 220 14% 16%;
+    --sidebar-accent-foreground: 210 15% 95%;
+    --sidebar-border: 220 12% 18%;
+    --sidebar-ring: var(--brand-golden);
 
-    --success: 158 50% 38%;
+    --success: 160 84% 39%;
     --success-foreground: 0 0% 100%;
-    --warning: 38 92% 50%;
-    --warning-foreground: 0 0% 100%;
-    --income: 158 50% 38%;
-    --expense: 0 65% 52%;
-    --chart-1: 158 50% 38%;
-    --chart-2: 24 80% 55%;
-    --chart-3: 220 60% 55%;
-    --chart-4: 280 50% 55%;
-    --chart-5: 38 92% 50%;
+    --warning: var(--brand-golden);
+    --warning-foreground: 28 55% 16%;
+
+    /* Money semantics (see docs/BRAND_COLORS.md) */
+    --money-income: 160 84% 39%;
+    --money-expense: 0 72% 51%;
+    --income: var(--money-income);
+    --expense: var(--money-expense);
+
+    --chart-1: var(--brand-azure);
+    --chart-2: var(--brand-golden);
+    --chart-3: 160 70% 38%;
+    --chart-4: 262 52% 52%;
+    --chart-5: 199 80% 45%;
   }
 
   .dark {
     color-scheme: dark;
-    --background: 220 18% 8%;
+    --background: 220 14% 11%;
     --foreground: 40 20% 96%;
 
-    --card: 220 16% 11%;
+    --card: 220 14% 14%;
     --card-foreground: 40 20% 96%;
 
-    --popover: 220 16% 11%;
+    --popover: 220 14% 14%;
     --popover-foreground: 40 20% 96%;
 
-    --primary: 158 48% 45%;
-    --primary-foreground: 220 18% 8%;
+    --brand-azure: 217 91% 62%;
+    --brand-golden: 38 92% 55%;
+    --primary: var(--brand-azure);
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 220 14% 16%;
-    --secondary-foreground: 40 20% 92%;
+    --secondary: 220 12% 20%;
+    --secondary-foreground: 40 18% 92%;
 
-    --muted: 220 12% 18%;
-    --muted-foreground: 220 10% 62%;
+    --muted: 220 12% 22%;
+    --muted-foreground: 220 10% 65%;
 
-    --accent: 24 72% 52%;
-    --accent-foreground: 0 0% 100%;
+    --accent: 32 35% 22%;
+    --accent-foreground: 38 90% 88%;
 
-    --destructive: 0 58% 48%;
+    --destructive: 0 72% 58%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 220 12% 20%;
-    --input: 220 12% 20%;
-    --ring: 158 48% 45%;
+    --border: 220 12% 22%;
+    --input: 220 12% 22%;
+    --ring: var(--brand-azure);
 
-    --sidebar-background: 220 22% 6%;
-    --sidebar-foreground: 220 10% 72%;
-    --sidebar-primary: 158 48% 48%;
+    --sidebar-background: 220 14% 8%;
+    --sidebar-foreground: 210 16% 72%;
+    --sidebar-primary: var(--brand-azure);
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 16% 12%;
-    --sidebar-accent-foreground: 0 0% 95%;
-    --sidebar-border: 220 14% 14%;
-    --sidebar-ring: 158 48% 48%;
+    --sidebar-accent: 220 14% 14%;
+    --sidebar-accent-foreground: 40 18% 94%;
+    --sidebar-border: 220 12% 16%;
+    --sidebar-ring: var(--brand-golden);
 
-    --success: 158 48% 45%;
-    --success-foreground: 220 18% 8%;
-    --warning: 38 88% 52%;
-    --warning-foreground: 220 18% 8%;
-    --income: 158 48% 45%;
-    --expense: 0 58% 48%;
-    --chart-1: 158 48% 45%;
-    --chart-2: 24 72% 52%;
-    --chart-3: 220 55% 60%;
-    --chart-4: 280 45% 60%;
-    --chart-5: 38 88% 52%;
+    --success: 158 64% 52%;
+    --success-foreground: 220 14% 9%;
+    --warning: var(--brand-golden);
+    --warning-foreground: 220 14% 9%;
+
+    --money-income: 158 64% 52%;
+    --money-expense: 0 84% 66%;
+    --income: var(--money-income);
+    --expense: var(--money-expense);
+
+    --chart-1: var(--brand-azure);
+    --chart-2: var(--brand-golden);
+    --chart-3: 160 55% 48%;
+    --chart-4: 262 48% 60%;
+    --chart-5: 199 75% 55%;
   }
 }
 

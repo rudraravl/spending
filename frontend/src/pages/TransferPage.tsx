@@ -235,7 +235,7 @@ export default function TransferPage() {
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : accounts.length < 2 ? (
-          <p className="text-sm text-muted-foreground">Create at least two accounts in Settings first.</p>
+          <p className="text-sm text-muted-foreground">Create at least two accounts on the Accounts page first.</p>
         ) : (
           <Card className="shadow-card">
             <CardHeader>

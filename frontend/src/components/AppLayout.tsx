@@ -15,7 +15,7 @@ const pageMeta: Record<string, { title: string; description: string }> = {
   "/views": { title: "Views", description: "Custom filtered analytics" },
   "/summaries": { title: "Summaries", description: "Period rollup reports" },
   "/connections": { title: "Connections", description: "Manage SimpleFIN bank connections" },
-  "/settings": { title: "Settings", description: "Manage accounts, categories & rules" },
+  "/settings": { title: "Settings", description: "Categories, tags, and auto-categorization rules" },
 };
 
 export default function AppLayout() {

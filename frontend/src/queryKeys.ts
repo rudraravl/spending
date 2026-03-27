@@ -48,7 +48,7 @@ export const queryKeys = {
   importAdapters: () => ['import', 'adapters'] as const,
   csvPreview: (signature: string) => ['csvPreview', signature] as const,
 
-  /** Bundled settings payload (accounts, categories, tags, rules, rule meta). */
+  /** Bundled settings payload (categories, tags, rules, rule meta) for the Organization settings page. */
   settingsAll: () => ['settingsAll'] as const,
 
   // SimpleFIN

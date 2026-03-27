@@ -1,2 +1,2 @@
-"""Spending FastAPI backend package."""
+"""Keep FastAPI backend package."""
 

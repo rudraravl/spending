@@ -1,9 +1,9 @@
 #!/bin/bash
-# Quick Start Setup Script for Personal Budget App
+# Quick Start Setup Script for Keep
 
 set -e  # Exit on error
 
-echo "🚀 Personal Budget App - Quick Start Setup"
+echo "🚀 Keep - Quick Start Setup"
 echo "==========================================="
 echo ""
 

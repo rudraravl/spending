@@ -1,6 +1,6 @@
 # Development Guide
 
-This document describes how to extend and modify the Personal Budget App MVP.
+This document describes how to extend and modify the Keep MVP.
 
 ## Architecture Overview
 

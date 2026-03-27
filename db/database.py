@@ -1,5 +1,5 @@
 """
-Database connection and session management for the Personal Budget App.
+Database connection and session management for Keep.
 
 Handles:
 - SQLite connection to local budget.db

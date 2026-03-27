@@ -50,6 +50,12 @@ export const queryKeys = {
 
   /** Bundled settings payload (accounts, categories, tags, rules, rule meta). */
   settingsAll: () => ['settingsAll'] as const,
+
+  // SimpleFIN
+  simplefinConnections: () => ['simplefin', 'connections'] as const,
+  simplefinDiscovery: (connectionId: number) => ['simplefin', 'discovery', connectionId] as const,
+  simplefinSyncRuns: (connectionId: number) => ['simplefin', 'sync-runs', connectionId] as const,
+  simplefinDailyBudget: (connectionId: number) => ['simplefin', 'daily-budget', connectionId] as const,
 }
 
 export function normalizeNumberArrayKey(ids: number[] | null | undefined): string {

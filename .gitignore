@@ -1,5 +1,6 @@
 # Local data / secrets
 data/
+experimental/
 db/*.db
 *.db
 *.sqlite

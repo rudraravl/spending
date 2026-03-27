@@ -128,6 +128,14 @@ export default function AccountDetailPage() {
                 </Badge>
               ) : null}
             </div>
+            {acct.is_linked && acct.last_synced_at ? (
+              <p className="text-xs text-muted-foreground mt-2">
+                Last synced: {formatImportedAt(acct.last_synced_at)}{' '}
+                <Link to="/sync" className="text-primary underline-offset-4 hover:underline">
+                  Sync settings
+                </Link>
+              </p>
+            ) : null}
           </div>
           <Card className="min-w-[200px] border-primary/20 bg-muted/30">
             <CardHeader className="pb-2 pt-4 px-4">

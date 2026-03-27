@@ -14,6 +14,8 @@ const pageMeta: Record<string, { title: string; description: string }> = {
   "/budgets": { title: "Budgets", description: "Set monthly limits and track progress" },
   "/views": { title: "Views", description: "Custom filtered analytics" },
   "/summaries": { title: "Summaries", description: "Period rollup reports" },
+  "/connections": { title: "Connections", description: "Manage SimpleFIN bank connections" },
+  "/sync": { title: "Account Sync", description: "Discover and link bank accounts" },
   "/settings": { title: "Settings", description: "Manage accounts, categories & rules" },
 };
 

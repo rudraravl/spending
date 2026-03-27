@@ -10,6 +10,8 @@ import {
   Repeat,
   Settings,
   Wallet,
+  Plug,
+  RefreshCw,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import {
@@ -33,6 +35,11 @@ const mainItems = [
   { title: "All Transactions", url: "/transactions", icon: List },
   { title: "Recurring charges", url: "/recurring", icon: Repeat },
   { title: "Budgets", url: "/budgets", icon: Wallet },
+];
+
+const syncItems = [
+  { title: "Connections", url: "/connections", icon: Plug },
+  { title: "Account Sync", url: "/sync", icon: RefreshCw },
 ];
 
 const analyticsItems = [
@@ -82,6 +89,23 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>{renderItems(mainItems)}</SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {!collapsed && (
+          <div className="px-6 my-3">
+            <div className="h-px bg-sidebar-border" />
+          </div>
+        )}
+
+        <SidebarGroup>
+          {!collapsed && (
+            <p className="px-6 mb-1 text-[11px] font-medium uppercase tracking-wider text-sidebar-foreground/60">
+              Bank Sync
+            </p>
+          )}
+          <SidebarGroupContent>
+            <SidebarMenu>{renderItems(syncItems)}</SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 

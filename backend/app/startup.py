@@ -4,7 +4,7 @@ import os
 import shutil
 from datetime import date, datetime
 
-from db.database import DB_PATH, init_db
+from db.database import DB_PATH, init_db, get_session, close_session
 
 
 def backup_db_once_per_day() -> None:
@@ -55,8 +55,34 @@ def backup_db_once_per_day() -> None:
         return
 
 
+def _seed_simplefin_connection() -> None:
+    """
+    If no SimpleFINConnection rows exist and the env var SIMPLEFIN_ACCESS_URL_PROD
+    is set, create a default connection so the UI can manage it immediately.
+    """
+    access_url = os.environ.get("SIMPLEFIN_ACCESS_URL_PROD")
+    if not access_url:
+        return
+
+    from db.models import SimpleFINConnection
+    from services.simplefin_sync_service import create_connection_from_access_url
+
+    session = get_session()
+    try:
+        if session.query(SimpleFINConnection).count() > 0:
+            return
+        create_connection_from_access_url(session, access_url, label="SimpleFIN (Prod)")
+        print("Seeded SimpleFIN connection from SIMPLEFIN_ACCESS_URL_PROD.")
+    except Exception as exc:
+        session.rollback()
+        print(f"Warning: could not seed SimpleFIN connection: {exc}")
+    finally:
+        close_session(session)
+
+
 def init_database() -> None:
     """Initialize (and rebuild if necessary) the SQLite database."""
 
     init_db()
+    _seed_simplefin_connection()
 

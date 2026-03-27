@@ -7,7 +7,7 @@ from __future__ import annotations
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from db.models import Account, Transaction
+from db.models import Account, Category, Subcategory, Transaction, TransferGroup
 
 # Used by transfer matching to identify asset-side accounts.
 ASSET_ACCOUNT_TYPES = frozenset({"checking", "savings", "cash", "investment"})
@@ -39,3 +39,66 @@ def account_display_balance(session: Session, account: Account) -> tuple[float, 
     if account.reported_balance is not None:
         return (float(account.reported_balance), ledger)
     return (ledger, ledger)
+
+
+def _get_other_uncategorized_ids(session: Session) -> tuple[int, int]:
+    other = session.query(Category).filter(Category.name == "Other").first()
+    if not other:
+        raise ValueError("Required category 'Other' not found")
+    uncategorized = (
+        session.query(Subcategory)
+        .filter(Subcategory.category_id == other.id, Subcategory.name == "Uncategorized")
+        .first()
+    )
+    if not uncategorized:
+        raise ValueError("Required subcategory 'Uncategorized' not found under 'Other'")
+    return int(other.id), int(uncategorized.id)
+
+
+def delete_account(session: Session, account_id: int) -> None:
+    """
+    Delete an account and all its transactions.
+
+    If any account transaction is part of a transfer group, remaining transaction legs on
+    other accounts are unlinked and converted back to normal transactions before deletion.
+    """
+    account = session.query(Account).filter(Account.id == account_id).first()
+    if not account:
+        raise ValueError("Account not found")
+
+    other_cat_id, unc_sub_id = _get_other_uncategorized_ids(session)
+
+    transfer_txns = (
+        session.query(Transaction)
+        .filter(
+            Transaction.account_id == account_id,
+            Transaction.is_transfer.is_(True),
+            Transaction.transfer_group_id.isnot(None),
+        )
+        .all()
+    )
+    group_ids = {int(t.transfer_group_id) for t in transfer_txns if t.transfer_group_id is not None}
+    if group_ids:
+        related_txns = (
+            session.query(Transaction)
+            .filter(Transaction.transfer_group_id.in_(group_ids))
+            .all()
+        )
+        for txn in related_txns:
+            # Unlink all legs in impacted groups so the deleted account's side and
+            # the surviving side are both no longer considered transfer-linked.
+            txn.is_transfer = False
+            txn.transfer_group_id = None
+            if txn.account_id != account_id:
+                if txn.category_id is None:
+                    txn.category_id = other_cat_id
+                if txn.subcategory_id is None:
+                    txn.subcategory_id = unc_sub_id
+
+        for group_id in group_ids:
+            group = session.query(TransferGroup).filter(TransferGroup.id == group_id).first()
+            if group is not None:
+                session.delete(group)
+
+    session.delete(account)
+    session.commit()

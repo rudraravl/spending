@@ -16,7 +16,7 @@ from backend.app.schemas import (
     TagOut,
 )
 from db.models import Account, Category, Subcategory, Tag
-from services.account_service import account_display_balance
+from services.account_service import account_display_balance, delete_account as delete_account_with_cleanup
 
 
 router = APIRouter(tags=["entities"])
@@ -97,11 +97,13 @@ def delete_account(
     account_id: int,
     session: Session = Depends(get_db_session),
 ) -> None:
-    account = session.query(Account).filter(Account.id == account_id).first()
-    if not account:
+    account = session.query(Account.id).filter(Account.id == account_id).first()
+    if account is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
-    session.delete(account)
-    session.commit()
+    try:
+        delete_account_with_cleanup(session, account_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.get("/api/categories", response_model=list[CategoryOut])

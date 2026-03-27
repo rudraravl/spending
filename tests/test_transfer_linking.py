@@ -9,7 +9,11 @@ from sqlalchemy.orm import sessionmaker
 from db.models import Account, Base, Category, Subcategory, Transaction, TransactionSplit, TransferGroup
 from services.account_service import delete_account as delete_account_with_cleanup
 from services.transfer_matching_service import find_transfer_match_candidates
-from services.trasaction_service import link_transactions_as_transfer, unlink_transfer_pair
+from services.trasaction_service import (
+    delete_transaction,
+    link_transactions_as_transfer,
+    unlink_transfer_pair,
+)
 
 
 def _seed_other(session):
@@ -458,6 +462,45 @@ class TestTransferLinking(unittest.TestCase):
         self.assertIsNone(o_card.transfer_group_id)
         self.assertEqual(o_card.category_id, self.cat_id)
         self.assertEqual(o_card.subcategory_id, self.sub_id)
+        self.assertIsNone(s.get(TransferGroup, gid))
+
+    def test_delete_one_transfer_leg_unlinks_peer_recategorizes_other(self):
+        s = self.session
+        bank = Account(name="DelLegBank", type="checking")
+        card = Account(name="DelLegCard", type="credit")
+        s.add_all([bank, card])
+        s.flush()
+        t_bank = Transaction(
+            date=date(2025, 9, 1),
+            amount=-30.0,
+            merchant="OUT",
+            account_id=bank.id,
+            category_id=self.cat_id,
+            subcategory_id=self.sub_id,
+        )
+        t_card = Transaction(
+            date=date(2025, 9, 2),
+            amount=30.0,
+            merchant="IN",
+            account_id=card.id,
+            category_id=self.cat_id,
+            subcategory_id=self.sub_id,
+        )
+        s.add_all([t_bank, t_card])
+        s.commit()
+        group = link_transactions_as_transfer(s, t_bank.id, t_card.id)
+        gid = group.id
+
+        ok = delete_transaction(s, t_bank.id)
+        self.assertTrue(ok)
+
+        self.assertIsNone(s.get(Transaction, t_bank.id))
+        peer = s.get(Transaction, t_card.id)
+        self.assertIsNotNone(peer)
+        self.assertFalse(peer.is_transfer)
+        self.assertIsNone(peer.transfer_group_id)
+        self.assertEqual(peer.category_id, self.cat_id)
+        self.assertEqual(peer.subcategory_id, self.sub_id)
         self.assertIsNone(s.get(TransferGroup, gid))
 
     def test_delete_account_removes_non_transfer_transactions(self):

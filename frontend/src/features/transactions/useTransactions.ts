@@ -13,6 +13,7 @@ import {
   patchTransaction,
   putTransactionSplits,
 } from '../../api/transactions'
+import { toast } from '@/components/ui/sonner'
 import { queryKeys } from '../../queryKeys'
 import type { AccountOut, CategoryOut, SubcategoryOut, TagOut, TransactionOut, TransactionSplitOut } from '../../types'
 import type { SplitsFormValues, TransactionRow } from './types'
@@ -294,6 +295,7 @@ export function useTransactions() {
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['views'] })
       queryClient.invalidateQueries({ queryKey: ['summaries'] })
+      toast.success('Changes saved', { duration: 1000 })
     },
     onError: (e: unknown) => {
       setError(e instanceof Error ? e.message : 'Failed to save edits')
@@ -399,6 +401,7 @@ export function useTransactions() {
       queryClient.invalidateQueries({ queryKey: queryKeys.splits(splitTxnId) })
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      toast.success('Splits saved', { duration: 1000 })
     },
     onError: (e: unknown) => {
       setSplitError(e instanceof Error ? e.message : 'Failed to save splits')

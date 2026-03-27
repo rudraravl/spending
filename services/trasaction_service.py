@@ -320,11 +320,14 @@ def delete_transaction(
 ) -> bool:
     """
     Delete a transaction.
-    
+
+    If it is linked as a transfer, peer legs are unlinked (not deleted) and set to
+    Other / Uncategorized; only the selected row and the empty TransferGroup are removed.
+
     Args:
         session: Database session
         transaction_id: ID of the transaction
-        
+
     Returns:
         True if successful, False if transaction not found
     """
@@ -332,17 +335,26 @@ def delete_transaction(
     if not transaction:
         return False
 
-    # If this transaction is part of a transfer group, delete the entire group
-    if transaction.transfer_group_id:
-        group = (
-            session.query(TransferGroup)
-            .filter(TransferGroup.id == transaction.transfer_group_id)
-            .first()
+    group_id = transaction.transfer_group_id
+    if group_id is not None:
+        other_cat_id, unc_sub_id = _get_other_uncategorized_ids(session)
+        peers = (
+            session.query(Transaction)
+            .filter(Transaction.transfer_group_id == group_id, Transaction.id != transaction_id)
+            .all()
         )
-        if group:
+        for peer in peers:
+            peer.is_transfer = False
+            peer.transfer_group_id = None
+            peer.category_id = other_cat_id
+            peer.subcategory_id = unc_sub_id
+
+        group = session.query(TransferGroup).filter(TransferGroup.id == group_id).first()
+        session.delete(transaction)
+        if group is not None:
             session.delete(group)
-            session.commit()
-            return True
+        session.commit()
+        return True
 
     session.delete(transaction)
     session.commit()

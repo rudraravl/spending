@@ -16,13 +16,14 @@ import html
 import hashlib
 import json
 import os
+import re
 from datetime import date
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 
@@ -86,7 +87,9 @@ class SFINAccountSet:
 
 _RATE_LOCK = Lock()
 _RATE_FILE = Path(__file__).resolve().parent.parent / "data" / ".simplefin_rate_usage.json"
-_DEFAULT_DAILY_LIMIT = 20
+_DEFAULT_DAILY_LIMIT = 24
+_DEFAULT_SIMPLEFIN_ROOT_URL = "https://bridge.simplefin.org/simplefin"
+_VERSION_RE = re.compile(r"^\d+\.\d+(?:\.\d+)?$|^\d+$")
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +103,25 @@ def _sanitize(text: str) -> str:
 def _ensure_https(url: str) -> None:
     if not url.startswith("https://"):
         raise SimpleFINError("SimpleFIN requires HTTPS URLs; refusing to use an insecure URL.")
+
+
+def _join_root_url(root_url: str, endpoint: str) -> str:
+    return f"{root_url.rstrip('/')}/{endpoint.lstrip('/')}"
+
+
+def _sanitize_root_url(url: str) -> str:
+    parsed = urlparse(url.strip())
+    if not parsed.scheme or not parsed.netloc:
+        raise SimpleFINError("Invalid SimpleFIN root URL.")
+    host = parsed.hostname or ""
+    if not host:
+        raise SimpleFINError("Invalid SimpleFIN root URL host.")
+    netloc = host
+    if parsed.port is not None:
+        netloc = f"{host}:{parsed.port}"
+    cleaned = parsed._replace(netloc=netloc, params="", query="", fragment="")
+    root = urlunparse(cleaned)
+    return root.rstrip("/")
 
 
 def _get_daily_limit() -> int:
@@ -180,6 +202,32 @@ def get_daily_budget_usage(access_url: str, *, account_ids: list[str] | None = N
                 data = {}
         used = int(data.get(today, {}).get(scope, {}).get(bucket, 0))
     return used, limit
+
+
+def resolve_simplefin_root_url(
+    root_url: str | None = None,
+    access_url: str | None = None,
+) -> str:
+    """
+    Resolve the SimpleFIN root URL used for /info and /create verification.
+
+    Priority:
+      1) explicit ``root_url`` argument
+      2) ``SIMPLEFIN_ROOT_URL`` env var
+      3) derive from claimed access URL by stripping credentials
+      4) protocol default bridge URL
+    """
+    candidate = (root_url or os.getenv("SIMPLEFIN_ROOT_URL") or "").strip()
+    if candidate:
+        _ensure_https(candidate)
+        return _sanitize_root_url(candidate)
+
+    if access_url:
+        _ensure_https(access_url)
+        return _sanitize_root_url(access_url)
+
+    _ensure_https(_DEFAULT_SIMPLEFIN_ROOT_URL)
+    return _DEFAULT_SIMPLEFIN_ROOT_URL
 
 
 def _parse_errors(raw: list[Any]) -> list[SFINError]:
@@ -289,6 +337,50 @@ def claim_access_url(token: str) -> str:
     return access_url
 
 
+def get_info(root_url: str) -> list[str]:
+    """
+    Fetch protocol versions from GET /info and validate shape.
+    """
+    _ensure_https(root_url)
+    url = _join_root_url(_sanitize_root_url(root_url), "/info")
+    with httpx.Client(verify=True, timeout=30.0) as client:
+        resp = client.get(url)
+    if resp.status_code != 200:
+        raise SimpleFINError(f"SimpleFIN /info failed with HTTP {resp.status_code}.")
+
+    try:
+        payload = resp.json()
+    except Exception as exc:
+        raise SimpleFINError("SimpleFIN /info returned non-JSON data.") from exc
+
+    versions = payload.get("versions")
+    if not isinstance(versions, list) or not versions:
+        raise SimpleFINError("SimpleFIN /info response missing 'versions' array.")
+    normalized = [str(v).strip() for v in versions if str(v).strip()]
+    if not normalized:
+        raise SimpleFINError("SimpleFIN /info returned empty protocol versions.")
+    if any(not _VERSION_RE.match(v) for v in normalized):
+        raise SimpleFINError("SimpleFIN /info returned invalid version format.")
+    return normalized
+
+
+def verify_create_endpoint(root_url: str) -> tuple[bool, int]:
+    """
+    Lightweight verification for GET /create endpoint presence.
+
+    Returns (supported, status_code). ``supported`` is true for expected
+    interactive/auth statuses and false for clear endpoint absence.
+    """
+    _ensure_https(root_url)
+    url = _join_root_url(_sanitize_root_url(root_url), "/create")
+    with httpx.Client(verify=True, timeout=30.0, follow_redirects=False) as client:
+        resp = client.get(url)
+    supported = resp.status_code in {200, 301, 302, 303, 307, 308, 401, 403}
+    if not supported and resp.status_code >= 500:
+        raise SimpleFINError(f"SimpleFIN /create failed with HTTP {resp.status_code}.")
+    return supported, resp.status_code
+
+
 def get_accounts(
     access_url: str,
     *,
@@ -298,6 +390,26 @@ def get_accounts(
     balances_only: bool = False,
     account_ids: list[str] | None = None,
 ) -> SFINAccountSet:
+    account_set, _payload = get_accounts_with_payload(
+        access_url,
+        start_date=start_date,
+        end_date=end_date,
+        include_pending=include_pending,
+        balances_only=balances_only,
+        account_ids=account_ids,
+    )
+    return account_set
+
+
+def get_accounts_with_payload(
+    access_url: str,
+    *,
+    start_date: int | None = None,
+    end_date: int | None = None,
+    include_pending: bool = False,
+    balances_only: bool = False,
+    account_ids: list[str] | None = None,
+) -> tuple[SFINAccountSet, dict[str, Any]]:
     """
     Fetch accounts (and optionally transactions) from a SimpleFIN server.
 
@@ -336,4 +448,4 @@ def get_accounts(
         raise SimpleFINError(f"SimpleFIN request failed with HTTP {resp.status_code}.")
 
     data = resp.json()
-    return _parse_account_set(data)
+    return _parse_account_set(data), data

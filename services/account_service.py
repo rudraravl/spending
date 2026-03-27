@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from db.models import Account, Transaction
 
-# Account types that use bank/custodian-reported balance when available (CSV imports, etc.)
+# Used by transfer matching to identify asset-side accounts.
 ASSET_ACCOUNT_TYPES = frozenset({"checking", "savings", "cash", "investment"})
 
 
@@ -32,11 +32,10 @@ def account_display_balance(session: Session, account: Account) -> tuple[float, 
     """
     Returns (display_balance, ledger_balance).
 
-    For checking/savings/cash/investment, if reported_balance is set (e.g. from CSV),
-    display_balance is that value; otherwise both match the ledger sum.
-    Credit and other types always use the ledger sum for display.
+    If reported_balance is set (e.g. bank/provider sync), display_balance is that
+    value; otherwise both match the ledger sum.
     """
     ledger = account_ledger_balance(session, account.id)
-    if account.type in ASSET_ACCOUNT_TYPES and account.reported_balance is not None:
+    if account.reported_balance is not None:
         return (float(account.reported_balance), ledger)
     return (ledger, ledger)

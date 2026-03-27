@@ -26,16 +26,22 @@ export interface DiscoveredAccount {
 
 export interface DiscoveryResponse {
   accounts: DiscoveredAccount[]
+  connections: DiscoveredConnection[]
   errors: { code: string; message: string }[]
 }
 
+export interface DiscoveredConnection {
+  conn_id: string
+  name: string
+  org_id: string
+  org_url: string | null
+  sfin_url: string | null
+}
+
 export interface LinkAccountPayload {
-  connection_id: number
   conn_id: string
   account_id: string
-  local_name: string
-  local_type: string
-  currency?: string
+  local_account_id: number
   institution_name?: string
 }
 
@@ -78,6 +84,21 @@ export interface SimpleFINDailyBudget {
   limit: number
 }
 
+export interface SimpleFINEndpointStatus {
+  endpoint: string
+  supported: boolean
+  detail: string
+}
+
+export interface SimpleFINProtocolStatus {
+  root_url: string
+  endpoints: SimpleFINEndpointStatus[]
+}
+
+export interface CachedDiscoveryResponse extends DiscoveryResponse {
+  captured_at: string | null
+}
+
 // ---------------------------------------------------------------------------
 // API functions
 // ---------------------------------------------------------------------------
@@ -94,17 +115,46 @@ export const updateConnection = (id: number, payload: { label?: string; status?:
 export const deleteConnection = (id: number) =>
   apiDelete(`/api/simplefin/connections/${id}`)
 
-export const discoverAccounts = (connectionId: number) =>
-  apiGet<DiscoveryResponse>(`/api/simplefin/discovery?connection_id=${connectionId}`)
+export const discoverAccounts = (connectionId?: number | null) =>
+  apiGet<DiscoveryResponse>(
+    connectionId != null
+      ? `/api/simplefin/discovery?connection_id=${connectionId}`
+      : '/api/simplefin/discovery',
+  )
+
+export const getCachedAccounts = () =>
+  apiGet<CachedDiscoveryResponse>('/api/simplefin/accounts-cached')
 
 export const linkAccount = (payload: LinkAccountPayload) =>
   apiPostJson<LinkAccountResult>('/api/simplefin/accounts/link', payload)
 
+export const unlinkAccount = (localAccountId: number) =>
+  apiPostJson<LinkAccountResult>('/api/simplefin/accounts/unlink', { local_account_id: localAccountId })
+
 export const triggerSync = (payload: SyncPayload) =>
   apiPostJson<SyncResult>('/api/simplefin/sync', payload)
 
-export const getSyncRuns = (connectionId: number, limit = 20) =>
-  apiGet<SyncRun[]>(`/api/simplefin/sync-runs?connection_id=${connectionId}&limit=${limit}`)
+export const getSyncRuns = (connectionId?: number | null, limit = 20) =>
+  apiGet<SyncRun[]>(
+    connectionId != null
+      ? `/api/simplefin/sync-runs?connection_id=${connectionId}&limit=${limit}`
+      : `/api/simplefin/sync-runs?limit=${limit}`,
+  )
 
-export const getDailyBudget = (connectionId: number) =>
-  apiGet<SimpleFINDailyBudget>(`/api/simplefin/daily-budget?connection_id=${connectionId}`)
+export const getDailyBudget = (connectionId?: number | null) =>
+  apiGet<SimpleFINDailyBudget>(
+    connectionId != null
+      ? `/api/simplefin/daily-budget?connection_id=${connectionId}`
+      : '/api/simplefin/daily-budget',
+  )
+
+export const getProtocolStatus = (connectionId?: number, rootUrl?: string) => {
+  const params = new URLSearchParams()
+  if (connectionId != null) params.set('connection_id', String(connectionId))
+  if (rootUrl) params.set('root_url', rootUrl)
+  const suffix = params.toString()
+  const url = suffix
+    ? `/api/simplefin/protocol-status?${suffix}`
+    : '/api/simplefin/protocol-status'
+  return apiGet<SimpleFINProtocolStatus>(url)
+}

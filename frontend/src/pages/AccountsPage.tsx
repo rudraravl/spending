@@ -75,7 +75,7 @@ export default function AccountsPage() {
         <h1 className="text-lg font-semibold tracking-tight">Accounts</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Open an account to see balance and activity.{' '}
-          <Link to="/sync" className="text-primary underline-offset-4 hover:underline">
+          <Link to="/connections" className="text-primary underline-offset-4 hover:underline">
             Set up bank sync &rarr;
           </Link>
         </p>
@@ -139,6 +139,11 @@ export default function AccountsPage() {
                             {a.is_linked && a.last_synced_at ? (
                               <p className="text-[10px] text-muted-foreground">
                                 Synced {formatSyncTime(a.last_synced_at)}
+                              </p>
+                            ) : null}
+                            {!a.is_linked ? (
+                              <p className="text-[10px] text-muted-foreground">
+                                Link this local account on Connections.
                               </p>
                             ) : null}
                           </CardContent>

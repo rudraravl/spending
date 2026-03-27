@@ -1,24 +1,33 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
-import { RefreshCw, Trash2, Plug } from 'lucide-react'
+import { LinkIcon, Plug, RefreshCw, Unlink } from 'lucide-react'
+import { getAccounts } from '../api/accounts'
 import {
   claimConnection,
-  deleteConnection,
+  discoverAccounts,
+  getCachedAccounts,
   getDailyBudget,
+  linkAccount,
   listConnections,
   triggerSync,
-  updateConnection,
+  unlinkAccount,
 } from '../api/simplefin'
-import type { SimpleFINDailyBudget, SyncResult } from '../api/simplefin'
+import type { Account } from '../api/accounts'
+import type { CachedDiscoveryResponse, DiscoveredAccount, SimpleFINDailyBudget, SyncResult } from '../api/simplefin'
 import { queryKeys } from '../queryKeys'
-import ConfirmDialog from '../components/ConfirmDialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 
 function formatDate(iso: string | null | undefined) {
@@ -53,39 +62,32 @@ export default function SimplefinConnectionsPage() {
     queryKey: queryKeys.simplefinConnections(),
     queryFn: listConnections,
   })
+  const connection = connections[0] ?? null
+
+  const { data: localAccounts = [] } = useQuery({
+    queryKey: queryKeys.accounts(),
+    queryFn: getAccounts,
+  })
 
   const [token, setToken] = useState('')
-  const [label, setLabel] = useState('')
   const [claimError, setClaimError] = useState<string | null>(null)
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null)
 
-  const [confirmState, setConfirmState] = useState<{
-    title: string
-    message: string
-    action: () => Promise<void>
-  } | null>(null)
-
   const claimMutation = useMutation({
-    mutationFn: () => claimConnection(token.trim(), label.trim() || undefined),
-    onSuccess: () => {
+    mutationFn: () => claimConnection(token.trim(), 'SimpleFIN'),
+    onSuccess: async () => {
       setToken('')
-      setLabel('')
       setClaimError(null)
+      await discoverAccounts()
       queryClient.invalidateQueries({ queryKey: queryKeys.simplefinConnections() })
+      queryClient.invalidateQueries({ queryKey: ['simplefin', 'cached-accounts'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
     },
     onError: (err: Error) => setClaimError(err.message),
   })
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: number) => deleteConnection(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.simplefinConnections() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
-    },
-  })
-
   const syncMutation = useMutation({
-    mutationFn: (connectionId: number) => triggerSync({ connection_id: connectionId }),
+    mutationFn: () => triggerSync({ connection_id: connection?.id ?? null }),
     onSuccess: (result: SyncResult) => {
       setSyncFeedback(
         `Synced ${result.accounts_synced} account(s), imported ${result.transactions_imported} transaction(s).` +
@@ -96,200 +98,272 @@ export default function SimplefinConnectionsPage() {
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['simplefin', 'daily-budget'] })
+      queryClient.invalidateQueries({ queryKey: ['simplefin', 'cached-accounts'] })
     },
     onError: (err: Error) => setSyncFeedback(`Sync failed: ${err.message}`),
   })
 
-  const toggleMutation = useMutation({
-    mutationFn: ({ id, newStatus }: { id: number; newStatus: string }) =>
-      updateConnection(id, { status: newStatus }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.simplefinConnections() }),
+  const linkMutation = useMutation({
+    mutationFn: (payload: { remote: DiscoveredAccount; localAccountId: number }) =>
+      linkAccount({
+        conn_id: payload.remote.conn_id,
+        account_id: payload.remote.account_id,
+        local_account_id: payload.localAccountId,
+        institution_name: payload.remote.conn_name,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['simplefin', 'cached-accounts'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
+    },
   })
 
-  const budgetQueries = useQuery({
-    queryKey: ['simplefin', 'daily-budget', connections.map((c) => c.id).join(',')],
-    queryFn: async () => {
-      const entries = await Promise.all(
-        connections.map(async (c) => [c.id, await getDailyBudget(c.id)] as const),
-      )
-      return Object.fromEntries(entries) as Record<number, SimpleFINDailyBudget>
+  const unlinkMutation = useMutation({
+    mutationFn: (localAccountId: number) => unlinkAccount(localAccountId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['simplefin', 'cached-accounts'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
     },
-    enabled: connections.length > 0,
   })
+
+  const budgetQuery = useQuery({
+    queryKey: ['simplefin', 'daily-budget', connection?.id ?? 'none'],
+    queryFn: () => getDailyBudget(connection?.id ?? null),
+    enabled: connection != null,
+  })
+
+  const cachedAccountsQuery = useQuery({
+    queryKey: ['simplefin', 'cached-accounts'],
+    queryFn: getCachedAccounts,
+  })
+
+  const refreshAccountsMutation = useMutation({
+    mutationFn: () => discoverAccounts(connection?.id ?? null),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['simplefin', 'cached-accounts'] })
+    },
+  })
+
+  const dailyBudget = budgetQuery.data as SimpleFINDailyBudget | undefined
+  const cachedSnapshot = cachedAccountsQuery.data as CachedDiscoveryResponse | undefined
+
+  const localAccountOptions = useMemo(
+    () =>
+      localAccounts.filter(
+        (a: Account) =>
+          !a.is_linked || (a.provider === 'simplefin' && a.external_id != null),
+      ),
+    [localAccounts],
+  )
+
+  const claimConnectionCard = (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          <Plug className="h-4 w-4" />
+          Add a root connection
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <Label>SimpleFIN Token</Label>
+          <p className="text-xs text-muted-foreground">
+            {connection
+              ? 'Replace current connection: generate a new token from your provider `/create` page and claim it here.'
+              : 'First-time setup: open your institution or Bridge `/create` page, generate a token, then paste it here.'}
+          </p>
+          <Textarea
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            placeholder="Paste SimpleFIN token..."
+            rows={3}
+            className="font-mono text-xs"
+          />
+        </div>
+        {claimError ? (
+          <p className="text-sm text-destructive">{claimError}</p>
+        ) : null}
+        <Button
+          onClick={() => claimMutation.mutate()}
+          disabled={!token.trim() || claimMutation.isPending}
+        >
+          {claimMutation.isPending ? 'Claiming…' : 'Claim & Connect'}
+        </Button>
+      </CardContent>
+    </Card>
+  )
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-8">
       <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
         <h1 className="text-lg font-semibold tracking-tight">SimpleFIN Connections</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Manage root SimpleFIN connections (one connection can contain multiple accounts).{' '}
-          <Link to="/sync" className="text-primary underline-offset-4 hover:underline">
-            Discover and link accounts &rarr;
+          One root connection only. Link your local accounts to remote SimpleFIN accounts here.
+          {' '}
+          <Link to="/accounts" className="text-primary underline-offset-4 hover:underline">
+            View local accounts &rarr;
           </Link>
         </p>
       </motion.div>
 
-      <ConfirmDialog
-        open={confirmState != null}
-        title={confirmState?.title ?? ''}
-        message={confirmState?.message ?? ''}
-        onCancel={() => setConfirmState(null)}
-        onConfirm={async () => {
-          if (!confirmState) return
-          const fn = confirmState.action
-          setConfirmState(null)
-          await fn()
-        }}
-      />
-
-      {/* Claim a new connection */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Plug className="h-4 w-4" />
-            Add a root connection
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>SimpleFIN Token</Label>
-            <Textarea
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder="Paste token for a connection that may include multiple accounts…"
-              rows={3}
-              className="font-mono text-xs"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Label (optional)</Label>
-            <Input
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="e.g. Chase, Wells Fargo"
-            />
-          </div>
-          {claimError ? (
-            <p className="text-sm text-destructive">{claimError}</p>
-          ) : null}
-          <Button
-            onClick={() => claimMutation.mutate()}
-            disabled={!token.trim() || claimMutation.isPending}
-          >
-            {claimMutation.isPending ? 'Claiming…' : 'Claim & Connect'}
-          </Button>
-        </CardContent>
-      </Card>
+      {!connection ? claimConnectionCard : null}
 
       {/* Sync feedback */}
       {syncFeedback ? (
         <div className="rounded-lg border bg-muted/40 p-4 text-sm">{syncFeedback}</div>
       ) : null}
 
-      {/* Connection list */}
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading connections…</p>
-      ) : connections.length === 0 ? (
+      ) : !connection ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            No SimpleFIN connections yet. Add one root connection token above to get started, then link accounts in Account Sync Setup. Or add{' '}
-            <code className="text-xs">SIMPLEFIN_ACCESS_URL_PROD</code> to your <code>.env</code>{' '}
-            and restart the server.
+            No SimpleFIN connection configured yet. Follow the token steps above to claim your first access URL.
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-4">
-          {connections.map((conn, idx) => (
-            <motion.div
-              key={conn.id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.04 }}
-            >
-              <Card>
-                <CardContent className="py-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="space-y-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-medium text-sm">{conn.label}</p>
-                      <Badge variant={statusVariant(conn.status)} className="text-[10px]">
-                        {conn.status}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Last synced: {formatDate(conn.last_synced_at)}
-                    </p>
-                    {budgetQueries.data?.[conn.id] ? (
-                      <div className="pt-1">
-                        <Badge
-                          variant={budgetVariant(
-                            budgetQueries.data[conn.id].used,
-                            budgetQueries.data[conn.id].limit,
-                          )}
-                          className="text-[10px]"
-                        >
-                          Daily sync budget: {budgetQueries.data[conn.id].used}/
-                          {budgetQueries.data[conn.id].limit}
-                        </Badge>
-                      </div>
-                    ) : null}
-                    {conn.last_error ? (
-                      <p className="text-xs text-destructive truncate">{conn.last_error}</p>
-                    ) : null}
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={
-                        syncMutation.isPending ||
-                        ((budgetQueries.data?.[conn.id]?.used ?? 0) >=
-                          (budgetQueries.data?.[conn.id]?.limit ?? Number.MAX_SAFE_INTEGER))
-                      }
-                      onClick={() => syncMutation.mutate(conn.id)}
-                    >
-                      <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
-                      Sync now
-                    </Button>
-                    {conn.status === 'active' ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => toggleMutation.mutate({ id: conn.id, newStatus: 'disabled' })}
-                      >
-                        Disable
-                      </Button>
-                    ) : conn.status === 'disabled' ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => toggleMutation.mutate({ id: conn.id, newStatus: 'active' })}
-                      >
-                        Enable
-                      </Button>
-                    ) : null}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive"
-                      onClick={() =>
-                        setConfirmState({
-                          title: 'Disconnect?',
-                          message: `Remove "${conn.label}"? Linked accounts will be unlinked but not deleted.`,
-                          action: async () => {
-                            await deleteMutation.mutateAsync(conn.id)
-                          },
-                        })
-                      }
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ))}
+          <Card>
+            <CardContent className="py-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-medium text-sm">{connection.label}</p>
+                  <Badge variant={statusVariant(connection.status)} className="text-[10px]">
+                    {connection.status}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">Last synced: {formatDate(connection.last_synced_at)}</p>
+                {dailyBudget ? (
+                  <Badge variant={budgetVariant(dailyBudget.used, dailyBudget.limit)} className="text-[10px]">
+                    Daily sync budget: {dailyBudget.used}/{dailyBudget.limit}
+                  </Badge>
+                ) : null}
+                {connection.last_error ? <p className="text-xs text-destructive truncate">{connection.last_error}</p> : null}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={syncMutation.isPending || ((dailyBudget?.used ?? 0) >= (dailyBudget?.limit ?? Number.MAX_SAFE_INTEGER))}
+                  onClick={() => syncMutation.mutate()}
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
+                  Sync now
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => refreshAccountsMutation.mutate()}
+                  disabled={refreshAccountsMutation.isPending}
+                >
+                  {refreshAccountsMutation.isPending ? 'Refreshing…' : 'Refresh cached accounts'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm font-medium">Available remote accounts (cached)</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {cachedSnapshot?.captured_at ? (
+                <p className="text-xs text-muted-foreground">Snapshot captured: {formatDate(cachedSnapshot.captured_at)}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">No cached snapshot yet. Click “Refresh cached accounts” or “Sync now”.</p>
+              )}
+              {cachedSnapshot?.errors?.map((e, i) => (
+                <p key={`cache-err-${i}`} className="text-xs text-destructive">
+                  [{e.code}] {e.message}
+                </p>
+              ))}
+              {cachedSnapshot?.accounts?.length ? (
+                <div className="space-y-3">
+                  {cachedSnapshot.accounts.map((remote) => (
+                    <RemoteAccountRow
+                      key={`${remote.conn_id}:${remote.account_id}`}
+                      remote={remote}
+                      localAccounts={localAccountOptions}
+                      onLink={(localAccountId) => linkMutation.mutate({ remote, localAccountId })}
+                      onUnlink={(localAccountId) => unlinkMutation.mutate(localAccountId)}
+                      isLinking={linkMutation.isPending}
+                      isUnlinking={unlinkMutation.isPending}
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
         </div>
       )}
+      {connection ? claimConnectionCard : null}
+    </div>
+  )
+}
+
+function RemoteAccountRow({
+  remote,
+  localAccounts,
+  onLink,
+  onUnlink,
+  isLinking,
+  isUnlinking,
+}: {
+  remote: DiscoveredAccount
+  localAccounts: Account[]
+  onLink: (localAccountId: number) => void
+  onUnlink: (localAccountId: number) => void
+  isLinking: boolean
+  isUnlinking: boolean
+}) {
+  const [selectedLocal, setSelectedLocal] = useState<string>(remote.local_account_id ? String(remote.local_account_id) : '')
+  return (
+    <div className="rounded-md border p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium">{remote.name}</p>
+          <p className="text-xs text-muted-foreground">{remote.conn_name || remote.conn_id}</p>
+        </div>
+        {remote.local_account_id ? (
+          <Badge className="text-[10px]">Linked to local #{remote.local_account_id}</Badge>
+        ) : (
+          <Badge variant="secondary" className="text-[10px]">Unlinked</Badge>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <Select value={selectedLocal} onValueChange={setSelectedLocal}>
+          <SelectTrigger className="h-8 text-xs max-w-xs">
+            <SelectValue placeholder="Select local account" />
+          </SelectTrigger>
+          <SelectContent>
+            {localAccounts.map((a) => (
+              <SelectItem key={a.id} value={String(a.id)}>
+                {a.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!selectedLocal || isLinking}
+          onClick={() => onLink(Number(selectedLocal))}
+        >
+          <LinkIcon className="h-3.5 w-3.5 mr-1.5" />
+          Link
+        </Button>
+        {remote.local_account_id ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-destructive"
+            disabled={isUnlinking}
+            onClick={() => onUnlink(remote.local_account_id!)}
+          >
+            <Unlink className="h-3.5 w-3.5 mr-1.5" />
+            Unlink
+          </Button>
+        ) : null}
+      </div>
     </div>
   )
 }

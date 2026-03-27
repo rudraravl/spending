@@ -11,7 +11,6 @@ import {
   Settings,
   Wallet,
   Plug,
-  RefreshCw,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import {
@@ -39,7 +38,6 @@ const mainItems = [
 
 const syncItems = [
   { title: "Connections", url: "/connections", icon: Plug },
-  { title: "Account Sync", url: "/sync", icon: RefreshCw },
 ];
 
 const analyticsItems = [

@@ -7,6 +7,7 @@ import { apiGet, apiPostForm } from '../api/client'
 import {
   getTransferMatchCandidates,
   linkExistingTransfer,
+  transferMatchImportLegLabels,
   type TransferMatchCandidate,
 } from '../api/transfers'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -244,6 +245,8 @@ export default function ImportCsvPage() {
   })
 
   const currentMatch = matchQueue[matchIndex] ?? null
+  const currentMatchKind = currentMatch?.kind ?? 'card_payment'
+  const importLegLabels = transferMatchImportLegLabels(currentMatchKind)
 
   const finishImportFeedback = () => {
     if (!pendingImportSummary) return
@@ -598,24 +601,30 @@ export default function ImportCsvPage() {
       >
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Possible card payment (transfer)</DialogTitle>
+            <DialogTitle>
+              {currentMatchKind === 'asset_transfer' ? 'Possible account transfer' : 'Possible card payment (transfer)'}
+            </DialogTitle>
             <DialogDescription>
-              Link these two transactions as a transfer between your bank and credit card? ({matchIndex + 1} of{' '}
-              {matchQueue.length}) If the same bank charge appears again with a different card line, pick the match
-              that fits and skip the others.
+              {currentMatchKind === 'asset_transfer'
+                ? `Link these two transactions as a transfer between asset accounts? (${matchIndex + 1} of ${matchQueue.length}) Pick the match that fits or skip.`
+                : `Link these two transactions as a transfer between your bank and credit card? (${matchIndex + 1} of ${matchQueue.length}) If the same bank charge appears again with a different card line, pick the match that fits and skip the others.`}
             </DialogDescription>
           </DialogHeader>
           {currentMatch ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div className="rounded-lg border p-3 space-y-1">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Bank (outflow)</p>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  {importLegLabels.outflow}
+                </p>
                 <p className="font-medium">{currentMatch.asset.account_name}</p>
                 <p className="text-muted-foreground">{currentMatch.asset.merchant}</p>
                 <p className="tabular-nums">{formatMoney(currentMatch.asset.amount)}</p>
                 <p className="text-xs text-muted-foreground">{currentMatch.asset.date}</p>
               </div>
               <div className="rounded-lg border p-3 space-y-1">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Card (payment)</p>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  {importLegLabels.inflow}
+                </p>
                 <p className="font-medium">{currentMatch.credit.account_name}</p>
                 <p className="text-muted-foreground">{currentMatch.credit.merchant}</p>
                 <p className="tabular-nums">{formatMoney(currentMatch.credit.amount)}</p>

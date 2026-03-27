@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { CheckCircle2, EyeOff, Trash2 } from 'lucide-react'
+import { CheckCircle2, EyeOff, RefreshCw, Trash2 } from 'lucide-react'
 import {
   bulkUpdateRecurringSeriesCategory,
   confirmRecurringSeries,
@@ -9,6 +9,7 @@ import {
   getRecurringSuggestions,
   ignoreRecurringSeries,
   removeRecurringSeries,
+  scanRecurringCharges,
 } from '@/api/recurring'
 import { getCategories, getSubcategories } from '@/api/categories'
 import { Badge } from '@/components/ui/badge'
@@ -60,6 +61,13 @@ export default function RecurringChargesPage() {
     staleTime: 30_000,
   })
 
+  const scanMut = useMutation({
+    mutationFn: scanRecurringCharges,
+    onSuccess: (rows) => {
+      qc.setQueryData(queryKey, rows)
+    },
+  })
+
   const confirmMut = useMutation({
     mutationFn: confirmRecurringSeries,
     onSuccess: () => qc.invalidateQueries({ queryKey }),
@@ -83,7 +91,11 @@ export default function RecurringChargesPage() {
   })
 
   const pending =
-    confirmMut.isPending || ignoreMut.isPending || removeMut.isPending || bulkCategoryMut.isPending
+    confirmMut.isPending ||
+    ignoreMut.isPending ||
+    removeMut.isPending ||
+    bulkCategoryMut.isPending ||
+    scanMut.isPending
 
   const { data: categories = [] } = useQuery<CategoryOut[], Error>({
     queryKey: ['categories'],
@@ -168,20 +180,46 @@ export default function RecurringChargesPage() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
-        <h1 className="text-lg font-semibold tracking-tight">Recurring charges</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Suggested recurring charges are detected using amount tolerance (±$0.05) and month-over-month date matching (±2
-          days). Confirm, ignore, or remove any series.
-        </p>
-      </motion.div>
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="min-w-0 flex-1">
+          <h1 className="text-lg font-semibold tracking-tight">Recurring charges</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Suggested recurring charges are detected using amount tolerance (±$0.05) and month-over-month date matching (±2
+            days) across every account. Confirm, ignore, or remove any series.
+          </p>
+        </motion.div>
+        <Button
+          type="button"
+          variant="outline"
+          className="shrink-0 gap-2"
+          disabled={isLoading || scanMut.isPending}
+          onClick={() => scanMut.mutate()}
+        >
+          <RefreshCw className={`h-4 w-4 ${scanMut.isPending ? 'animate-spin' : ''}`} />
+          Scan for recurring charges
+        </Button>
+      </div>
+
+      {scanMut.error ? (
+        <p className="mb-4 text-sm text-destructive">{(scanMut.error as Error).message}</p>
+      ) : null}
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading recurring charges…</p>
       ) : !data?.length ? (
         <Card>
-          <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            No recurring charges detected yet.
+          <CardContent className="flex flex-col items-center gap-4 py-10 text-center text-sm text-muted-foreground">
+            <p>No recurring charges detected yet. Run a scan to check all accounts for repeating outflows.</p>
+            <Button
+              type="button"
+              variant="secondary"
+              className="gap-2"
+              disabled={scanMut.isPending}
+              onClick={() => scanMut.mutate()}
+            >
+              <RefreshCw className={`h-4 w-4 ${scanMut.isPending ? 'animate-spin' : ''}`} />
+              Scan for recurring charges
+            </Button>
           </CardContent>
         </Card>
       ) : (

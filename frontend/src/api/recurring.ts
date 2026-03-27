@@ -9,6 +9,10 @@ import type {
 export const getRecurringSuggestions = () =>
   apiGet<RecurringSeriesCardOut[]>('/api/recurring/suggestions')
 
+/** Re-run recurring detection across all accounts (outflows on every account type). */
+export const scanRecurringCharges = () =>
+  apiPostJson<RecurringSeriesCardOut[]>('/api/recurring/scan', {})
+
 export const confirmRecurringSeries = (payload: RecurringSeriesActionIn) =>
   apiPostJsonNoContent('/api/recurring/series/confirm', payload)
 

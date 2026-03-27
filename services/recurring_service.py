@@ -7,7 +7,7 @@ from typing import Any, Iterable, cast
 from sqlalchemy.orm import Session
 
 from backend.app.schemas import RecurringSeriesActionIn, RecurringSeriesCardOut, RecurringOccurrenceOut
-from db.models import Category, RecurringSeries, Subcategory, Transaction
+from db.models import Account, Category, RecurringSeries, Subcategory, Transaction
 
 
 AMOUNT_TOLERANCE_CENTS_DEFAULT = 3
@@ -380,8 +380,12 @@ def _detected_series(session: Session) -> tuple[list[_DetectedSeries], dict[int,
         (str(cast(Any, r).merchant_norm), int(cast(Any, r).amount_anchor_cents)): r for r in saved
     }
 
+    # Negative amount = cash-flow outflow (see docs/AMOUNT_CONVENTION.md), including
+    # card charges and bank fees on any account. Join Account without filtering type so
+    # checking, savings, cash, credit, investment, and any future types are included.
     candidates = (
         session.query(Transaction)
+        .join(Account, Transaction.account_id == Account.id)
         .filter(Transaction.is_transfer.is_(False))
         .filter(Transaction.amount < 0)
         .order_by(Transaction.date.asc(), Transaction.id.asc())

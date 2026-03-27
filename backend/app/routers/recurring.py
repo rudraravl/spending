@@ -27,6 +27,12 @@ def recurring_suggestions(session: Session = Depends(get_db_session)) -> list[Re
     return list_recurring_suggestions(session)
 
 
+@router.post("/api/recurring/scan", response_model=list[RecurringSeriesCardOut])
+def recurring_scan(session: Session = Depends(get_db_session)) -> list[RecurringSeriesCardOut]:
+    """Re-run detection on outflows across all accounts; same logic as GET /suggestions."""
+    return list_recurring_suggestions(session)
+
+
 @router.post("/api/recurring/series/confirm", status_code=status.HTTP_204_NO_CONTENT)
 def recurring_confirm(
     payload: RecurringSeriesActionIn,

@@ -14,6 +14,17 @@ function linkLabel(isLinked: boolean | undefined) {
   return 'Manual only'
 }
 
+function formatSyncTime(iso: string | null | undefined) {
+  if (!iso) return null
+  try {
+    return new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'short' }).format(
+      new Date(iso),
+    )
+  } catch {
+    return iso
+  }
+}
+
 function formatMoney(amount: number, currency: string) {
   return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)
 }
@@ -63,7 +74,10 @@ export default function AccountsPage() {
       <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
         <h1 className="text-lg font-semibold tracking-tight">Accounts</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Open an account to see balance and activity. Linked accounts will show sync status here later.
+          Open an account to see balance and activity.{' '}
+          <Link to="/connections" className="text-primary underline-offset-4 hover:underline">
+            Set up bank sync &rarr;
+          </Link>
         </p>
       </motion.div>
 
@@ -121,6 +135,16 @@ export default function AccountsPage() {
                             </Badge>
                             {a.institution_name ? (
                               <p className="text-xs text-muted-foreground truncate">{a.institution_name}</p>
+                            ) : null}
+                            {a.is_linked && a.last_synced_at ? (
+                              <p className="text-[10px] text-muted-foreground">
+                                Synced {formatSyncTime(a.last_synced_at)}
+                              </p>
+                            ) : null}
+                            {!a.is_linked ? (
+                              <p className="text-[10px] text-muted-foreground">
+                                Link this local account on Connections.
+                              </p>
                             ) : null}
                           </CardContent>
                         </Card>

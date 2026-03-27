@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from datetime import date as Date
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -135,7 +136,7 @@ class TransferCreate(BaseModel):
 
 
 class TransferLinkExisting(BaseModel):
-    """Unordered pair of transaction ids (one asset-account leg, one credit-account leg)."""
+    """Unordered pair of transaction ids (one outflow, one inflow; any account types)."""
 
     transaction_id_a: int
     transaction_id_b: int
@@ -159,6 +160,7 @@ class TransferMatchTxnBrief(BaseModel):
 
 
 class TransferMatchCandidateOut(BaseModel):
+    kind: Literal["card_payment", "asset_transfer"] = "card_payment"
     asset_transaction_id: int
     credit_transaction_id: int
     canonical_amount: float

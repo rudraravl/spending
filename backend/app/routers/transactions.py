@@ -32,7 +32,7 @@ from services.trasaction_service import (
     unlink_transfer_pair,
     update_transaction,
 )
-from services.transfer_matching_service import find_card_payment_pair_candidates
+from services.transfer_matching_service import find_transfer_match_candidates
 from utils.filters import TransactionFilter
 
 
@@ -268,7 +268,7 @@ def transfer_match_candidates(
     lookback_days: int = Query(default=365, ge=1, le=3650),
     session: Session = Depends(get_db_session),
 ) -> TransferMatchCandidatesResponse:
-    pairs = find_card_payment_pair_candidates(
+    pairs = find_transfer_match_candidates(
         session,
         seed_transaction_ids=seed_ids,
         lookback_days=lookback_days,

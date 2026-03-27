@@ -13,7 +13,7 @@ from backend.app.deps import get_db_session
 from backend.app.schemas import CsvImportResult, CsvInferredDateRange, CsvPreviewResponse
 from backend.app.transfer_helpers import transfer_pair_to_candidate_out
 from services.import_service import get_available_adapters, import_csv, preview_csv
-from services.transfer_matching_service import find_card_payment_pair_candidates
+from services.transfer_matching_service import find_transfer_match_candidates
 
 
 router = APIRouter(tags=["import"])
@@ -199,7 +199,7 @@ async def import_csv_endpoint(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
         candidates = (
-            find_card_payment_pair_candidates(
+            find_transfer_match_candidates(
                 session,
                 seed_transaction_ids=outcome.imported_transaction_ids,
             )

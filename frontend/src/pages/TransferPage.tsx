@@ -9,6 +9,7 @@ import {
   getPaymentsHoldouts,
   getTransferMatchCandidates,
   linkExistingTransfer,
+  transferMatchLegLabels,
   type TransferMatchCandidate,
 } from '../api/transfers'
 import { queryKeys } from '../queryKeys'
@@ -161,8 +162,8 @@ export default function TransferPage() {
                 Review transfers
               </CardTitle>
               <CardDescription>
-                Same amount within $0.03 and within 8 calendar days (bank negative, card positive). If one bank
-                debit could match several card credits, every possibility is listed.
+                Same amount within $0.03 and within 8 days: card payments (bank outflow + card credit) and
+                asset-to-asset moves (e.g. checking ↔ investment). Every ambiguous match is listed.
               </CardDescription>
             </div>
             <div className="flex gap-2">
@@ -191,20 +192,22 @@ export default function TransferPage() {
               <p className="text-sm text-muted-foreground">No suggested pairs right now.</p>
             ) : (
               <ul className="space-y-4">
-                {candidates.map((c) => (
+                {candidates.map((c) => {
+                  const labels = transferMatchLegLabels(c.kind ?? 'card_payment')
+                  return (
                   <li
-                    key={`${c.asset_transaction_id}-${c.credit_transaction_id}`}
+                    key={`${c.kind ?? 'card_payment'}-${c.asset_transaction_id}-${c.credit_transaction_id}`}
                     className="rounded-lg border p-4 grid grid-cols-1 md:grid-cols-2 gap-4"
                   >
                     <div className="space-y-1 text-sm">
-                      <p className="text-xs font-medium text-muted-foreground">Bank</p>
+                      <p className="text-xs font-medium text-muted-foreground">{labels.outflow}</p>
                       <p className="font-medium">{c.asset.account_name}</p>
                       <p className="text-muted-foreground truncate">{c.asset.merchant}</p>
                       <p className="tabular-nums">{formatMoney(c.asset.amount)}</p>
                       <p className="text-xs text-muted-foreground">{c.asset.date}</p>
                     </div>
                     <div className="space-y-1 text-sm">
-                      <p className="text-xs font-medium text-muted-foreground">Card</p>
+                      <p className="text-xs font-medium text-muted-foreground">{labels.inflow}</p>
                       <p className="font-medium">{c.credit.account_name}</p>
                       <p className="text-muted-foreground truncate">{c.credit.merchant}</p>
                       <p className="tabular-nums">{formatMoney(c.credit.amount)}</p>
@@ -221,7 +224,8 @@ export default function TransferPage() {
                       </Button>
                     </div>
                   </li>
-                ))}
+                  )
+                })}
               </ul>
             )}
             {reviewActionError ? <p className="text-sm text-destructive mt-3">{reviewActionError}</p> : null}

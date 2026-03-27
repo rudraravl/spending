@@ -7,7 +7,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from db.models import Account, Base, Category, Subcategory, Transaction, TransactionSplit, TransferGroup
-from services.transfer_matching_service import find_card_payment_pair_candidates
+from services.account_service import delete_account as delete_account_with_cleanup
+from services.transfer_matching_service import find_transfer_match_candidates
 from services.trasaction_service import link_transactions_as_transfer, unlink_transfer_pair
 
 
@@ -218,9 +219,10 @@ class TestTransferLinking(unittest.TestCase):
         )
         s.add_all([t_bank, t_cc])
         s.commit()
-        pairs = find_card_payment_pair_candidates(s, seed_transaction_ids=None, lookback_days=365)
+        pairs = find_transfer_match_candidates(s, seed_transaction_ids=None, lookback_days=365)
         self.assertEqual(len(pairs), 1)
         self.assertEqual({pairs[0].asset_transaction_id, pairs[0].credit_transaction_id}, {t_bank.id, t_cc.id})
+        self.assertEqual(pairs[0].kind, "card_payment")
 
     def test_ambiguous_one_bank_two_cc_credits_returns_both(self):
         """Bank -$3 with CC +$2.97 and +$3: both are within $0.03 — suggest both pairs."""
@@ -256,12 +258,13 @@ class TestTransferLinking(unittest.TestCase):
         )
         s.add_all([t_bank, t_cc1, t_cc2])
         s.commit()
-        pairs = find_card_payment_pair_candidates(s, seed_transaction_ids=None, lookback_days=365)
+        pairs = find_transfer_match_candidates(s, seed_transaction_ids=None, lookback_days=365)
         self.assertEqual(len(pairs), 2)
         credits = {p.credit_transaction_id for p in pairs}
         self.assertEqual(credits, {t_cc1.id, t_cc2.id})
         for p in pairs:
             self.assertEqual(p.asset_transaction_id, t_bank.id)
+            self.assertEqual(p.kind, "card_payment")
 
     def test_find_candidates_respects_date_window(self):
         s = self.session
@@ -287,8 +290,41 @@ class TestTransferLinking(unittest.TestCase):
         )
         s.add_all([t_bank, t_cc])
         s.commit()
-        pairs = find_card_payment_pair_candidates(s, seed_transaction_ids=None, lookback_days=365)
+        pairs = find_transfer_match_candidates(s, seed_transaction_ids=None, lookback_days=365)
         self.assertEqual(len(pairs), 0)
+
+    def test_find_asset_to_asset_full_scan(self):
+        s = self.session
+        chk = Account(name="ChkA2A", type="checking")
+        inv = Account(name="InvA2A", type="investment")
+        s.add_all([chk, inv])
+        s.flush()
+        today = datetime.now().date()
+        t_out = Transaction(
+            date=today,
+            amount=-200.0,
+            merchant="xfer",
+            account_id=chk.id,
+            category_id=self.cat_id,
+            subcategory_id=self.sub_id,
+        )
+        t_in = Transaction(
+            date=today,
+            amount=200.0,
+            merchant="deposit",
+            account_id=inv.id,
+            category_id=self.cat_id,
+            subcategory_id=self.sub_id,
+        )
+        s.add_all([t_out, t_in])
+        s.commit()
+        pairs = find_transfer_match_candidates(s, seed_transaction_ids=None, lookback_days=365)
+        asset_pairs = [p for p in pairs if p.kind == "asset_transfer"]
+        self.assertEqual(len(asset_pairs), 1)
+        self.assertEqual(
+            {asset_pairs[0].asset_transaction_id, asset_pairs[0].credit_transaction_id},
+            {t_out.id, t_in.id},
+        )
 
     def test_seed_mode_includes_cross_pair(self):
         s = self.session
@@ -314,8 +350,37 @@ class TestTransferLinking(unittest.TestCase):
         )
         s.add_all([t_bank, t_cc])
         s.commit()
-        pairs = find_card_payment_pair_candidates(s, seed_transaction_ids=[t_bank.id], lookback_days=365)
+        pairs = find_transfer_match_candidates(s, seed_transaction_ids=[t_bank.id], lookback_days=365)
         self.assertEqual(len(pairs), 1)
+
+    def test_seed_mode_finds_checking_to_investment(self):
+        s = self.session
+        chk = Account(name="ChkSeed", type="checking")
+        inv = Account(name="InvSeed", type="investment")
+        s.add_all([chk, inv])
+        s.flush()
+        d = date(2025, 5, 11)
+        t_chk = Transaction(
+            date=d,
+            amount=-60.0,
+            merchant="ACH",
+            account_id=chk.id,
+            category_id=self.cat_id,
+            subcategory_id=self.sub_id,
+        )
+        t_inv = Transaction(
+            date=d,
+            amount=60.0,
+            merchant="BUY",
+            account_id=inv.id,
+            category_id=self.cat_id,
+            subcategory_id=self.sub_id,
+        )
+        s.add_all([t_chk, t_inv])
+        s.commit()
+        pairs = find_transfer_match_candidates(s, seed_transaction_ids=[t_inv.id], lookback_days=365)
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0].kind, "asset_transfer")
 
     def test_unlink_transfer_pair_resets_flags_and_group(self):
         s = self.session
@@ -355,6 +420,66 @@ class TestTransferLinking(unittest.TestCase):
         self.assertEqual(o_bank.category_id, self.cat_id)
         self.assertEqual(o_card.category_id, self.cat_id)
         self.assertIsNone(s.get(TransferGroup, gid))
+
+    def test_delete_account_unlinks_surviving_transfer_leg(self):
+        s = self.session
+        bank = Account(name="DeleteBank", type="checking")
+        card = Account(name="DeleteCard", type="credit")
+        s.add_all([bank, card])
+        s.flush()
+        t_bank = Transaction(
+            date=date(2025, 8, 1),
+            amount=-55.0,
+            merchant="BANK OUT",
+            account_id=bank.id,
+            category_id=self.cat_id,
+            subcategory_id=self.sub_id,
+        )
+        t_card = Transaction(
+            date=date(2025, 8, 2),
+            amount=55.0,
+            merchant="CARD PMT",
+            account_id=card.id,
+            category_id=self.cat_id,
+            subcategory_id=self.sub_id,
+        )
+        s.add_all([t_bank, t_card])
+        s.commit()
+
+        group = link_transactions_as_transfer(s, t_bank.id, t_card.id)
+        gid = group.id
+
+        delete_account_with_cleanup(s, bank.id)
+
+        o_card = s.get(Transaction, t_card.id)
+        self.assertIsNone(s.get(Account, bank.id))
+        self.assertIsNotNone(o_card)
+        self.assertFalse(o_card.is_transfer)
+        self.assertIsNone(o_card.transfer_group_id)
+        self.assertEqual(o_card.category_id, self.cat_id)
+        self.assertEqual(o_card.subcategory_id, self.sub_id)
+        self.assertIsNone(s.get(TransferGroup, gid))
+
+    def test_delete_account_removes_non_transfer_transactions(self):
+        s = self.session
+        acct = Account(name="DeleteSolo", type="checking")
+        s.add(acct)
+        s.flush()
+        txn = Transaction(
+            date=date(2025, 8, 3),
+            amount=-12.0,
+            merchant="Coffee",
+            account_id=acct.id,
+            category_id=self.cat_id,
+            subcategory_id=self.sub_id,
+        )
+        s.add(txn)
+        s.commit()
+
+        delete_account_with_cleanup(s, acct.id)
+
+        self.assertIsNone(s.get(Account, acct.id))
+        self.assertIsNone(s.get(Transaction, txn.id))
 
 
 if __name__ == "__main__":

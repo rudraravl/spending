@@ -15,6 +15,7 @@ from backend.app.routers.rules import router as rules_router
 from backend.app.routers.reports import router as reports_router
 from backend.app.routers.recurring import router as recurring_router
 from backend.app.routers.budgets import router as budgets_router
+from backend.app.routers.simplefin import router as simplefin_router
 
 
 ensure_repo_root_on_path()
@@ -37,6 +38,7 @@ app.include_router(rules_router)
 app.include_router(reports_router)
 app.include_router(recurring_router)
 app.include_router(budgets_router)
+app.include_router(simplefin_router)
 
 app.add_middleware(
     CORSMiddleware,

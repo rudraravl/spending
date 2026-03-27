@@ -70,8 +70,60 @@ delay 2
 do shell script "open http://localhost:5173"
 ```
 
+## SimpleFIN auto-sync (bank account linking)
+
+The app supports automatic bank account syncing via the [SimpleFIN Protocol](https://www.simplefin.org/protocol.html).
+
+**Quick start:** Add your SimpleFIN Access URL to `.env`:
+
+```
+SIMPLEFIN_ACCESS_URL_PROD="https://user:pass@beta-bridge.simplefin.org/simplefin"
+```
+
+On first startup the app seeds a connection automatically. A single SimpleFIN Access URL/connection can include multiple bank accounts; you do not add one URL per account. Open **Account Sync Setup** to discover the accounts available under that connection, then link the accounts you want to track locally.
+
+If you call the sync API with a custom `end_date`, it follows SimpleFIN protocol semantics: `end-date` is exclusive (transactions are returned before, but not on, that date).
+
+To stay within common Bridge quotas, the app also enforces a local daily SimpleFIN request budget per connection (`SIMPLEFIN_MAX_REQUESTS_PER_DAY`, default `20`).
+
+**Daily auto-sync** via cron (venv must be active):
+
+```bash
+# Example crontab entry – sync at 6 AM daily
+0 6 * * * cd /path/to/spending && .venv/bin/python -m backend.scripts.simplefin_sync_once --lookback-days 7
+```
+
+Or run manually:
+
+```bash
+python -m backend.scripts.simplefin_sync_once
+```
+
 ## Features
 
 - Import credit card CSVs (adapters + generic mapping)
+- Automatic bank account syncing via SimpleFIN
 - Add/edit transactions; categories, subcategories, tags
 - Filters and summaries (month/year/semester/custom ranges)
+
+## SimpleFIN setup guide
+
+Use this guide if you are setting up bank syncing from scratch.
+
+1. Create a SimpleFIN token from your institution (or Bridge) `/create` page.
+2. In the app, open **Connections** and paste the token in **Add a new connection**.
+3. Go to **Account Sync Setup**, select your connection, and review discovered accounts (auto-loads on page).
+4. Link the discovered accounts you want to track to local account names/types.
+5. Click **Sync now** to import balances and transactions for linked accounts.
+
+Notes:
+
+- The app only stores the claimed Access URL in encrypted form; the token is one-time use.
+- Treat the Access URL as the root connection. Your account list should come from discovered/linked accounts under that connection, not from multiple per-account Access URLs.
+- `end_date` sync filtering is exclusive (`before, not on`) per protocol.
+- Daily request budget is visible in the UI and enforced locally to reduce risk of hitting provider limits.
+- For automatic refresh, run the daily script:
+
+```bash
+python -m backend.scripts.simplefin_sync_once --lookback-days 7
+```

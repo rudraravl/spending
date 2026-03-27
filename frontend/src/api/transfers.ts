@@ -1,5 +1,7 @@
 import { apiGet, apiPostJson } from './client'
 
+export type TransferMatchKind = 'card_payment' | 'asset_transfer'
+
 export type TransferMatchTxnBrief = {
   id: number
   date: string
@@ -11,6 +13,8 @@ export type TransferMatchTxnBrief = {
 }
 
 export type TransferMatchCandidate = {
+  /** Present on API responses; omit on older cached payloads. */
+  kind?: TransferMatchKind
   asset_transaction_id: number
   credit_transaction_id: number
   canonical_amount: number
@@ -18,6 +22,22 @@ export type TransferMatchCandidate = {
   date_delta_days: number
   asset: TransferMatchTxnBrief
   credit: TransferMatchTxnBrief
+}
+
+/** Labels for the outflow (asset.*) and inflow (credit.*) legs of a suggested pair. */
+export function transferMatchLegLabels(kind: TransferMatchKind) {
+  if (kind === 'asset_transfer') {
+    return { outflow: 'From', inflow: 'To' }
+  }
+  return { outflow: 'Bank', inflow: 'Card' }
+}
+
+/** Descriptive labels for CSV import match dialog. */
+export function transferMatchImportLegLabels(kind: TransferMatchKind) {
+  if (kind === 'asset_transfer') {
+    return { outflow: 'From (outflow)', inflow: 'To (inflow)' }
+  }
+  return { outflow: 'Bank (outflow)', inflow: 'Card (payment)' }
 }
 
 export type TransferMatchCandidatesResponse = {

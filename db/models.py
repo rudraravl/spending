@@ -311,6 +311,52 @@ class BudgetMonth(Base):
     )
 
 
+class SimpleFINConnection(Base):
+    """Stores a SimpleFIN Access URL (encrypted) for automatic bank syncing."""
+    __tablename__ = "simplefin_connections"
+
+    id = Column(Integer, primary_key=True)
+    label = Column(String, nullable=False)
+    access_url_encrypted = Column(Text, nullable=False)
+    status = Column(String, nullable=False, server_default="active")  # active | disabled | error
+    last_synced_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
+    updated_at = Column(
+        DateTime,
+        server_default=func.current_timestamp(),
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    sync_runs = relationship("SimpleFINSyncRun", back_populates="connection", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<SimpleFINConnection(id={self.id}, label='{self.label}', status='{self.status}')>"
+
+
+class SimpleFINSyncRun(Base):
+    """Records an individual sync attempt for audit / debugging."""
+    __tablename__ = "simplefin_sync_runs"
+
+    id = Column(Integer, primary_key=True)
+    connection_id = Column(Integer, ForeignKey("simplefin_connections.id"), nullable=False)
+    started_at = Column(DateTime, nullable=False)
+    finished_at = Column(DateTime, nullable=True)
+    status = Column(String, nullable=False, server_default="running")  # running | success | error
+    accounts_synced = Column(Integer, nullable=True)
+    transactions_imported = Column(Integer, nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    connection = relationship("SimpleFINConnection", back_populates="sync_runs")
+
+    def __repr__(self):
+        return (
+            f"<SimpleFINSyncRun(id={self.id}, connection_id={self.connection_id}, "
+            f"status='{self.status}')>"
+        )
+
+
 class BudgetLimit(Base):
     """
     Represents a budget limit for a category, optionally allocated to a subcategory.

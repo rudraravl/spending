@@ -7,6 +7,7 @@ import {
   getPaymentsHoldouts,
   getTransferMatchCandidates,
   linkExistingTransfer,
+  transferMatchLegLabels,
   type TransferMatchCandidate,
 } from '../api/transfers'
 import { queryKeys } from '../queryKeys'
@@ -59,11 +60,11 @@ export default function TransferReviewPage() {
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
         <h1 className="text-lg font-semibold tracking-tight flex items-center gap-2">
           <Link2 className="h-5 w-5" />
-          Review card payment transfers
+          Review transfer suggestions
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Match bank outflows with credit-card payment credits and link them as transfers so spending totals stay
-          accurate.
+          Match card payments (bank outflow + card credit) and moves between asset accounts (e.g. checking ↔
+          investment). Link pairs so spending totals stay accurate.
         </p>
       </motion.div>
 
@@ -88,9 +89,9 @@ export default function TransferReviewPage() {
           <div>
             <CardTitle className="text-base">Suggested pairs</CardTitle>
             <CardDescription>
-              Same amount within $0.03 and within 8 calendar days (bank negative, card positive). If one bank
-              debit could match several card credits, every possibility is listed—link the right one and skip the
-              rest.
+              Same amount within $0.03 and within 8 days. Card suggestions pair a bank outflow with a credit-card
+              credit; asset suggestions pair two asset accounts (outflow and inflow). Ambiguous matches list every
+              possibility—link the right one and skip the rest.
             </CardDescription>
           </div>
           <div className="flex gap-2">
@@ -124,20 +125,22 @@ export default function TransferReviewPage() {
             <p className="text-sm text-muted-foreground">No suggested pairs right now.</p>
           ) : (
             <ul className="space-y-4">
-              {candidates.map((c) => (
+              {candidates.map((c) => {
+                const labels = transferMatchLegLabels(c.kind ?? 'card_payment')
+                return (
                 <li
-                  key={`${c.asset_transaction_id}-${c.credit_transaction_id}`}
+                  key={`${c.kind ?? 'card_payment'}-${c.asset_transaction_id}-${c.credit_transaction_id}`}
                   className="rounded-lg border p-4 grid grid-cols-1 md:grid-cols-2 gap-4"
                 >
                   <div className="space-y-1 text-sm">
-                    <p className="text-xs font-medium text-muted-foreground">Bank</p>
+                    <p className="text-xs font-medium text-muted-foreground">{labels.outflow}</p>
                     <p className="font-medium">{c.asset.account_name}</p>
                     <p className="text-muted-foreground truncate">{c.asset.merchant}</p>
                     <p className="tabular-nums">{formatMoney(c.asset.amount)}</p>
                     <p className="text-xs text-muted-foreground">{c.asset.date}</p>
                   </div>
                   <div className="space-y-1 text-sm">
-                    <p className="text-xs font-medium text-muted-foreground">Card</p>
+                    <p className="text-xs font-medium text-muted-foreground">{labels.inflow}</p>
                     <p className="font-medium">{c.credit.account_name}</p>
                     <p className="text-muted-foreground truncate">{c.credit.merchant}</p>
                     <p className="tabular-nums">{formatMoney(c.credit.amount)}</p>
@@ -154,7 +157,8 @@ export default function TransferReviewPage() {
                     </Button>
                   </div>
                 </li>
-              ))}
+                )
+              })}
             </ul>
           )}
           {actionError ? <p className="text-sm text-destructive mt-3">{actionError}</p> : null}

@@ -17,6 +17,7 @@ import NotFoundPage from './pages/NotFoundPage'
 import BudgetsPage from '@/pages/BudgetsPage'
 import RecurringChargesPage from './pages/RecurringChargesPage'
 import SettingsPage from './pages/SettingsPage'
+import SimplefinConnectionsPage from './pages/SimplefinConnectionsPage'
 import SummariesPage from './pages/SummariesPage'
 import TransferPage from './pages/TransferPage'
 import ViewsPage from './pages/ViewsPage'
@@ -43,6 +44,7 @@ export default function SpendingApp() {
                 <Route path="/budgets" element={<BudgetsPage />} />
                 <Route path="/views" element={<ViewsPage />} />
                 <Route path="/summaries" element={<SummariesPage />} />
+                <Route path="/connections" element={<SimplefinConnectionsPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>
               <Route path="*" element={<NotFoundPage />} />

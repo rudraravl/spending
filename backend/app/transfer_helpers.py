@@ -12,6 +12,7 @@ def transfer_pair_to_candidate_out(
 ) -> TransferMatchCandidateOut:
     d = pair.to_api_dict(session)
     return TransferMatchCandidateOut(
+        kind=d.get("kind", "card_payment"),
         asset_transaction_id=d["asset_transaction_id"],
         credit_transaction_id=d["credit_transaction_id"],
         canonical_amount=d["canonical_amount"],

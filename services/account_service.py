@@ -59,8 +59,9 @@ def delete_account(session: Session, account_id: int) -> None:
     """
     Delete an account and all its transactions.
 
-    If any account transaction is part of a transfer group, remaining transaction legs on
-    other accounts are unlinked and converted back to normal transactions before deletion.
+    If any deleted-account transaction is part of a transfer group, the transfer link is
+    removed first. The deleted account's legs are then removed with the account cascade,
+    while surviving legs on other accounts remain as normal (non-transfer) transactions.
     """
     account = session.query(Account).filter(Account.id == account_id).first()
     if not account:
@@ -85,8 +86,8 @@ def delete_account(session: Session, account_id: int) -> None:
             .all()
         )
         for txn in related_txns:
-            # Unlink all legs in impacted groups so the deleted account's side and
-            # the surviving side are both no longer considered transfer-linked.
+            # Unlink all legs in impacted groups first; account rows are deleted below,
+            # while non-deleted-account rows remain and become regular transactions.
             txn.is_transfer = False
             txn.transfer_group_id = None
             if txn.account_id != account_id:

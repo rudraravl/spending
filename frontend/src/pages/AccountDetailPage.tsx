@@ -1,13 +1,15 @@
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { ArrowLeft } from 'lucide-react'
-import { Link, useParams } from 'react-router-dom'
-import { getAccount, getAccountSummary } from '../api/accounts'
+import { ArrowLeft, Trash2 } from 'lucide-react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { deleteAccount, getAccount, getAccountSummary } from '../api/accounts'
 import { getTransactions } from '../api/transactions'
 import AccountTxnsTable from '../features/accounts/AccountTxnsTable'
 import { accountTypeLabel, accountViewKind } from '../features/accounts/accountViewKind'
 import { queryKeys } from '../queryKeys'
 import type { TransactionOut } from '../types'
+import ConfirmDialog from '../components/ConfirmDialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -36,6 +38,9 @@ function isNotFoundError(err: unknown): boolean {
 }
 
 export default function AccountDetailPage() {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const [confirmOpen, setConfirmOpen] = useState(false)
   const { accountId: rawId } = useParams<{ accountId: string }>()
   const id = rawId ? Number.parseInt(rawId, 10) : NaN
   const validId = Number.isFinite(id)
@@ -65,6 +70,19 @@ export default function AccountDetailPage() {
       }),
     enabled: validId && view === 'credit_with_ledger',
   })
+
+  const deleteAccountMutation = useMutation({
+    mutationFn: (accountId: number) => deleteAccount(accountId),
+  })
+
+  async function afterAccountDeleted() {
+    await queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
+    await queryClient.invalidateQueries({ queryKey: queryKeys.settingsAll() })
+    await queryClient.invalidateQueries({ queryKey: ['transactions'] })
+    await queryClient.invalidateQueries({ queryKey: queryKeys.dashboard() })
+    await queryClient.invalidateQueries({ queryKey: ['views'] })
+    await queryClient.invalidateQueries({ queryKey: ['summaries'] })
+  }
 
   if (!validId) {
     return <NotFoundPage />
@@ -104,6 +122,19 @@ export default function AccountDetailPage() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Delete account?"
+        message={`Remove "${acct.name}" and ALL transactions on this account?\n\nIf any of those transactions were transfer-linked, the other account's leg is kept but converted to a normal (unlinked) transaction.`}
+        onCancel={() => setConfirmOpen(false)}
+        onConfirm={async () => {
+          setConfirmOpen(false)
+          await deleteAccountMutation.mutateAsync(acct.id)
+          await afterAccountDeleted()
+          navigate('/accounts')
+        }}
+      />
+
       <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
         <Button variant="ghost" size="sm" className="mb-6 -ml-2 text-muted-foreground" asChild>
           <Link to="/accounts">
@@ -137,34 +168,47 @@ export default function AccountDetailPage() {
               </p>
             ) : null}
           </div>
-          <Card className="min-w-[200px] border-primary/20 bg-muted/30">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                Balance
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pb-4 px-4">
-              {summaryQuery.isPending ? (
-                <p className="text-sm text-muted-foreground">…</p>
-              ) : balance != null ? (
-                <div>
-                  <p className="text-2xl font-semibold tabular-nums tracking-tight">{formatMoney(balance, acct.currency)}</p>
-                  {ledgerDiffers && summary ? (
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Sum of transactions: {formatMoney(summary.ledger_balance, acct.currency)}
-                    </p>
-                  ) : null}
-                  {acct.reported_balance_at ? (
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Bank balance from last import · {formatImportedAt(acct.reported_balance_at)}
-                    </p>
-                  ) : null}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">—</p>
-              )}
-            </CardContent>
-          </Card>
+          <div className="flex flex-col items-end gap-2">
+            <Card className="min-w-[200px] border-primary/20 bg-muted/30">
+              <CardHeader className="pb-2 pt-4 px-4">
+                <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Balance
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pb-4 px-4">
+                {summaryQuery.isPending ? (
+                  <p className="text-sm text-muted-foreground">…</p>
+                ) : balance != null ? (
+                  <div>
+                    <p className="text-2xl font-semibold tabular-nums tracking-tight">{formatMoney(balance, acct.currency)}</p>
+                    {ledgerDiffers && summary ? (
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Sum of transactions: {formatMoney(summary.ledger_balance, acct.currency)}
+                      </p>
+                    ) : null}
+                    {acct.reported_balance_at ? (
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Bank balance from last import · {formatImportedAt(acct.reported_balance_at)}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">—</p>
+                )}
+              </CardContent>
+            </Card>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              disabled={deleteAccountMutation.isPending}
+              onClick={() => setConfirmOpen(true)}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete account
+            </Button>
+          </div>
         </div>
 
         {view === 'credit_with_ledger' ? (

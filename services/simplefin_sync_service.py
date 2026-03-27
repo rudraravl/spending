@@ -658,6 +658,11 @@ def sync_connection(
             # First-time account bootstrap:
             # if the local account has no transactions yet, pull full history for this
             # specific remote account (no start-date bound).
+            #
+            # Some aggregators return transactions on the all-accounts response but omit
+            # them on ?account=<id> fetches (balance still present). Always prefer the
+            # response with the longer transaction list; use the per-account row for
+            # reported balance when available.
             account_for_import = sfin_acct
             if not local_has_txn_cache[local_acct.id]:
                 if ext_id not in full_history_by_external_id:
@@ -672,7 +677,8 @@ def sync_connection(
                     None,
                 )
                 if matched is not None:
-                    account_for_import = matched
+                    if len(matched.transactions) >= len(sfin_acct.transactions):
+                        account_for_import = matched
 
             result.accounts_synced += 1
 

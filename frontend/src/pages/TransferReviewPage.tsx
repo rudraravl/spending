@@ -69,7 +69,7 @@ export default function TransferReviewPage() {
       </motion.div>
 
       {holdoutCount > 0 ? (
-        <Card className="mb-6 border-amber-200 bg-amber-50/50 dark:bg-amber-950/20">
+        <Card className="mb-6 border-primary/25 bg-primary/[0.06] dark:bg-primary/10">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm">Legacy &quot;Payments&quot; subcategory</CardTitle>
             <CardDescription>

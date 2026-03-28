@@ -56,8 +56,8 @@ export function AppSidebar() {
           <NavLink
             to={item.url}
             end={item.url === "/"}
-            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            activeClassName="bg-sidebar-accent text-sidebar-accent-foreground"
+            className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            activeClassName="bg-sidebar-primary text-sidebar-primary-foreground shadow-md shadow-black/15 hover:bg-sidebar-primary hover:text-sidebar-primary-foreground"
           >
             <item.icon className="h-4 w-4 shrink-0" />
             {!collapsed && <span>{item.title}</span>}
@@ -73,12 +73,14 @@ export function AppSidebar() {
         {!collapsed && (
           <div className="px-6 mb-8">
             <div className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary">
-                <Wallet className="h-4 w-4 text-sidebar-primary-foreground" />
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-sidebar-primary shadow-md shadow-brand/40 ring-2 ring-white/15">
+                <Wallet className="h-4 w-4 text-sidebar-primary-foreground drop-shadow-sm" />
               </div>
               <div>
-                <h1 className="text-sm font-semibold text-sidebar-accent-foreground">Keep</h1>
-                <p className="text-[11px] text-sidebar-foreground">Local Budget tracker</p>
+                <h1 className="text-sm font-semibold tracking-tight text-sidebar-accent-foreground">
+                  Keep
+                </h1>
+                <p className="text-[11px] text-sidebar-foreground/80 font-medium">Local budget tracker</p>
               </div>
             </div>
           </div>
@@ -98,7 +100,7 @@ export function AppSidebar() {
 
         <SidebarGroup>
           {!collapsed && (
-            <p className="px-6 mb-1 text-[11px] font-medium uppercase tracking-wider text-sidebar-foreground/60">
+            <p className="px-6 mb-1 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/55">
               Bank Sync
             </p>
           )}
@@ -115,7 +117,7 @@ export function AppSidebar() {
 
         <SidebarGroup>
           {!collapsed && (
-            <p className="px-6 mb-1 text-[11px] font-medium uppercase tracking-wider text-sidebar-foreground/60">
+            <p className="px-6 mb-1 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/55">
               Analytics
             </p>
           )}
@@ -132,8 +134,8 @@ export function AppSidebar() {
             <SidebarMenuButton asChild>
               <NavLink
                 to="/settings"
-                className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                activeClassName="bg-sidebar-accent text-sidebar-accent-foreground"
+                className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                activeClassName="bg-sidebar-primary text-sidebar-primary-foreground shadow-md shadow-black/15 hover:bg-sidebar-primary hover:text-sidebar-primary-foreground"
               >
                 <Settings className="h-4 w-4 shrink-0" />
                 {!collapsed && <span>Settings</span>}

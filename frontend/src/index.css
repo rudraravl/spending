@@ -9,6 +9,19 @@
 @layer base {
   :root {
     color-scheme: light;
+
+    /*
+     * Brand hue / saturation / lightness (space-separated, no hsl() wrapper).
+     * Change this one line to retheme the app; primary, ring, sidebar selection,
+     * top bar, chart-1, and Tailwind `brand` utilities all follow this value.
+     * 
+     * --accent / --accent-foreground are still fixed blues for “soft highlight” 
+     * surfaces. If you switch --brand to e.g. green or purple, you may want to 
+     * tweak those lines so UI chrome matches; the rest of the app will still 
+     * track --brand automatically.
+     */
+    --brand: 217 91% 60%;
+
     /* Page shell – #F7FAF9 bright snow + #141519 onyx */
     --background: 164 23% 97%;
     --foreground: 225 11% 9%;
@@ -19,10 +32,7 @@
     --popover: 0 0% 100%;
     --popover-foreground: 225 11% 9%;
 
-    /* Brand: azure blue – primary actions, links, focus */
-    --brand-azure: 217 91% 60%;
-    --brand-golden: 38 92% 50%;
-    --primary: var(--brand-azure);
+    --primary: var(--brand);
     --primary-foreground: 0 0% 100%;
 
     /* Neutrals on snow */
@@ -32,9 +42,9 @@
     --muted: 165 14% 92%;
     --muted-foreground: 225 9% 42%;
 
-    /* Golden orange – sparse highlights (accent surfaces) */
-    --accent: 38 85% 94%;
-    --accent-foreground: 28 55% 28%;
+    /* Accent surfaces – soft blue wash */
+    --accent: 214 90% 94%;
+    --accent-foreground: 217 55% 32%;
 
     /* Errors; aligned with expense red family */
     --destructive: 0 72% 51%;
@@ -42,23 +52,24 @@
 
     --border: 210 14% 88%;
     --input: 210 14% 88%;
-    --ring: var(--brand-azure);
+    --ring: var(--brand);
 
     --radius: 0.75rem;
 
     /* Sidebar: deep onyx field; brand accents */
     --sidebar-background: 225 11% 9%;
     --sidebar-foreground: 210 18% 78%;
-    --sidebar-primary: var(--brand-azure);
+    --sidebar-primary: var(--brand);
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 220 14% 16%;
     --sidebar-accent-foreground: 210 15% 95%;
     --sidebar-border: 220 12% 18%;
-    --sidebar-ring: var(--brand-golden);
+    --sidebar-ring: var(--brand);
 
     --success: 160 84% 39%;
     --success-foreground: 0 0% 100%;
-    --warning: var(--brand-golden);
+    /* Semantic caution (not a second brand color) */
+    --warning: 45 93% 47%;
     --warning-foreground: 28 55% 16%;
 
     /* Money semantics (see docs/BRAND_COLORS.md) */
@@ -67,11 +78,11 @@
     --income: var(--money-income);
     --expense: var(--money-expense);
 
-    --chart-1: var(--brand-azure);
-    --chart-2: var(--brand-golden);
+    --chart-1: var(--brand);
+    --chart-2: 199 80% 48%;
     --chart-3: 160 70% 38%;
     --chart-4: 262 52% 52%;
-    --chart-5: 199 80% 45%;
+    --chart-5: 239 60% 58%;
   }
 
   .dark {
@@ -85,9 +96,6 @@
     --popover: 220 14% 14%;
     --popover-foreground: 40 20% 96%;
 
-    --brand-azure: 217 91% 62%;
-    --brand-golden: 38 92% 55%;
-    --primary: var(--brand-azure);
     --primary-foreground: 0 0% 100%;
 
     --secondary: 220 12% 20%;
@@ -96,28 +104,28 @@
     --muted: 220 12% 22%;
     --muted-foreground: 220 10% 65%;
 
-    --accent: 32 35% 22%;
-    --accent-foreground: 38 90% 88%;
+    --accent: 217 40% 20%;
+    --accent-foreground: 214 90% 88%;
 
     --destructive: 0 72% 58%;
     --destructive-foreground: 0 0% 100%;
 
     --border: 220 12% 22%;
     --input: 220 12% 22%;
-    --ring: var(--brand-azure);
+    --ring: var(--brand);
 
     --sidebar-background: 220 14% 8%;
     --sidebar-foreground: 210 16% 72%;
-    --sidebar-primary: var(--brand-azure);
+    --sidebar-primary: var(--brand);
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 220 14% 14%;
     --sidebar-accent-foreground: 40 18% 94%;
     --sidebar-border: 220 12% 16%;
-    --sidebar-ring: var(--brand-golden);
+    --sidebar-ring: var(--brand);
 
     --success: 158 64% 52%;
     --success-foreground: 220 14% 9%;
-    --warning: var(--brand-golden);
+    --warning: 45 90% 52%;
     --warning-foreground: 220 14% 9%;
 
     --money-income: 158 64% 52%;
@@ -125,11 +133,11 @@
     --income: var(--money-income);
     --expense: var(--money-expense);
 
-    --chart-1: var(--brand-azure);
-    --chart-2: var(--brand-golden);
+    --chart-1: var(--brand);
+    --chart-2: 199 75% 55%;
     --chart-3: 160 55% 48%;
     --chart-4: 262 48% 60%;
-    --chart-5: 199 75% 55%;
+    --chart-5: 239 55% 62%;
   }
 }
 
@@ -162,8 +170,44 @@
   width: 100%;
 }
 
+@layer components {
+  /* Solid brand top bar (uses --brand) */
+  .app-shell-header {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    border-bottom: 1px solid hsl(var(--border));
+    background: hsl(var(--brand));
+    box-shadow:
+      0 4px 18px -4px hsl(var(--brand) / 0.42),
+      0 12px 40px -8px hsl(var(--brand) / 0.52);
+  }
+
+  .dark .app-shell-header {
+    border-bottom: 1px solid hsl(var(--border));
+    background: hsl(var(--brand));
+    box-shadow:
+      0 4px 22px -4px hsl(var(--brand) / 0.38),
+      0 14px 48px -8px hsl(var(--brand) / 0.62);
+  }
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  .brand-icon-well {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.75rem;
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    background: linear-gradient(
+      to bottom right,
+      hsl(var(--brand) / 0.28),
+      hsl(var(--brand) / 0.12),
+      hsl(var(--brand) / 0.18)
+    );
   }
 }

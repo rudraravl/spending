@@ -31,20 +31,22 @@ export default function AppLayout() {
       <div className="min-h-screen flex w-full">
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0">
-          <header className="h-14 flex items-center border-b bg-card px-4 shrink-0 gap-3">
-            <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
-            <div className="h-5 w-px bg-border" />
-            <div className="flex items-center gap-2 min-w-0">
-              <h2 className="text-sm font-semibold text-foreground truncate">{meta.title}</h2>
-              <span className="text-xs text-muted-foreground hidden sm:inline">
-                {meta.description}
-              </span>
+          <header className="app-shell-header h-14 flex items-center px-4 shrink-0 gap-3">
+            <div className="relative z-10 flex w-full items-center gap-3 min-h-14">
+              <SidebarTrigger className="text-white hover:bg-white/20 hover:text-white rounded-lg transition-colors size-9 shrink-0 [&_svg]:size-5" />
+              <div className="h-6 w-px shrink-0 bg-white/35" aria-hidden />
+              <div className="flex items-center gap-2.5 min-w-0 flex-1 text-white">
+                <h2 className="text-sm font-semibold tracking-tight truncate">{meta.title}</h2>
+                <span className="text-sm hidden sm:inline truncate max-w-[min(28rem,50vw)]">
+                  {meta.description}
+                </span>
+              </div>
             </div>
           </header>
-          <main className="flex-1 overflow-auto">
+          <main className="flex-1 overflow-auto bg-gradient-to-b from-brand/[0.08] via-brand/[0.03] to-background">
             <Outlet />
           </main>
-          <footer className="shrink-0 border-t border-border bg-card/30 px-4 py-2.5 text-center text-[11px] text-muted-foreground">
+          <footer className="shrink-0 border-t border-border/70 bg-gradient-to-r from-brand/12 via-primary/[0.06] to-brand/10 px-4 py-2.5 text-center text-[11px] text-muted-foreground">
             Made by Rudra Raval
           </footer>
         </div>

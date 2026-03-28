@@ -1,13 +1,16 @@
 # Keep — brand and UI colors
 
-## Brand (use sparingly)
+## Brand
 
-| Token | Hex | Role |
-|--------|-----|------|
-| Azure blue | `#3B82F6` | Primary actions, links, focus rings, sidebar logo key |
-| Golden orange | `#F59E0B` | Accent highlights, sidebar ring token, warnings |
+| Token | Hex (default) | Role |
+|--------|----------------|------|
+| `--brand` | `#3B82F6` at default `217 91% 60%` | Single source for primary actions, links, focus rings, sidebar selection, header bar, first chart series |
 
-CSS: `--brand-azure`, `--brand-golden` in [`frontend/src/index.css`](../frontend/src/index.css). Tailwind: `text-brand-azure`, `bg-brand-golden`, etc.
+**Change the brand everywhere:** edit the **`--brand`** line in [`frontend/src/index.css`](../frontend/src/index.css) under `:root` (three numbers: hue, saturation `%`, lightness `%` — same format as other Shadcn tokens).
+
+Tailwind: `text-brand`, `bg-brand`, `from-brand/20`, `shadow-brand/40`, etc. (`primary`, `ring`, and `sidebar-primary` all reference `var(--brand)`.)
+
+UI **warnings** use `--warning` (semantic amber), not `--brand`.
 
 ## Page defaults (light)
 

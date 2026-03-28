@@ -21,8 +21,7 @@ export default {
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
         brand: {
-          azure: 'hsl(var(--brand-azure))',
-          golden: 'hsl(var(--brand-golden))',
+          DEFAULT: 'hsl(var(--brand))',
         },
         primary: {
           DEFAULT: 'hsl(var(--primary))',

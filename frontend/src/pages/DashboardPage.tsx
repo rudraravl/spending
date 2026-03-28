@@ -90,10 +90,10 @@ const PRESETS: { key: RangeKey; label: string }[] = [
 
 const pieColors = [
   'hsl(217, 91%, 54%)',
-  'hsl(38, 92%, 48%)',
+  'hsl(199, 80%, 48%)',
   'hsl(160, 84%, 38%)',
   'hsl(262, 52%, 52%)',
-  'hsl(199, 80%, 45%)',
+  'hsl(239, 58%, 58%)',
   'hsl(330, 65%, 52%)',
   'hsl(220, 11%, 58%)',
 ]
@@ -330,7 +330,7 @@ export default function DashboardPage() {
               {showNetWorth ? (
                 <div className="rounded-xl border bg-card p-5 shadow-card">
                   <div className="flex items-center gap-2 mb-2.5">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                    <div className="brand-icon-well h-8 w-8 !rounded-lg">
                       <Wallet className="h-4 w-4 text-primary" />
                     </div>
                     <div className="flex items-center gap-1.5">
@@ -378,7 +378,7 @@ export default function DashboardPage() {
               ) : null}
               <div className="rounded-xl border bg-card p-5 shadow-card">
                 <div className="flex items-center gap-2 mb-2.5">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-expense/10">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-expense/10 ring-1 ring-expense/20 shadow-sm">
                     <TrendingDown className="h-4 w-4 text-expense" />
                   </div>
                   <div className="flex items-center gap-1.5">
@@ -407,7 +407,7 @@ export default function DashboardPage() {
 
               <div className="rounded-xl border bg-card p-5 shadow-card">
                 <div className="flex items-center gap-2 mb-2.5">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-income/10">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-income/10 ring-1 ring-income/25 shadow-sm">
                     <TrendingUp className="h-4 w-4 text-income" />
                   </div>
                   <div className="flex items-center gap-1.5">
@@ -432,7 +432,7 @@ export default function DashboardPage() {
 
               <div className="rounded-xl border bg-card p-5 shadow-card">
                 <div className="flex items-center gap-2 mb-2.5">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                  <div className="brand-icon-well h-8 w-8 !rounded-lg">
                     <Scale className="h-4 w-4 text-primary" />
                   </div>
                   <p className="text-xs font-medium text-muted-foreground">Net Balance</p>

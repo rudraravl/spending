@@ -67,6 +67,7 @@ export type PortfolioDetail = {
     type: string
     currency: string
     institution_name: string | null
+    is_robinhood_crypto?: boolean
   }
   latest_snapshot: {
     captured_at: string | null

@@ -24,12 +24,17 @@ class AccountOut(BaseModel):
     reported_balance_at: datetime | None = None
     # Display balance (same logic as GET …/summary: reported for asset types when set, else ledger sum)
     balance: float
+    is_robinhood_crypto: bool = False
 
 
 class AccountCreate(BaseModel):
     name: str
     type: str
     currency: str | None = None
+
+
+class AccountUpdate(BaseModel):
+    is_robinhood_crypto: bool | None = None
 
 
 class AccountSummaryOut(BaseModel):

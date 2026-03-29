@@ -3,17 +3,20 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Trash2 } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { deleteAccount, getAccount, getAccountSummary } from '../api/accounts'
+import { deleteAccount, getAccount, getAccountSummary, patchAccount } from '../api/accounts'
 import { getPortfolio } from '../api/investments'
 import { getTransactions } from '../api/transactions'
 import AccountTxnsTable from '../features/accounts/AccountTxnsTable'
 import AccountPortfolioTab from '../features/investments/AccountPortfolioTab'
 import { accountTypeLabel, accountViewKind } from '../features/accounts/accountViewKind'
+import { isRobinhoodCryptoStyleAccountName } from '../features/accounts/robinhoodCryptoAccount'
 import { queryKeys } from '../queryKeys'
 import type { TransactionOut } from '../types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -22,6 +25,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import NotFoundPage from './NotFoundPage'
+import { toast } from 'sonner'
 
 function formatMoney(amount: number, currency: string) {
   try {
@@ -90,6 +94,18 @@ export default function AccountDetailPage() {
     mutationFn: (accountId: number) => deleteAccount(accountId),
   })
 
+  const patchRobinhoodCryptoMutation = useMutation({
+    mutationFn: (is_robinhood_crypto: boolean) => patchAccount(id, { is_robinhood_crypto }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(queryKeys.accountDetail(id), data)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.investmentPortfolio(id) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.investmentHistory(id, 365) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.investmentsSummary() })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
   async function afterAccountDeleted() {
     await queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
     await queryClient.invalidateQueries({ queryKey: queryKeys.settingsAll() })
@@ -136,6 +152,12 @@ export default function AccountDetailPage() {
   const summary = summaryQuery.data
   const ledgerDiffers =
     summary != null && Math.abs(summary.balance - summary.ledger_balance) > 0.005
+  const robinhoodCryptoMode =
+    Boolean(acct.is_robinhood_crypto) ||
+    Boolean(portfolioQuery.data?.account?.is_robinhood_crypto)
+  const showRobinhoodCryptoToggle =
+    acct.type === 'investment' &&
+    (isRobinhoodCryptoStyleAccountName(acct.name) || Boolean(acct.is_robinhood_crypto))
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -184,6 +206,25 @@ export default function AccountDetailPage() {
                 </Link>
               </p>
             ) : null}
+            {showRobinhoodCryptoToggle ? (
+              <div className="mt-4 flex items-start gap-3 rounded-lg border bg-muted/30 px-3 py-3 max-w-md">
+                <Switch
+                  id="rh-crypto-mode"
+                  checked={Boolean(acct.is_robinhood_crypto)}
+                  disabled={patchRobinhoodCryptoMutation.isPending}
+                  onCheckedChange={(v) => patchRobinhoodCryptoMutation.mutate(v)}
+                />
+                <div className="space-y-0.5">
+                  <Label htmlFor="rh-crypto-mode" className="text-sm font-medium cursor-pointer">
+                    Robinhood crypto sub-account
+                  </Label>
+                  <p className="text-xs text-muted-foreground leading-snug">
+                    Treat this account as crypto positions only: total value is the sum of holdings (and
+                    manual positions), not custodian cash or the separate balance line.
+                  </p>
+                </div>
+              </div>
+            ) : null}
           </div>
           <div className="flex flex-col items-end gap-2">
             {acct.type === 'investment' ? (
@@ -203,28 +244,31 @@ export default function AccountDetailPage() {
                           {formatMoney(portfolioQuery.data.totals.total_value, acct.currency)}
                         </p>
                         <p className="text-xs text-muted-foreground mt-1">
-                          {portfolioQuery.data.latest_snapshot?.captured_at
-                            ? `As of sync · ${formatImportedAt(portfolioQuery.data.latest_snapshot.captured_at)}`
-                            : 'From last reported balance — sync to load holdings & split cash vs positions'}
+                          {robinhoodCryptoMode
+                            ? 'Crypto sub-account: total matches sum of positions (custodian cash ignored).'
+                            : portfolioQuery.data.latest_snapshot?.captured_at
+                              ? `As of sync · ${formatImportedAt(portfolioQuery.data.latest_snapshot.captured_at)}`
+                              : 'From last reported balance — sync to load holdings & split cash vs positions'}
                         </p>
                       </div>
                       <div className="space-y-2 text-sm border-t border-border/60 pt-3">
-                        <div className="flex justify-between gap-4 tabular-nums">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="text-muted-foreground cursor-help border-b border-dotted border-muted-foreground/50">
-                                Cash (est.)
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-xs text-xs">
-                              Uninvested cash estimated as custodian total balance minus sum of holding market
-                              values from the last SimpleFIN sync.
-                            </TooltipContent>
-                          </Tooltip>
-                          <span className="font-medium">
-                            {formatMoney(portfolioQuery.data.totals.cash_balance, acct.currency)}
-                          </span>
-                        </div>
+                        {!robinhoodCryptoMode ? (
+                          <div className="flex justify-between gap-4 tabular-nums">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="text-muted-foreground cursor-help border-b border-dotted border-muted-foreground/50">
+                                  Cash
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-xs text-xs">
+                                Uninvested cash from the last SimpleFIN sync (account balance minus positions).
+                              </TooltipContent>
+                            </Tooltip>
+                            <span className="font-medium">
+                              {formatMoney(portfolioQuery.data.totals.cash_balance, acct.currency)}
+                            </span>
+                          </div>
+                        ) : null}
                         <div className="flex justify-between gap-4 tabular-nums">
                           <span className="text-muted-foreground">Positions</span>
                           <span className="font-medium">

@@ -59,6 +59,8 @@ class Account(Base):
     # Bank/custodian-reported balance (e.g. top-of-export Balance on checking CSV imports)
     reported_balance = Column(Float, nullable=True)
     reported_balance_at = Column(DateTime, nullable=True)
+    # Robinhood (SimpleFIN) may expose crypto as a separate "Crypto (####)" account; treat as positions-only.
+    is_robinhood_crypto = Column(Boolean, nullable=False, server_default="0", default=False)
 
     # Relationships
     transactions = relationship('Transaction', back_populates='account', cascade='all, delete-orphan')

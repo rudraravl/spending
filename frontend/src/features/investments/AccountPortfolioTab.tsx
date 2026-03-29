@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/tooltip'
 import { queryKeys } from '@/queryKeys'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 
 function formatMoney(amount: number, currency: string) {
   try {
@@ -132,10 +133,11 @@ export default function AccountPortfolioTab({ accountId, currency }: Props) {
   if (!d) return null
 
   const totals = d.totals
+  const rhCrypto = Boolean(d.account.is_robinhood_crypto)
 
   return (
     <div className="space-y-8">
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className={cn('grid gap-4', rhCrypto ? 'sm:grid-cols-2' : 'sm:grid-cols-3')}>
         <Card className="border-primary/15 bg-muted/20">
           <CardHeader className="pb-1 pt-4 px-4">
             <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -144,27 +146,30 @@ export default function AccountPortfolioTab({ accountId, currency }: Props) {
           </CardHeader>
           <CardContent className="pb-4 px-4">
             <p className="text-2xl font-semibold tabular-nums">{formatMoney(totals.total_value, currency)}</p>
-            <p className="text-xs text-muted-foreground mt-1">From last custodian sync</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {rhCrypto ? 'Sum of positions (Robinhood crypto sub-account)' : 'From last custodian sync'}
+            </p>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-1 pt-4 px-4">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide cursor-help">
-                  Cash (est.)
-                </CardTitle>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-xs text-xs">
-                Uninvested cash estimated as account balance minus sum of holding market values from
-                SimpleFIN. Broker reporting may vary.
-              </TooltipContent>
-            </Tooltip>
-          </CardHeader>
-          <CardContent className="pb-4 px-4">
-            <p className="text-xl font-semibold tabular-nums">{formatMoney(totals.cash_balance, currency)}</p>
-          </CardContent>
-        </Card>
+        {!rhCrypto ? (
+          <Card>
+            <CardHeader className="pb-1 pt-4 px-4">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide cursor-help">
+                    Cash
+                  </CardTitle>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-xs">
+                  Uninvested cash from the last SimpleFIN sync (account balance minus positions).
+                </TooltipContent>
+              </Tooltip>
+            </CardHeader>
+            <CardContent className="pb-4 px-4">
+              <p className="text-xl font-semibold tabular-nums">{formatMoney(totals.cash_balance, currency)}</p>
+            </CardContent>
+          </Card>
+        ) : null}
         <Card>
           <CardHeader className="pb-1 pt-4 px-4">
             <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -173,7 +178,9 @@ export default function AccountPortfolioTab({ accountId, currency }: Props) {
           </CardHeader>
           <CardContent className="pb-4 px-4">
             <p className="text-xl font-semibold tabular-nums">{formatMoney(totals.positions_value, currency)}</p>
-            {d.latest_snapshot && Math.abs(d.latest_snapshot.reconciliation_residual) > 0.02 ? (
+            {!rhCrypto &&
+            d.latest_snapshot &&
+            Math.abs(d.latest_snapshot.reconciliation_residual) > 0.02 ? (
               <p className="text-xs text-amber-600 dark:text-amber-500 mt-1">
                 Residual {formatMoney(d.latest_snapshot.reconciliation_residual, currency)}
               </p>

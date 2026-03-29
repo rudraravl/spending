@@ -112,6 +112,8 @@ def _migrate_accounts_columns(conn) -> None:
         conn.execute(text("ALTER TABLE accounts ADD COLUMN reported_balance FLOAT"))
     if "reported_balance_at" not in cols:
         conn.execute(text("ALTER TABLE accounts ADD COLUMN reported_balance_at DATETIME"))
+    if "is_robinhood_crypto" not in cols:
+        conn.execute(text("ALTER TABLE accounts ADD COLUMN is_robinhood_crypto INTEGER NOT NULL DEFAULT 0"))
 
 
 def _migrate_recurring_series_columns(conn) -> None:

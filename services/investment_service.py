@@ -19,6 +19,7 @@ from db.models import (
 )
 
 UNKNOWN_LABEL = "Unknown investment"
+CASH_ALLOCATION_LABEL = "Cash"
 RECON_EPS = 0.02
 
 
@@ -53,12 +54,14 @@ def get_history_series(session: Session, account_id: int, *, limit: int = 365) -
         .limit(limit)
         .all()
     )
+    acct = session.query(Account).filter(Account.id == account_id).first()
+    rh_crypto = bool(acct and getattr(acct, "is_robinhood_crypto", False))
     rows.reverse()
     return [
         {
             "captured_at": r.captured_at.isoformat() if r.captured_at else None,
-            "total_value": r.reported_balance,
-            "cash_balance": r.cash_balance,
+            "total_value": r.positions_value if rh_crypto else r.reported_balance,
+            "cash_balance": 0.0 if rh_crypto else r.cash_balance,
             "positions_value": r.positions_value,
             "currency": r.currency,
         }
@@ -90,6 +93,7 @@ def get_portfolio_detail(session: Session, account_id: int) -> dict[str, Any] | 
     if not acct or acct.type != "investment":
         return None
 
+    rh_crypto = bool(getattr(acct, "is_robinhood_crypto", False))
     bundle = get_latest_snapshot_bundle(session, account_id)
     snap = bundle.snapshot
     manual = (
@@ -98,6 +102,8 @@ def get_portfolio_detail(session: Session, account_id: int) -> dict[str, Any] | 
         .order_by(desc(InvestmentManualPosition.as_of_date))
         .all()
     )
+    holdings_mv = sum((h.market_value or 0.0) for h in bundle.holdings)
+    manual_mv = sum((m.cost_basis_total or 0.0) for m in manual)
 
     recent_txns = (
         session.query(Transaction)
@@ -124,16 +130,20 @@ def get_portfolio_detail(session: Session, account_id: int) -> dict[str, Any] | 
             }
         )
 
-    positions_value = snap.positions_value if snap else 0.0
-    cash_balance = snap.cash_balance if snap else 0.0
-    total_value = snap.reported_balance if snap else (acct.reported_balance or 0.0)
-
-    residual = 0.0
-    if snap:
-        summed_holdings = sum(h.market_value or 0.0 for h in bundle.holdings)
-        residual = snap.reported_balance - summed_holdings - snap.cash_balance
-        if abs(residual) < RECON_EPS:
-            residual = 0.0
+    if rh_crypto:
+        positions_value = holdings_mv + manual_mv
+        cash_balance = 0.0
+        total_value = positions_value
+        residual = 0.0
+    else:
+        positions_value = snap.positions_value if snap else 0.0
+        cash_balance = snap.cash_balance if snap else 0.0
+        total_value = snap.reported_balance if snap else (acct.reported_balance or 0.0)
+        residual = 0.0
+        if snap:
+            residual = snap.reported_balance - holdings_mv - snap.cash_balance
+            if abs(residual) < RECON_EPS:
+                residual = 0.0
 
     return {
         "account": {
@@ -142,13 +152,14 @@ def get_portfolio_detail(session: Session, account_id: int) -> dict[str, Any] | 
             "type": acct.type,
             "currency": acct.currency,
             "institution_name": acct.institution_name,
+            "is_robinhood_crypto": rh_crypto,
         },
         "latest_snapshot": (
             {
                 "captured_at": snap.captured_at.isoformat() if snap.captured_at else None,
                 "reported_balance": snap.reported_balance,
                 "positions_value": snap.positions_value,
-                "cash_balance": snap.cash_balance,
+                "cash_balance": 0.0 if rh_crypto else snap.cash_balance,
                 "currency": snap.currency,
                 "reconciliation_residual": residual,
             }
@@ -158,7 +169,7 @@ def get_portfolio_detail(session: Session, account_id: int) -> dict[str, Any] | 
         "totals": {
             "total_value": total_value,
             "cash_balance": cash_balance,
-            "positions_value": positions_value,
+            "positions_value": holdings_mv + manual_mv if rh_crypto else positions_value,
         },
         "holdings": [_holding_to_dict(h) for h in bundle.holdings],
         "manual_positions": [
@@ -195,7 +206,7 @@ def get_investments_summary(session: Session) -> dict[str, Any]:
 
 
 def _build_summary_clean(session: Session, accounts: list[Account]) -> dict[str, Any]:
-    """Single pass: custodian totals from latest snap; allocation from holdings + manual."""
+    """Single pass: custodian totals from latest snap; allocation from holdings + manual + cash row."""
     account_summaries: list[dict[str, Any]] = []
     global_symbols: dict[str, dict[str, float]] = {}
     total_reported = 0.0
@@ -205,12 +216,27 @@ def _build_summary_clean(session: Session, accounts: list[Account]) -> dict[str,
     for acct in accounts:
         bundle = get_latest_snapshot_bundle(session, acct.id)
         snap = bundle.snapshot
-        acct_total = snap.reported_balance if snap else (acct.reported_balance or 0.0)
-        if snap:
-            total_reported += snap.reported_balance
-            total_cash += snap.cash_balance
-        elif acct.reported_balance is not None:
-            total_reported += float(acct.reported_balance)
+        manual_list = (
+            session.query(InvestmentManualPosition)
+            .filter(InvestmentManualPosition.account_id == acct.id)
+            .all()
+        )
+        holdings_mv = sum((h.market_value or 0.0) for h in bundle.holdings)
+        manual_mv = sum((m.cost_basis_total or 0.0) for m in manual_list)
+        rh_crypto = bool(getattr(acct, "is_robinhood_crypto", False))
+
+        if rh_crypto:
+            acct_total = holdings_mv + manual_mv
+            total_reported += acct_total
+            cash_for_row: float | None = None
+        else:
+            acct_total = snap.reported_balance if snap else (acct.reported_balance or 0.0)
+            if snap:
+                total_reported += snap.reported_balance
+                total_cash += snap.cash_balance
+            elif acct.reported_balance is not None:
+                total_reported += float(acct.reported_balance)
+            cash_for_row = snap.cash_balance if snap else None
 
         acct_unknown = 0.0
         for h in bundle.holdings:
@@ -228,11 +254,7 @@ def _build_summary_clean(session: Session, accounts: list[Account]) -> dict[str,
             if cb is not None:
                 bucket["cost_basis"] += float(cb)
 
-        for m in (
-            session.query(InvestmentManualPosition)
-            .filter(InvestmentManualPosition.account_id == acct.id)
-            .all()
-        ):
+        for m in manual_list:
             cb = m.cost_basis_total or 0.0
             sym = (m.symbol or "").strip().upper()
             if not sym:
@@ -252,7 +274,7 @@ def _build_summary_clean(session: Session, accounts: list[Account]) -> dict[str,
                 "institution_name": acct.institution_name,
                 "currency": acct.currency,
                 "total_value": acct_total,
-                "cash_balance": snap.cash_balance if snap else None,
+                "cash_balance": cash_for_row,
                 "positions_count": len(bundle.holdings),
                 "unknown_on_account": acct_unknown,
                 "last_snapshot_at": snap.captured_at.isoformat() if snap and snap.captured_at else None,
@@ -277,6 +299,16 @@ def _build_summary_clean(session: Session, accounts: list[Account]) -> dict[str,
                 "gain_pct": None,
             }
         )
+
+    allocation.append(
+        {
+            "symbol": CASH_ALLOCATION_LABEL,
+            "market_value": total_cash,
+            "shares": 0.0,
+            "cost_basis": None,
+            "gain_pct": None,
+        }
+    )
 
     allocation.sort(key=lambda r: r["market_value"], reverse=True)
     grand_total = total_reported

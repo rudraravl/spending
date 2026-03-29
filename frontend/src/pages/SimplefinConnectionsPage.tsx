@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
-import { LinkIcon, Plug, RefreshCw, Unlink } from 'lucide-react'
+import { Info, LinkIcon, Plug, RefreshCw, Unlink } from 'lucide-react'
 import { getAccounts } from '../api/accounts'
 import {
   claimConnection,
@@ -17,6 +17,7 @@ import {
 import type { Account } from '../api/accounts'
 import type { CachedDiscoveryResponse, DiscoveredAccount, SimpleFINDailyBudget, SyncResult } from '../api/simplefin'
 import { queryKeys } from '../queryKeys'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -197,13 +198,31 @@ export default function SimplefinConnectionsPage() {
       <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
         <h1 className="text-lg font-semibold tracking-tight">SimpleFIN Connections</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          One root connection only. Link your local accounts to remote SimpleFIN accounts here.
+          Claim a bank connection, map each remote account to a local account, then run sync. Same page as sidebar{' '}
+          <span className="text-foreground/80 font-medium">Bank Sync → Connections</span>.
           {' '}
           <Link to="/accounts" className="text-primary underline-offset-4 hover:underline">
             View local accounts &rarr;
           </Link>
         </p>
       </motion.div>
+
+      {connection != null && localAccountOptions.length === 0 ? (
+        <Alert>
+          <Info className="h-4 w-4" />
+          <AlertTitle>Create local accounts first</AlertTitle>
+          <AlertDescription>
+            Linking needs at least one account on the{' '}
+            <Link to="/accounts" className="text-primary underline-offset-4 hover:underline font-medium">
+              Accounts
+            </Link>{' '}
+            page. Add one per bank or card, then return here and pick that account in the link dropdown.
+            {localAccounts.length > 0
+              ? ' If you already have accounts but nothing appears in the list, you may need another unlinked local account for an additional bank account.'
+              : null}
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       {!connection ? claimConnectionCard : null}
 

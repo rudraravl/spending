@@ -89,13 +89,13 @@ const PRESETS: { key: RangeKey; label: string }[] = [
 ]
 
 const pieColors = [
-  'hsl(158, 50%, 38%)',
-  'hsl(24, 80%, 55%)',
-  'hsl(220, 60%, 55%)',
-  'hsl(280, 50%, 55%)',
-  'hsl(38, 92%, 50%)',
-  'hsl(190, 50%, 45%)',
-  'hsl(220, 10%, 70%)',
+  'hsl(217, 91%, 54%)',
+  'hsl(199, 80%, 48%)',
+  'hsl(160, 84%, 38%)',
+  'hsl(262, 52%, 52%)',
+  'hsl(239, 58%, 58%)',
+  'hsl(330, 65%, 52%)',
+  'hsl(220, 11%, 58%)',
 ]
 
 const container = {
@@ -330,7 +330,7 @@ export default function DashboardPage() {
               {showNetWorth ? (
                 <div className="rounded-xl border bg-card p-5 shadow-card">
                   <div className="flex items-center gap-2 mb-2.5">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                    <div className="brand-icon-well h-8 w-8 !rounded-lg">
                       <Wallet className="h-4 w-4 text-primary" />
                     </div>
                     <div className="flex items-center gap-1.5">
@@ -378,7 +378,7 @@ export default function DashboardPage() {
               ) : null}
               <div className="rounded-xl border bg-card p-5 shadow-card">
                 <div className="flex items-center gap-2 mb-2.5">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-expense/10">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-expense/10 ring-1 ring-expense/20 shadow-sm">
                     <TrendingDown className="h-4 w-4 text-expense" />
                   </div>
                   <div className="flex items-center gap-1.5">
@@ -407,7 +407,7 @@ export default function DashboardPage() {
 
               <div className="rounded-xl border bg-card p-5 shadow-card">
                 <div className="flex items-center gap-2 mb-2.5">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-income/10">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-income/10 ring-1 ring-income/25 shadow-sm">
                     <TrendingUp className="h-4 w-4 text-income" />
                   </div>
                   <div className="flex items-center gap-1.5">
@@ -432,7 +432,7 @@ export default function DashboardPage() {
 
               <div className="rounded-xl border bg-card p-5 shadow-card">
                 <div className="flex items-center gap-2 mb-2.5">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                  <div className="brand-icon-well h-8 w-8 !rounded-lg">
                     <Scale className="h-4 w-4 text-primary" />
                   </div>
                   <p className="text-xs font-medium text-muted-foreground">Net Balance</p>
@@ -463,17 +463,17 @@ export default function DashboardPage() {
                         stackOffset="sign"
                         margin={{ top: 8, right: 12, left: 4, bottom: 8 }}
                       >
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(220, 12%, 90%)" />
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
                         <XAxis
                           dataKey="day"
-                          tick={{ fontSize: 10, fill: 'hsl(220, 10%, 45%)' }}
+                          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
                           tickLine={false}
                           axisLine={false}
                           interval="preserveStartEnd"
                           height={36}
                         />
                         <YAxis
-                          tick={{ fontSize: 10, fill: 'hsl(220, 10%, 45%)' }}
+                          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
                           tickLine={false}
                           axisLine={false}
                           width={56}
@@ -485,7 +485,12 @@ export default function DashboardPage() {
                             return '$0'
                           }}
                         />
-                        <ReferenceLine y={0} stroke="hsl(220, 12%, 70%)" strokeWidth={1.5} />
+                        <ReferenceLine
+                          y={0}
+                          stroke="hsl(var(--muted-foreground))"
+                          strokeOpacity={0.45}
+                          strokeWidth={1.5}
+                        />
                         <RechartsTooltip
                           formatter={(value: number, name: string) => {
                             const n = typeof value === 'number' ? value : Number(value)
@@ -501,7 +506,7 @@ export default function DashboardPage() {
                           contentStyle={{
                             fontSize: 12,
                             borderRadius: 8,
-                            border: '1px solid hsl(220, 12%, 90%)',
+                            border: '1px solid hsl(var(--border))',
                           }}
                         />
                         <Legend

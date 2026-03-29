@@ -22,7 +22,7 @@ import SummariesPage from './pages/SummariesPage'
 import TransferPage from './pages/TransferPage'
 import ViewsPage from './pages/ViewsPage'
 
-export default function SpendingApp() {
+export default function KeepApp() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>

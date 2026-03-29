@@ -1,74 +1,91 @@
-# Personal Budget App
+# Keep
 
 Local spending tracker backed by SQLite: import credit card CSVs, categorize transactions, and view summaries through the React UI and FastAPI backend.
 
 ## New user setup
 
-**You have:** Python 3.11+  
-**For the web UI:** [Node.js LTS](https://nodejs.org/) (includes `npm`).
+### What you need
 
-### Python environment
+- **Python 3.x** (for the API and scripts)
+- **Node.js (LTS) and npm** (for the React UI—you cannot run the frontend with Python alone)
+- **git**
+
+### Install
 
 From the repo root:
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-mkdir -p data
-```
+1. Create and activate a virtual environment, then install Python dependencies:
 
-Or run `./setup.sh` to create the venv, install packages, and initialize the database.
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate   # Windows: .venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
 
-### Web app (React + FastAPI)
+2. Install frontend dependencies:
 
-**1. Install frontend deps once**
+   ```bash
+   npm --prefix frontend install
+   ```
 
-```bash
-npm --prefix frontend install
-```
+### Run
 
-**2. Run API and UI** (venv active for the API; commands from repo root)
+Start **two** terminals from the repo root (venv active in the one that runs the backend):
 
-| Role | Command |
-|------|---------|
-| API | `uvicorn backend.main:app --reload --port 8000` |
-| UI | `VITE_API_BASE_URL=http://localhost:8000 npm --prefix frontend run dev` |
+- **Backend:** `npm run dev:backend` → [http://localhost:8000](http://localhost:8000)
+- **Frontend:** `npm run dev:frontend` → [http://localhost:5173](http://localhost:5173)
 
-Shortcuts: `npm run dev:backend` and `npm run dev:frontend` (same as above).
+Open the UI in the browser. The frontend expects the API at `http://localhost:8000` by default; override with `VITE_API_BASE_URL` if you change the port.
 
-Set `VITE_API_BASE_URL` for the session if you prefer:
+### First launch
 
-```bash
-export VITE_API_BASE_URL=http://localhost:8000
-npm --prefix frontend run dev
-```
+When the backend starts, it creates `data/budget.db` and seeds default **categories** and **subcategories** (for example Food, Travel, Income, and Other → Uncategorized for imports). **Tags** and **rules** start empty.
 
-**Backend:** Uses `data/budget.db`. Run `uvicorn` from the repo root so imports resolve (`db/`, `services/`, `adapters/`, etc.). On startup the API runs `init_db()` and a best-effort daily DB backup. CORS is open for local dev (`allow_origins=["*"]`).
+### Accounts
 
-### OPTIONAL for Mac - set up app on Automator
-Open Automator, create new application in desired location, do "Run Applescript" and paste:
+In the sidebar, open **Accounts** and use **New account** for each wallet or card you want to track. The **type** (e.g. credit card vs checking) changes how the account detail page behaves. **Import CSV** and **Add transaction** both require at least one account.
 
-```bash
+For **SimpleFIN** bank sync, create these **local** accounts first, then map each bank account to a local one on **Connections** (under **Bank Sync**). Sync only updates accounts that are already linked—it does not create local accounts for you.
+
+### Categories, subcategories, tags, and rules
+
+Use **Settings** to customize **categories** and **subcategories** (each subcategory belongs to one category). **Tags** are optional extra labels. **Rules** auto-assign category and subcategory when transactions are imported or synced, based on fields such as merchant text.
+
+### Get transactions
+
+- **Import CSV:** pick the account, then a bank **adapter** or generic column mapping.
+- **Bank sync:** set `SIMPLEFIN_ACCESS_URL_PROD` in `.env` if you want a connection seeded on startup, or add a connection from the UI. Open **Connections** (**SimpleFIN Connections**), claim a token, link each remote account to a local account, then **Sync now**. Step-by-step: [SimpleFIN setup guide](#simplefin-setup-guide).
+
+### Amounts
+
+Stored amounts use one sign convention (positive = money in, negative = out). How that affects the dashboard and transfers is documented in [docs/AMOUNT_CONVENTION.md](docs/AMOUNT_CONVENTION.md).
+
+### OPTIONAL for Mac — Automator launcher
+
+Open Automator, create a new Application where you like, add **Run AppleScript**, and paste:
+
+```applescript
 tell application "Terminal"
 	activate
-	
+
 	-- Backend tab
 	do script "cd *PATH/TO/REPO*; source .venv/bin/activate; npm run dev:backend"
-	
+
 	-- New tab for frontend
 	tell application "System Events" to keystroke "t" using command down
 	delay 0.5
-	
+
 	do script "cd *PATH/TO/REPO*; npm run dev:frontend" in front window
 end tell
 
--- Wait for frontend server to start
+-- Wait for the frontend server to start
 delay 2
 
--- Open browser to app
+-- Open the app in the browser
 do shell script "open http://localhost:5173"
 ```
+
+Replace `*PATH/TO/REPO*` with your clone path.
 
 ## SimpleFIN auto-sync (bank account linking)
 
@@ -80,7 +97,7 @@ The app supports automatic bank account syncing via the [SimpleFIN Protocol](htt
 SIMPLEFIN_ACCESS_URL_PROD="https://user:pass@beta-bridge.simplefin.org/simplefin"
 ```
 
-On first startup the app seeds a connection automatically. A single SimpleFIN Access URL/connection can include multiple bank accounts; you do not add one URL per account. Open **Account Sync Setup** to discover the accounts available under that connection, then link the accounts you want to track locally.
+On first startup the app seeds a connection automatically. A single SimpleFIN Access URL/connection can include multiple bank accounts; you do not add one URL per account. Open **Connections** (**SimpleFIN Connections** in the Bank Sync section) to see discovered accounts for that connection, then link each one to a **local** account you created on the **Accounts** page.
 
 If you call the sync API with a custom `end_date`, it follows SimpleFIN protocol semantics: `end-date` is exclusive (transactions are returned before, but not on, that date).
 
@@ -111,9 +128,9 @@ python -m backend.scripts.simplefin_sync_once
 Use this guide if you are setting up bank syncing from scratch.
 
 1. Create a SimpleFIN token from your institution (or Bridge) `/create` page.
-2. In the app, open **Connections** and paste the token in **Add a new connection**.
-3. Go to **Account Sync Setup**, select your connection, and review discovered accounts (auto-loads on page).
-4. Link the discovered accounts you want to track to local account names/types.
+2. In the app, open **Connections** and paste the token in **Add a root connection** (**Claim & Connect**).
+3. On **Connections**, your connection appears with **Available remote accounts (cached)**. Use **Refresh cached accounts** or **Sync now** if the list is empty.
+4. For each remote account, choose a **local** account (create more on **Accounts** if needed) and click **Link**.
 5. Click **Sync now** to import balances and transactions for linked accounts.
 
 Notes:

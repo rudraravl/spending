@@ -1,5 +1,5 @@
 """
-SQLAlchemy ORM Models for the Personal Budget App.
+SQLAlchemy ORM Models for Keep.
 
 Defines the following entities:
 - Account: Credit card or bank account

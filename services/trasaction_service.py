@@ -254,6 +254,9 @@ def get_transactions(
         query = query.filter(Transaction.is_transfer.is_(False))
     
     if filters:
+        if filters.exclude_account_types:
+            query = query.join(Account, Transaction.account_id == Account.id)
+            query = query.filter(~Account.type.in_(list(filters.exclude_account_types)))
         # Apply filters
         if filters.start_date:
             query = query.filter(Transaction.date >= filters.start_date)

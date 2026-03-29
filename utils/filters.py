@@ -13,7 +13,7 @@ Filters are combinable and used throughout the app.
 """
 
 from datetime import date
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
 
 class TransactionFilter:
@@ -40,6 +40,7 @@ class TransactionFilter:
         tags_match_any: bool = False,
         min_amount: Optional[float] = None,
         max_amount: Optional[float] = None,
+        exclude_account_types: Optional[Tuple[str, ...]] = None,
     ):
         """
         Initialize a filter.
@@ -55,6 +56,8 @@ class TransactionFilter:
                 If True, transaction must have ANY of the tags (OR).
             min_amount: Minimum transaction amount
             max_amount: Maximum transaction amount
+            exclude_account_types: If set, exclude transactions whose account type is in this set
+                (e.g. ``("investment",)`` for budget/dashboard views).
         """
         self.start_date = start_date
         self.end_date = end_date
@@ -65,6 +68,7 @@ class TransactionFilter:
         self.tags_match_any = tags_match_any
         self.min_amount = min_amount
         self.max_amount = max_amount
+        self.exclude_account_types = exclude_account_types
     
     def combine(self, other: 'TransactionFilter') -> 'TransactionFilter':
         """
@@ -93,6 +97,12 @@ class TransactionFilter:
         max_amount = self.max_amount or other.max_amount
         if self.max_amount is not None and other.max_amount is not None:
             max_amount = min(self.max_amount, other.max_amount)
+
+        exclude_account_types = None
+        if self.exclude_account_types or other.exclude_account_types:
+            a = set(self.exclude_account_types or ())
+            b = set(other.exclude_account_types or ())
+            exclude_account_types = tuple(sorted(a | b)) if (a | b) else None
         
         # For IDs: use the one that is set (or None if both unset)
         account_id = self.account_id or other.account_id
@@ -116,6 +126,7 @@ class TransactionFilter:
             tags_match_any=tags_match_any,
             min_amount=min_amount,
             max_amount=max_amount,
+            exclude_account_types=exclude_account_types,
         )
     
     def __repr__(self):
@@ -138,5 +149,7 @@ class TransactionFilter:
             parts.append(f"min_amount={self.min_amount}")
         if self.max_amount is not None:
             parts.append(f"max_amount={self.max_amount}")
+        if self.exclude_account_types:
+            parts.append(f"exclude_account_types={self.exclude_account_types}")
         
         return f"TransactionFilter({', '.join(parts)})"

@@ -24,6 +24,8 @@ from urllib.parse import urlparse
 from db.models import Account, SimpleFINConnection, SimpleFINSyncRun, Transaction
 from services.encryption import decrypt, encrypt
 from services.import_service import ensure_category, ensure_subcategory
+from services.investment_snapshot_service import record_investment_snapshot
+from services.investment_txn_parser import classify_investment_transaction
 from services.rule_service import apply_rules_to_transaction
 from services.simplefin_client import (
     SFINAccountSet,
@@ -734,7 +736,24 @@ def sync_connection(
                 session.add(new_txn)
                 session.flush()
                 apply_rules_to_transaction(session, new_txn)
+                if local_acct.type == "investment":
+                    classify_investment_transaction(session, new_txn)
                 result.transactions_imported += 1
+
+            holdings = list(account_for_import.holdings or [])
+            if not holdings and sfin_acct.holdings:
+                holdings = list(sfin_acct.holdings)
+            if local_acct.type == "investment" or holdings:
+                captured = datetime.now(timezone.utc)
+                record_investment_snapshot(
+                    session,
+                    local_acct,
+                    holdings,
+                    reported_balance=float(account_for_import.balance),
+                    currency=str(account_for_import.currency or "USD"),
+                    sync_run_id=run.id,
+                    captured_at=captured,
+                )
 
             local_acct.last_synced_at = datetime.now(timezone.utc)
 

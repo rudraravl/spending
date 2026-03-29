@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Trash2 } from 'lucide-react'
+import { ArrowLeft, Info, Trash2 } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { deleteAccount, getAccount, getAccountSummary, patchAccount } from '../api/accounts'
 import { getPortfolio } from '../api/investments'
@@ -9,7 +9,6 @@ import { getTransactions } from '../api/transactions'
 import AccountTxnsTable from '../features/accounts/AccountTxnsTable'
 import AccountPortfolioTab from '../features/investments/AccountPortfolioTab'
 import { accountTypeLabel, accountViewKind } from '../features/accounts/accountViewKind'
-import { isRobinhoodCryptoStyleAccountName } from '../features/accounts/robinhoodCryptoAccount'
 import { queryKeys } from '../queryKeys'
 import type { TransactionOut } from '../types'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -155,9 +154,9 @@ export default function AccountDetailPage() {
   const robinhoodCryptoMode =
     Boolean(acct.is_robinhood_crypto) ||
     Boolean(portfolioQuery.data?.account?.is_robinhood_crypto)
-  const showRobinhoodCryptoToggle =
-    acct.type === 'investment' &&
-    (isRobinhoodCryptoStyleAccountName(acct.name) || Boolean(acct.is_robinhood_crypto))
+  // Local display names rarely match SimpleFIN’s remote "Crypto (####)" label after linking—show for
+  // all investment accounts so Robinhood crypto sub-accounts can opt in regardless of name.
+  const showRobinhoodCryptoToggle = acct.type === 'investment'
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -182,9 +181,11 @@ export default function AccountDetailPage() {
           </Link>
         </Button>
 
-        <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight">{acct.name}</h1>
+        <div className="flex flex-nowrap items-start justify-between gap-4 mb-6">
+          <div className="min-w-0 flex-1 pr-2">
+            <h1 className="text-xl font-semibold tracking-tight truncate" title={acct.name}>
+              {acct.name}
+            </h1>
             <p className="text-sm text-muted-foreground mt-1">
               {accountTypeLabel(acct.type)} · {acct.currency}
             </p>
@@ -207,26 +208,40 @@ export default function AccountDetailPage() {
               </p>
             ) : null}
             {showRobinhoodCryptoToggle ? (
-              <div className="mt-4 flex items-start gap-3 rounded-lg border bg-muted/30 px-3 py-3 max-w-md">
-                <Switch
-                  id="rh-crypto-mode"
-                  checked={Boolean(acct.is_robinhood_crypto)}
-                  disabled={patchRobinhoodCryptoMutation.isPending}
-                  onCheckedChange={(v) => patchRobinhoodCryptoMutation.mutate(v)}
-                />
-                <div className="space-y-0.5">
-                  <Label htmlFor="rh-crypto-mode" className="text-sm font-medium cursor-pointer">
-                    Robinhood crypto sub-account
-                  </Label>
-                  <p className="text-xs text-muted-foreground leading-snug">
-                    Treat this account as crypto positions only: total value is the sum of holdings (and
-                    manual positions), not custodian cash or the separate balance line.
-                  </p>
-                </div>
+              <div className="mt-3 inline-flex max-w-full items-center gap-2 rounded-md border border-border/50 bg-muted/25 py-1 pl-1.5 pr-2">
+                <span className="inline-flex shrink-0 origin-left scale-[0.85]">
+                  <Switch
+                    id="rh-crypto-mode"
+                    checked={Boolean(acct.is_robinhood_crypto)}
+                    disabled={patchRobinhoodCryptoMutation.isPending}
+                    onCheckedChange={(v) => patchRobinhoodCryptoMutation.mutate(v)}
+                  />
+                </span>
+                <Label
+                  htmlFor="rh-crypto-mode"
+                  className="text-xs font-medium cursor-pointer leading-tight whitespace-nowrap"
+                >
+                  RH crypto
+                </Label>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-foreground rounded-full p-0.5 shrink-0 -ml-0.5"
+                      aria-label="About Robinhood crypto mode"
+                    >
+                      <Info className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-xs text-xs">
+                    Treat as Robinhood’s separate crypto sub-account: total value is the sum of holdings
+                    (and manual positions), not custodian cash or the broker balance line.
+                  </TooltipContent>
+                </Tooltip>
               </div>
             ) : null}
           </div>
-          <div className="flex flex-col items-end gap-2">
+          <div className="flex shrink-0 flex-col items-end gap-2">
             {acct.type === 'investment' ? (
               <Card className="min-w-[260px] border-primary/20 bg-muted/30">
                 <CardHeader className="pb-2 pt-4 px-4">

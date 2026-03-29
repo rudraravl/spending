@@ -67,7 +67,7 @@ export function AppSidebar() {
     ));
 
   return (
-    <Sidebar collapsible="icon" className="border-r-0">
+    <Sidebar collapsible="icon">
       <SidebarContent className="py-6">
         {/* Branding */}
         {!collapsed && (

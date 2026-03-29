@@ -19,8 +19,11 @@
      * surfaces. If you switch --brand to e.g. green or purple, you may want to 
      * tweak those lines so UI chrome matches; the rest of the app will still 
      * track --brand automatically.
+     *
+     * Use spaces only — no commas (e.g. `265 91% 58%`). Commas break
+     * `hsl(var(--brand) / …)` used for the header glow and other effects.
      */
-    --brand: 217 91% 60%;
+    --brand: 265 91% 58%;
 
     /* Page shell – #F7FAF9 bright snow + #141519 onyx */
     --background: 164 23% 97%;
@@ -176,19 +179,18 @@
     position: relative;
     isolation: isolate;
     overflow: hidden;
-    border-bottom: 1px solid hsl(var(--border));
     background: hsl(var(--brand));
+    /* Tweak the `/ 0.xx` alphas (and blur px) to adjust glow strength */
     box-shadow:
-      0 4px 18px -4px hsl(var(--brand) / 0.42),
-      0 12px 40px -8px hsl(var(--brand) / 0.52);
+      0 3px 14px -4px hsl(var(--brand) / 0.28),
+      0 10px 32px -8px hsl(var(--brand) / 0.34);
   }
 
   .dark .app-shell-header {
-    border-bottom: 1px solid hsl(var(--border));
     background: hsl(var(--brand));
     box-shadow:
-      0 4px 22px -4px hsl(var(--brand) / 0.38),
-      0 14px 48px -8px hsl(var(--brand) / 0.62);
+      0 3px 16px -4px hsl(var(--brand) / 0.26),
+      0 12px 36px -8px hsl(var(--brand) / 0.42);
   }
 }
 

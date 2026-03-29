@@ -43,10 +43,10 @@ export default function AppLayout() {
               </div>
             </div>
           </header>
-          <main className="flex-1 overflow-auto bg-gradient-to-b from-brand/[0.08] via-brand/[0.03] to-background">
+          <main className="flex-1 overflow-auto bg-background">
             <Outlet />
           </main>
-          <footer className="shrink-0 border-t border-border/70 bg-gradient-to-r from-brand/12 via-primary/[0.06] to-brand/10 px-4 py-2.5 text-center text-[11px] text-muted-foreground">
+          <footer className="shrink-0 border-t border-border/70 bg-muted/25 px-4 py-2.5 text-center text-[11px] text-muted-foreground">
             Made by Rudra Raval
           </footer>
         </div>

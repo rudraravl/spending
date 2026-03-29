@@ -56,6 +56,11 @@ export const queryKeys = {
   simplefinDiscovery: (connectionId: number) => ['simplefin', 'discovery', connectionId] as const,
   simplefinSyncRuns: (connectionId: number) => ['simplefin', 'sync-runs', connectionId] as const,
   simplefinDailyBudget: (connectionId: number) => ['simplefin', 'daily-budget', connectionId] as const,
+
+  investmentsSummary: () => ['investments', 'summary'] as const,
+  investmentPortfolio: (accountId: number) => ['investments', 'portfolio', accountId] as const,
+  investmentHistory: (accountId: number, limit: number) =>
+    ['investments', 'history', accountId, limit] as const,
 }
 
 export function normalizeNumberArrayKey(ids: number[] | null | undefined): string {

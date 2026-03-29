@@ -13,6 +13,7 @@ import AddTransactionPage from './pages/AddTransactionPage'
 import AllTransactionsPage from './pages/AllTransactionsPage'
 import DashboardPage from './pages/DashboardPage'
 import ImportCsvPage from './pages/ImportCsvPage'
+import InvestmentsPage from './pages/InvestmentsPage'
 import NotFoundPage from './pages/NotFoundPage'
 import BudgetsPage from '@/pages/BudgetsPage'
 import RecurringChargesPage from './pages/RecurringChargesPage'
@@ -43,6 +44,7 @@ export default function KeepApp() {
                 <Route path="/recurring" element={<RecurringChargesPage />} />
                 <Route path="/budgets" element={<BudgetsPage />} />
                 <Route path="/views" element={<ViewsPage />} />
+                <Route path="/investments" element={<InvestmentsPage />} />
                 <Route path="/summaries" element={<SummariesPage />} />
                 <Route path="/connections" element={<SimplefinConnectionsPage />} />
                 <Route path="/settings" element={<SettingsPage />} />

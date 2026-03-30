@@ -56,7 +56,7 @@ function budgetVariant(used: number, limit: number): 'default' | 'secondary' | '
   return 'default'
 }
 
-export default function SimplefinConnectionsPage() {
+export default function SimplefinConnectionsPage({ embedded = false }: { embedded?: boolean }) {
   const queryClient = useQueryClient()
 
   const { data: connections = [], isLoading } = useQuery({
@@ -196,15 +196,19 @@ export default function SimplefinConnectionsPage() {
   )
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-8">
+    <div className={embedded ? 'space-y-8' : 'p-6 max-w-4xl mx-auto space-y-8'}>
       <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
         <p className="text-sm text-muted-foreground mt-1">
-          Claim a bank connection, map each remote account to a local account, then run sync. Same page as sidebar{' '}
-          <span className="text-foreground/80 font-medium">Bank Sync → Connections</span>.
-          {' '}
-          <Link to="/accounts" className="text-primary underline-offset-4 hover:underline">
-            View local accounts &rarr;
-          </Link>
+          Claim a bank connection, map each remote account to a local account, then run sync.
+          {!embedded ? (
+            <>
+              {' '}
+              Same page as sidebar <span className="text-foreground/80 font-medium">Bank Sync → Connections</span>.{' '}
+              <Link to="/accounts" className="text-primary underline-offset-4 hover:underline">
+                View local accounts &rarr;
+              </Link>
+            </>
+          ) : null}
         </p>
       </motion.div>
 

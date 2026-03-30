@@ -77,6 +77,7 @@ export default {
       },
       fontFamily: {
         sans: ["'DM Sans'", 'system-ui', '-apple-system', 'sans-serif'],
+        playfair: ['Playfair', 'serif'],
         mono: ["'JetBrains Mono'", 'monospace'],
       },
       boxShadow: {

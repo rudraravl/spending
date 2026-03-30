@@ -46,7 +46,7 @@ export default function KeepApp() {
                 <Route path="/views" element={<ViewsPage />} />
                 <Route path="/investments" element={<InvestmentsPage />} />
                 <Route path="/summaries" element={<SummariesPage />} />
-                <Route path="/connections" element={<SimplefinConnectionsPage />} />
+                <Route path="/connections" element={<Navigate to="/accounts?tab=connections" replace />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>
               <Route path="*" element={<NotFoundPage />} />

@@ -10,7 +10,6 @@ import {
   Repeat,
   Settings,
   Wallet,
-  Plug,
   TrendingUp,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
@@ -35,10 +34,6 @@ const mainItems = [
   { title: "All Transactions", url: "/transactions", icon: List },
   { title: "Recurring charges", url: "/recurring", icon: Repeat },
   { title: "Budgets", url: "/budgets", icon: Wallet },
-];
-
-const syncItems = [
-  { title: "Connections", url: "/connections", icon: Plug },
 ];
 
 const analyticsItems = [
@@ -79,10 +74,9 @@ export function AppSidebar() {
                 <Wallet className="h-4 w-4 text-sidebar-primary-foreground drop-shadow-sm" />
               </div>
               <div>
-                <h1 className="text-sm font-semibold tracking-tight text-sidebar-accent-foreground">
+                <h1 className="font-playfair text-4xl font-bold tracking-tight text-sidebar-accent-foreground">
                   Keep
                 </h1>
-                <p className="text-[11px] text-sidebar-foreground/80 font-medium">Local budget tracker</p>
               </div>
             </div>
           </div>
@@ -91,23 +85,6 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>{renderItems(mainItems)}</SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {!collapsed && (
-          <div className="px-6 my-3">
-            <div className="h-px bg-sidebar-border" />
-          </div>
-        )}
-
-        <SidebarGroup>
-          {!collapsed && (
-            <p className="px-6 mb-1 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/55">
-              Bank Sync
-            </p>
-          )}
-          <SidebarGroupContent>
-            <SidebarMenu>{renderItems(syncItems)}</SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 

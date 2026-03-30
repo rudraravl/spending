@@ -18,6 +18,7 @@ import BudgetsPage from '@/pages/BudgetsPage'
 import RecurringChargesPage from './pages/RecurringChargesPage'
 import SettingsPage from './pages/SettingsPage'
 import ReportsPage from './pages/ReportsPage'
+import NetWorthOverTimePage from './pages/NetWorthOverTimePage'
 import ViewsPage from './pages/ViewsPage'
 
 export default function KeepApp() {
@@ -44,6 +45,7 @@ export default function KeepApp() {
                 <Route path="/investments" element={<InvestmentsPage />} />
                 <Route path="/reports" element={<ReportsPage />} />
                 <Route path="/summaries" element={<Navigate to="/reports" replace />} />
+                <Route path="/net-worth" element={<NetWorthOverTimePage />} />
                 <Route path="/connections" element={<Navigate to="/accounts?tab=connections" replace />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>

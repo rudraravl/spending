@@ -314,6 +314,25 @@ def reports_monthly(
     }
 
 
+@router.get("/api/reports/net-worth", status_code=status.HTTP_200_OK)
+def net_worth_history_endpoint(
+    start_date: date = Query(..., description="YYYY-MM-DD"),
+    end_date: date = Query(..., description="YYYY-MM-DD"),
+    session: Session = Depends(get_db_session),
+) -> dict[str, object]:
+    if start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="start_date must be on or before end_date",
+        )
+
+    return {
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "net_worth_over_time": net_worth_history(session, start=start_date, end=end_date),
+    }
+
+
 @router.get("/api/views", status_code=status.HTTP_200_OK)
 def views(
     # Date range required

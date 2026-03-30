@@ -44,6 +44,8 @@ export const queryKeys = {
   views: (paramsKey: string) => ['views', paramsKey] as const,
 
   reportsMonthly: (year: number, month: number) => ['reports', 'monthly', year, month] as const,
+  netWorthHistory: (startDate: string, endDate: string) =>
+    ['reports', 'net-worth', startDate, endDate] as const,
 
   importAdapters: () => ['import', 'adapters'] as const,
   csvPreview: (signature: string) => ['csvPreview', signature] as const,

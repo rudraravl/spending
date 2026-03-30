@@ -35,6 +35,7 @@ const mainItems = [
 
 const analyticsItems = [
   { title: "Views", url: "/views", icon: BarChart3 },
+  { title: "Net worth", url: "/net-worth", icon: TrendingUp },
   { title: "Reports", url: "/reports", icon: FileText },
 ];
 

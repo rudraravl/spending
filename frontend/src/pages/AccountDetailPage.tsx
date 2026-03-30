@@ -2,15 +2,11 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Info, Trash2 } from 'lucide-react'
-import { ArrowLeft, Info, Trash2 } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { deleteAccount, getAccount, getAccountSummary, patchAccount } from '../api/accounts'
-import { getPortfolio } from '../api/investments'
 import { deleteAccount, getAccount, getAccountSummary, patchAccount } from '../api/accounts'
 import { getPortfolio } from '../api/investments'
 import { getTransactions } from '../api/transactions'
 import AccountTxnsTable from '../features/accounts/AccountTxnsTable'
-import AccountPortfolioTab from '../features/investments/AccountPortfolioTab'
 import AccountPortfolioTab from '../features/investments/AccountPortfolioTab'
 import { accountTypeLabel, accountViewKind } from '../features/accounts/accountViewKind'
 import { queryKeys } from '../queryKeys'
@@ -20,8 +16,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -29,14 +23,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
 import NotFoundPage from './NotFoundPage'
-import { toast } from 'sonner'
 import { toast } from 'sonner'
 
 function formatMoney(amount: number, currency: string) {
@@ -91,13 +78,6 @@ export default function AccountDetailPage() {
     queryFn: () => getPortfolio(id),
     enabled: validId && isInvestment,
   })
-  const isInvestment = accountQuery.data?.type === 'investment'
-
-  const portfolioQuery = useQuery({
-    queryKey: queryKeys.investmentPortfolio(id),
-    queryFn: () => getPortfolio(id),
-    enabled: validId && isInvestment,
-  })
 
   const txnsQuery = useQuery({
     queryKey: queryKeys.transactionsForAccount(id, true),
@@ -111,18 +91,6 @@ export default function AccountDetailPage() {
 
   const deleteAccountMutation = useMutation({
     mutationFn: (accountId: number) => deleteAccount(accountId),
-  })
-
-  const patchRobinhoodCryptoMutation = useMutation({
-    mutationFn: (is_robinhood_crypto: boolean) => patchAccount(id, { is_robinhood_crypto }),
-    onSuccess: (data) => {
-      queryClient.setQueryData(queryKeys.accountDetail(id), data)
-      void queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.investmentPortfolio(id) })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.investmentHistory(id, 365) })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.investmentsSummary() })
-    },
-    onError: (e: Error) => toast.error(e.message),
   })
 
   const patchRobinhoodCryptoMutation = useMutation({
@@ -185,12 +153,6 @@ export default function AccountDetailPage() {
   const summary = summaryQuery.data
   const ledgerDiffers =
     summary != null && Math.abs(summary.balance - summary.ledger_balance) > 0.005
-  const robinhoodCryptoMode =
-    Boolean(acct.is_robinhood_crypto) ||
-    Boolean(portfolioQuery.data?.account?.is_robinhood_crypto)
-  // Local display names rarely match SimpleFIN’s remote "Crypto (####)" label after linking—show for
-  // all investment accounts so Robinhood crypto sub-accounts can opt in regardless of name.
-  const showRobinhoodCryptoToggle = acct.type === 'investment'
   const robinhoodCryptoMode =
     Boolean(acct.is_robinhood_crypto) ||
     Boolean(portfolioQuery.data?.account?.is_robinhood_crypto)
@@ -277,133 +239,7 @@ export default function AccountDetailPage() {
                 </Tooltip>
               </div>
             ) : null}
-            {showRobinhoodCryptoToggle ? (
-              <div className="mt-3 inline-flex max-w-full items-center gap-2 rounded-md border border-border/50 bg-muted/25 py-1 pl-1.5 pr-2">
-                <span className="inline-flex shrink-0 origin-left scale-[0.85]">
-                  <Switch
-                    id="rh-crypto-mode"
-                    checked={Boolean(acct.is_robinhood_crypto)}
-                    disabled={patchRobinhoodCryptoMutation.isPending}
-                    onCheckedChange={(v) => patchRobinhoodCryptoMutation.mutate(v)}
-                  />
-                </span>
-                <Label
-                  htmlFor="rh-crypto-mode"
-                  className="text-xs font-medium cursor-pointer leading-tight whitespace-nowrap"
-                >
-                  RH crypto
-                </Label>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      className="text-muted-foreground hover:text-foreground rounded-full p-0.5 shrink-0 -ml-0.5"
-                      aria-label="About Robinhood crypto mode"
-                    >
-                      <Info className="h-3.5 w-3.5" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="max-w-xs text-xs">
-                    Treat as Robinhood’s separate crypto sub-account: total value is the sum of holdings
-                    (and manual positions), not custodian cash or the broker balance line.
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-            ) : null}
           </div>
-          <div className="flex shrink-0 flex-col items-end gap-2">
-            {acct.type === 'investment' ? (
-              <Card className="min-w-[260px] border-primary/20 bg-muted/30">
-                <CardHeader className="pb-2 pt-4 px-4">
-                  <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    Account value
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="pb-4 px-4 space-y-3">
-                  {portfolioQuery.isPending ? (
-                    <p className="text-sm text-muted-foreground">…</p>
-                  ) : portfolioQuery.data ? (
-                    <>
-                      <div>
-                        <p className="text-2xl font-semibold tabular-nums tracking-tight">
-                          {formatMoney(portfolioQuery.data.totals.total_value, acct.currency)}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {robinhoodCryptoMode
-                            ? 'Crypto sub-account: total matches sum of positions (custodian cash ignored).'
-                            : portfolioQuery.data.latest_snapshot?.captured_at
-                              ? `As of sync · ${formatImportedAt(portfolioQuery.data.latest_snapshot.captured_at)}`
-                              : 'From last reported balance — sync to load holdings & split cash vs positions'}
-                        </p>
-                      </div>
-                      <div className="space-y-2 text-sm border-t border-border/60 pt-3">
-                        {!robinhoodCryptoMode ? (
-                          <div className="flex justify-between gap-4 tabular-nums">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="text-muted-foreground cursor-help border-b border-dotted border-muted-foreground/50">
-                                  Cash
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent className="max-w-xs text-xs">
-                                Uninvested cash from the last SimpleFIN sync (account balance minus positions).
-                              </TooltipContent>
-                            </Tooltip>
-                            <span className="font-medium">
-                              {formatMoney(portfolioQuery.data.totals.cash_balance, acct.currency)}
-                            </span>
-                          </div>
-                        ) : null}
-                        <div className="flex justify-between gap-4 tabular-nums">
-                          <span className="text-muted-foreground">Positions</span>
-                          <span className="font-medium">
-                            {formatMoney(portfolioQuery.data.totals.positions_value, acct.currency)}
-                          </span>
-                        </div>
-                      </div>
-                      {ledgerDiffers && summary ? (
-                        <p className="text-xs text-muted-foreground pt-1 border-t border-border/40">
-                          Sum of transactions: {formatMoney(summary.ledger_balance, acct.currency)}
-                        </p>
-                      ) : null}
-                    </>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      {(portfolioQuery.error as Error)?.message ?? 'Could not load portfolio'}
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            ) : (
-              <Card className="min-w-[200px] border-primary/20 bg-muted/30">
-                <CardHeader className="pb-2 pt-4 px-4">
-                  <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    Balance
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="pb-4 px-4">
-                  {summaryQuery.isPending ? (
-                    <p className="text-sm text-muted-foreground">…</p>
-                  ) : balance != null ? (
-                    <div>
-                      <p className="text-2xl font-semibold tabular-nums tracking-tight">{formatMoney(balance, acct.currency)}</p>
-                      {ledgerDiffers && summary ? (
-                        <p className="text-xs text-muted-foreground mt-2">
-                          Sum of transactions: {formatMoney(summary.ledger_balance, acct.currency)}
-                        </p>
-                      ) : null}
-                      {acct.reported_balance_at ? (
-                        <p className="text-xs text-muted-foreground mt-2">
-                          Bank balance from last import · {formatImportedAt(acct.reported_balance_at)}
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">—</p>
-                  )}
-                </CardContent>
-              </Card>
-            )}
           <div className="flex shrink-0 flex-col items-end gap-2">
             {acct.type === 'investment' ? (
               <Card className="min-w-[260px] border-primary/20 bg-muted/30">

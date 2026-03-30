@@ -13,6 +13,7 @@ const pageMeta: Record<string, { title: string; description: string }> = {
   "/recurring": { title: "Recurring charges", description: "Confirm or ignore detected recurring charges" },
   "/budgets": { title: "Budgets", description: "Set monthly limits and track progress" },
   "/views": { title: "Views", description: "Custom filtered analytics" },
+  "/investments": { title: "Investments", description: "Portfolio allocation and account performance" },
   "/summaries": { title: "Summaries", description: "Period rollup reports" },
   "/connections": { title: "Connections", description: "Manage SimpleFIN bank connections" },
   "/settings": { title: "Settings", description: "Categories, tags, and auto-categorization rules" },

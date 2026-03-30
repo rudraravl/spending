@@ -1,7 +1,7 @@
 import type { RowSelectionState } from '@tanstack/react-table'
 import { useEffect, useMemo, useState } from 'react'
 import { useFieldArray, useForm } from 'react-hook-form'
-import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiGet } from '../../api/client'
 import { getAccounts } from '../../api/accounts'
 import { getCategories, getSubcategories } from '../../api/categories'
@@ -29,7 +29,8 @@ type TransactionPatchPayload = {
   tag_ids: number[]
 }
 
-const PAGE_SIZE = 250
+const PAGE_SIZE_OPTIONS = [100, 250, 500] as const
+const DEFAULT_PAGE_SIZE = 100
 
 export function useTransactions() {
   const queryClient = useQueryClient()
@@ -39,6 +40,8 @@ export function useTransactions() {
   const [fTag, setFTag] = useState('All')
   const [fAccountId, setFAccountId] = useState<number | null>(null)
   const [showOnlyRecent, setShowOnlyRecent] = useState(false)
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE)
+  const [pageIndex, setPageIndex] = useState(0)
 
   const [gridRows, setGridRows] = useState<TransactionRow[]>([])
   const [dirtyIds, setDirtyIds] = useState<Set<number>>(new Set())
@@ -138,18 +141,22 @@ export function useTransactions() {
 
   const tagIdsKey = useMemo(() => (serverTagIds?.length ? serverTagIds.join(',') : ''), [serverTagIds])
 
-  const transactionsQuery = useInfiniteQuery<TransactionOut[], Error>({
-    queryKey: queryKeys.transactions({
-      includeTransfers: true,
-      startDate: recentRange.startDate,
-      endDate: recentRange.endDate,
-      accountId: fAccountId,
-      categoryId: serverCategoryId ?? null,
-      tagIdsKey,
-      tagsMatchAny: true,
-      limit: PAGE_SIZE,
-    }),
-    queryFn: ({ pageParam }) =>
+  const offset = pageIndex * pageSize
+  const transactionsQuery = useQuery<TransactionOut[], Error>({
+    queryKey: [
+      ...queryKeys.transactions({
+        includeTransfers: true,
+        startDate: recentRange.startDate,
+        endDate: recentRange.endDate,
+        accountId: fAccountId,
+        categoryId: serverCategoryId ?? null,
+        tagIdsKey,
+        tagsMatchAny: true,
+        limit: pageSize,
+      }),
+      offset,
+    ],
+    queryFn: () =>
       getTransactions<TransactionOut[]>({
         includeTransfers: true,
         startDate: recentRange.startDate,
@@ -158,24 +165,16 @@ export function useTransactions() {
         categoryId: serverCategoryId,
         tagIds: serverTagIds,
         tagsMatchAny: true,
-        limit: PAGE_SIZE,
-        offset: typeof pageParam === 'number' ? pageParam : 0,
+        limit: pageSize,
+        offset,
       }),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) => {
-      if (!lastPage || lastPage.length < PAGE_SIZE) return undefined
-      return allPages.length * PAGE_SIZE
-    },
   })
-
-  const allTransactions = useMemo(() => {
-    const pages = transactionsQuery.data?.pages ?? []
-    return pages.flat()
-  }, [transactionsQuery.data])
+  const currentPageTransactions = transactionsQuery.data ?? []
+  const hasNextPage = currentPageTransactions.length === pageSize
 
   const filteredRows = useMemo(() => {
     const needle = merchantSearch.trim().toLowerCase()
-    let filtered = allTransactions
+    let filtered = currentPageTransactions
     if (needle) {
       filtered = filtered.filter((t) => {
         const hay = `${t.merchant ?? ''} ${t.notes ?? ''}`.toLowerCase()
@@ -195,7 +194,11 @@ export function useTransactions() {
       Acct: t.account_name ?? '',
       Split: t.has_splits ? 'Split' : '',
     }))
-  }, [allTransactions, merchantSearch])
+  }, [currentPageTransactions, merchantSearch])
+
+  useEffect(() => {
+    setPageIndex(0)
+  }, [recentRange.startDate, recentRange.endDate, fAccountId, serverCategoryId, tagIdsKey, pageSize])
 
   useEffect(() => {
     if (metaLoading || transactionsQuery.isPending) return
@@ -307,7 +310,7 @@ export function useTransactions() {
       if (ids.length !== 2) {
         throw new Error('Select exactly two transactions to link as a transfer.')
       }
-      const txns = allTransactions.filter((t) => ids.includes(t.id))
+      const txns = currentPageTransactions.filter((t) => ids.includes(t.id))
       if (txns.length !== 2) {
         throw new Error('Could not resolve selected transactions; refresh and try again.')
       }
@@ -343,7 +346,7 @@ export function useTransactions() {
       if (ids.length !== 2) {
         throw new Error('Select exactly two transactions to unlink a transfer.')
       }
-      const txns = allTransactions.filter((t) => ids.includes(t.id))
+      const txns = currentPageTransactions.filter((t) => ids.includes(t.id))
       if (txns.length !== 2) {
         throw new Error('Could not resolve selected transactions; refresh and try again.')
       }
@@ -450,12 +453,12 @@ export function useTransactions() {
     return newRow
   }
 
-  function loadMore() {
+  function nextPage() {
     if (!metaReady) return
     if (dirtyIds.size > 0) return
-    if (!transactionsQuery.hasNextPage) return
-    if (transactionsQuery.isFetchingNextPage) return
-    transactionsQuery.fetchNextPage()
+    if (!hasNextPage) return
+    if (transactionsQuery.isFetching) return
+    setPageIndex((prev) => prev + 1)
   }
 
   function saveSplits() {
@@ -506,15 +509,19 @@ export function useTransactions() {
       linkCardPaymentPending: linkCardPaymentMutation.isPending,
       unlinkTransfer,
       unlinkTransferPending: unlinkTransferMutation.isPending,
-      loadMore,
-      canLoadMore:
+      nextPage,
+      canNextPage:
         metaReady &&
         dirtyIds.size === 0 &&
-        !!transactionsQuery.hasNextPage &&
-        !transactionsQuery.isFetchingNextPage &&
+        hasNextPage &&
+        !transactionsQuery.isFetching &&
         !transactionsQuery.isPending,
-      loadMorePending: transactionsQuery.isFetchingNextPage,
-      loadedCount: allTransactions.length,
+      nextPagePending: transactionsQuery.isFetching,
+      pageSize,
+      setPageSize: (size: number) => setPageSize(size),
+      pageSizeOptions: PAGE_SIZE_OPTIONS as readonly number[],
+      pageNumber: pageIndex + 1,
+      currentPageCount: currentPageTransactions.length,
     },
     splits: {
       splitsControl,

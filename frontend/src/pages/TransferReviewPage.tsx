@@ -72,7 +72,7 @@ export default function TransferReviewPage() {
               {holdoutCount} transaction{holdoutCount === 1 ? '' : 's'} still tagged under Bills → Payments. Link pairs
               below or recategorize in{' '}
               <Link to="/transactions" className="text-primary underline-offset-4 hover:underline">
-                All transactions
+                Transactions
               </Link>
               .
             </CardDescription>

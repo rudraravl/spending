@@ -392,10 +392,14 @@ export type TransactionsTableProps = {
   deletePending: boolean
   linkCardPaymentPending: boolean
   unlinkTransferPending: boolean
-  onLoadMore: () => void
-  canLoadMore: boolean
-  loadMorePending: boolean
-  loadedCount: number
+  onNextPage: () => void
+  canNextPage: boolean
+  nextPagePending: boolean
+  pageSize: number
+  onPageSizeChange: (size: number) => void
+  pageSizeOptions: readonly number[]
+  pageNumber: number
+  currentPageCount: number
 }
 
 export default function TransactionsTable({
@@ -427,10 +431,14 @@ export default function TransactionsTable({
   deletePending,
   linkCardPaymentPending,
   unlinkTransferPending,
-  onLoadMore,
-  canLoadMore,
-  loadMorePending,
-  loadedCount,
+  onNextPage,
+  canNextPage,
+  nextPagePending,
+  pageSize,
+  onPageSizeChange,
+  pageSizeOptions,
+  pageNumber,
+  currentPageCount,
 }: TransactionsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
 
@@ -774,17 +782,27 @@ export default function TransactionsTable({
 
       <div className="flex items-center justify-between gap-3 mt-3">
         <p className="text-xs text-muted-foreground">
-          Showing <span className="font-medium text-foreground">{gridRows.length}</span> rows
-          {loadedCount !== gridRows.length ? (
-            <>
-              {' '}
-              (loaded <span className="font-medium text-foreground">{loadedCount}</span>)
-            </>
-          ) : null}
+          Page <span className="font-medium text-foreground">{pageNumber}</span> · Showing{' '}
+          <span className="font-medium text-foreground">{currentPageCount}</span> of{' '}
+          <span className="font-medium text-foreground">{pageSize}</span> rows
         </p>
-        <Button variant="outline" size="sm" onClick={onLoadMore} disabled={!canLoadMore || loadMorePending}>
-          {loadMorePending ? 'Loading…' : 'Load more'}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Select value={String(pageSize)} onValueChange={(v) => onPageSizeChange(Number(v))}>
+            <SelectTrigger className="h-8 w-[110px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {pageSizeOptions.map((size) => (
+                <SelectItem key={size} value={String(size)}>
+                  {size} / page
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={onNextPage} disabled={!canNextPage || nextPagePending}>
+            {nextPagePending ? 'Loading…' : 'Next page'}
+          </Button>
+        </div>
       </div>
     </div>
   )

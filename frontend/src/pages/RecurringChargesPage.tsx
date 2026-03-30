@@ -182,7 +182,6 @@ export default function RecurringChargesPage() {
     <div className="p-6 max-w-6xl mx-auto">
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="min-w-0 flex-1">
-          <h1 className="text-lg font-semibold tracking-tight">Recurring charges</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Suggested recurring charges are detected using amount tolerance (±$0.05) and month-over-month date matching (±2
             days) across every account. Confirm, ignore, or remove any series.

@@ -183,9 +183,6 @@ export default function AccountDetailPage() {
 
         <div className="flex flex-nowrap items-start justify-between gap-4 mb-6">
           <div className="min-w-0 flex-1 pr-2">
-            <h1 className="text-xl font-semibold tracking-tight truncate" title={acct.name}>
-              {acct.name}
-            </h1>
             <p className="text-sm text-muted-foreground mt-1">
               {accountTypeLabel(acct.type)} · {acct.currency}
             </p>

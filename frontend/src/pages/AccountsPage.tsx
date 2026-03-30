@@ -192,7 +192,6 @@ export default function AccountsPage() {
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-8">
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
-          <h1 className="text-2xl font-semibold tracking-tight">Accounts</h1>
           <p className="text-sm text-muted-foreground mt-1.5 max-w-xl leading-relaxed">
             Open an account for balances and activity. Link institutions on{' '}
             <Link to="/connections" className="text-primary underline-offset-4 hover:underline">

@@ -133,7 +133,6 @@ export default function TransferPage() {
   return (
     <div className="p-6 lg:p-8 max-w-3xl mx-auto">
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-        <h1 className="text-2xl font-semibold mb-1">Transfers</h1>
         <p className="text-muted-foreground mb-8">Review suggested transfer links, then add manual transfers.</p>
 
         {queryError ? <p className="text-sm text-destructive mb-4">{queryError.message}</p> : null}

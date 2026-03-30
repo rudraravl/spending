@@ -198,7 +198,6 @@ export default function SimplefinConnectionsPage() {
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-8">
       <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="text-lg font-semibold tracking-tight">SimpleFIN Connections</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Claim a bank connection, map each remote account to a local account, then run sync. Same page as sidebar{' '}
           <span className="text-foreground/80 font-medium">Bank Sync → Connections</span>.

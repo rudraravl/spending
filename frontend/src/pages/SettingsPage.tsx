@@ -206,7 +206,6 @@ export default function SettingsPage() {
   return (
     <div className="p-6 lg:p-8 max-w-3xl mx-auto space-y-10">
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
-        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
         <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
           Categories, tags, and rules for labeling transactions. Manage accounts on the{' '}
           <Link to="/accounts" className="text-primary underline-offset-4 hover:underline">

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Link2, RefreshCw } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
@@ -58,10 +58,6 @@ export default function TransferReviewPage() {
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
-        <h1 className="text-lg font-semibold tracking-tight flex items-center gap-2">
-          <Link2 className="h-5 w-5" />
-          Review transfer suggestions
-        </h1>
         <p className="text-sm text-muted-foreground mt-1">
           Match card payments (bank outflow + card credit) and moves between asset accounts (e.g. checking ↔
           investment). Link pairs so spending totals stay accurate.

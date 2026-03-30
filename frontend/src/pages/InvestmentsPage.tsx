@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Info, LineChart, RefreshCw } from 'lucide-react'
+import { Info, RefreshCw } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { getInvestmentsSummary, reclassifyInvestmentTxns } from '@/api/investments'
 import { listConnections, triggerSync } from '@/api/simplefin'
@@ -81,15 +81,7 @@ export default function InvestmentsPage() {
 
   const pageToolbar = (
     <div className="flex flex-wrap items-start justify-between gap-4 mb-2">
-      <div className="flex items-center gap-2 min-w-0">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-          <LineChart className="h-4 w-4" />
-        </div>
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Investments</h1>
-          <p className="text-sm text-muted-foreground">All investment accounts, combined</p>
-        </div>
-      </div>
+      <p className="text-sm text-muted-foreground">All investment accounts, combined</p>
       <Tooltip>
         <TooltipTrigger asChild>
           <span className="inline-flex shrink-0">

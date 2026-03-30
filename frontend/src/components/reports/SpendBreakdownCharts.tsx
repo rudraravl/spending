@@ -17,6 +17,8 @@ export type RawSlice = {
   value: number
   pct: number
   categoryId?: number
+  /** Signed contribution from backend row.total (negative=outflow/spending). */
+  signedTotal: number
 }
 
 type PieSlice = RawSlice & {
@@ -59,7 +61,19 @@ export const breakdownMotionItem = {
 
 function consolidatePieSlices(raw: RawSlice[]): { pieSlices: PieSlice[]; legendRows: LegendRow[] } {
   if (raw.length === 0) return { pieSlices: [], legendRows: [] }
-  const sorted = [...raw].sort((a, b) => b.value - a.value)
+
+  // Spend pies should represent outflows only.
+  // Use negative signed totals to decide what's included in the pie and recompute share %
+  // from the outflow magnitudes (ignore any backend sign inconsistencies on `percent`).
+  const plotable = raw.filter((s) => s.signedTotal < 0)
+  const totalOutflow = plotable.reduce((acc, s) => acc + s.value, 0)
+  if (totalOutflow <= 0) return { pieSlices: [], legendRows: [] }
+
+  const sorted = [...plotable].sort((a, b) => b.value - a.value).map((s) => ({
+    ...s,
+    pct: (s.value / totalOutflow) * 100,
+  }))
+
   const major = sorted.filter((s) => s.pct >= SMALL_SLICE_PCT)
   const minor = sorted.filter((s) => s.pct < SMALL_SLICE_PCT)
 
@@ -75,12 +89,14 @@ function consolidatePieSlices(raw: RawSlice[]): { pieSlices: PieSlice[]; legendR
   if (minor.length > 0) {
     const sumV = minor.reduce((a, b) => a + b.value, 0)
     const sumP = minor.reduce((a, b) => a + b.pct, 0)
+    const sumSigned = minor.reduce((a, b) => a + b.signedTotal, 0)
     pieSlices.push({
       name: 'et al.',
       value: sumV,
       pct: sumP,
       isEtAl: true,
       fill: ET_AL_SLICE_FILL,
+      signedTotal: sumSigned,
     })
     minor.forEach((s) => {
       legendRows.push({
@@ -102,15 +118,27 @@ export function rawSlicesFromRows(
 ): RawSlice[] {
   const out: RawSlice[] = []
   for (const row of rows) {
-    const raw = Number(row.total)
-    if (!Number.isFinite(raw)) continue
-    const magnitude = Math.abs(raw)
+    const rawSigned = Number(row.total)
+    if (!Number.isFinite(rawSigned)) continue
+    const magnitude = Math.abs(rawSigned)
     if (magnitude <= 0) continue
     const label = String(row[nameKey] ?? 'Unknown').trim() || 'Unknown'
+
+    // Exclude Income category from visualization entirely.
+    // For subcategories we can still inspect the parent category name.
+    const parentCategoryName = String(row.category ?? '').toLowerCase()
+    const isIncomeCategory = label.toLowerCase() === 'income' || parentCategoryName === 'income'
+    if ((nameKey === 'category' && label.toLowerCase() === 'income') || (nameKey === 'subcategory' && isIncomeCategory)) {
+      continue
+    }
+
     const slice: RawSlice = {
       name: label,
       value: magnitude,
-      pct: Number(row.percent),
+      // `pct` is recomputed in `consolidatePieSlices` from outflow magnitudes, but we
+      // keep a numeric field to satisfy the type contract.
+      pct: 0,
+      signedTotal: rawSigned,
     }
     if (idKey && row.category_id != null) {
       slice.categoryId = row.category_id
@@ -195,6 +223,7 @@ export function SpendPieCard({
   const { pieSlices, legendRows } = useMemo(() => consolidatePieSlices(rawSlices), [rawSlices])
   const showEtAlNote = legendRows.some((r) => r.inEtAlGroup)
 
+  // If there are no *plotable* slices (e.g. only income/refunds), we still want to show the legend.
   if (rawSlices.length === 0) {
     return (
       <div className="rounded-xl border bg-card p-6 shadow-card flex flex-col min-h-[320px]">
@@ -216,64 +245,68 @@ export function SpendPieCard({
             twoThirdsPieLayout ? 'lg:flex-[2]' : 'flex-1',
           )}
         >
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
-              <Pie
-                data={pieSlices}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                innerRadius="44%"
-                outerRadius="76%"
-                paddingAngle={1.2}
-                strokeWidth={1}
-                stroke="hsl(var(--background))"
-                label={false}
-                cursor={interactiveCategory ? 'pointer' : 'default'}
-                onClick={
-                  interactiveCategory && onCategorySliceClick
-                    ? (_, index) => {
-                        const s = pieSlices[index]
-                        if (!s || s.isEtAl || s.categoryId == null) return
-                        onCategorySliceClick(s.categoryId)
-                      }
-                    : undefined
-                }
-              >
-                {pieSlices.map((s, i) => {
-                  const selected =
-                    interactiveCategory &&
-                    !s.isEtAl &&
-                    s.categoryId != null &&
-                    selectedCategoryId === s.categoryId
-                  return (
-                    <Cell
-                      key={i}
-                      fill={s.fill}
-                      stroke={selected ? 'hsl(var(--primary))' : 'hsl(var(--background))'}
-                      strokeWidth={selected ? 3 : 1}
-                      className={interactiveCategory ? 'outline-none' : ''}
-                    />
-                  )
-                })}
-              </Pie>
-              <RechartsTooltip
-                formatter={(value: number, _n, item: { payload?: PieSlice }) => {
-                  const name = item.payload?.name ?? ''
-                  return [
-                    `$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-                    name,
-                  ]
-                }}
-                contentStyle={{
-                  fontSize: 12,
-                  borderRadius: 8,
-                  border: '1px solid hsl(var(--border))',
-                }}
-              />
-            </PieChart>
-          </ResponsiveContainer>
+          {pieSlices.length === 0 ? (
+            <p className="text-sm text-muted-foreground flex-1 flex items-center justify-center">{emptyHint}</p>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+                <Pie
+                  data={pieSlices}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius="44%"
+                  outerRadius="76%"
+                  paddingAngle={1.2}
+                  strokeWidth={1}
+                  stroke="hsl(var(--background))"
+                  label={false}
+                  cursor={interactiveCategory ? 'pointer' : 'default'}
+                  onClick={
+                    interactiveCategory && onCategorySliceClick
+                      ? (_, index) => {
+                          const s = pieSlices[index]
+                          if (!s || s.isEtAl || s.categoryId == null) return
+                          onCategorySliceClick(s.categoryId)
+                        }
+                      : undefined
+                  }
+                >
+                  {pieSlices.map((s, i) => {
+                    const selected =
+                      interactiveCategory &&
+                      !s.isEtAl &&
+                      s.categoryId != null &&
+                      selectedCategoryId === s.categoryId
+                    return (
+                      <Cell
+                        key={i}
+                        fill={s.fill}
+                        stroke={selected ? 'hsl(var(--primary))' : 'hsl(var(--background))'}
+                        strokeWidth={selected ? 3 : 1}
+                        className={interactiveCategory ? 'outline-none' : ''}
+                      />
+                    )
+                  })}
+                </Pie>
+                <RechartsTooltip
+                  formatter={(value: number, _n, item: { payload?: PieSlice }) => {
+                    const name = item.payload?.name ?? ''
+                    return [
+                      `$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                      name,
+                    ]
+                  }}
+                  contentStyle={{
+                    fontSize: 12,
+                    borderRadius: 8,
+                    border: '1px solid hsl(var(--border))',
+                  }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
         </div>
         <div
           className={cn(

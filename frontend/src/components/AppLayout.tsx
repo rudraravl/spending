@@ -6,10 +6,10 @@ const pageMeta: Record<string, { title: string; description: string }> = {
   "/": { title: "Dashboard", description: "Your spending overview at a glance" },
   "/accounts": { title: "Accounts", description: "Linked and manual accounts" },
   "/import": { title: "Import CSV", description: "Upload bank statements" },
-  "/add-transaction": { title: "Add Transaction", description: "Record a new expense or income" },
-  "/transfer": { title: "Transfers", description: "Review links and move money between accounts" },
-  "/transfers/review": { title: "Transfers", description: "Review links and move money between accounts" },
-  "/transactions": { title: "All Transactions", description: "Review your transaction history" },
+  "/add-transaction": { title: "Transactions", description: "Record and review activity" },
+  "/transfer": { title: "Transactions", description: "Record and review activity" },
+  "/transfers/review": { title: "Transactions", description: "Record and review activity" },
+  "/transactions": { title: "Transactions", description: "Record and review activity" },
   "/recurring": { title: "Recurring charges", description: "Confirm or ignore detected recurring charges" },
   "/budgets": { title: "Budgets", description: "Set monthly limits and track progress" },
   "/views": { title: "Views", description: "Custom filtered analytics" },
@@ -43,10 +43,10 @@ export default function AppLayout() {
               </div>
             </div>
           </header>
-          <main className="flex-1 overflow-auto bg-gradient-to-b from-brand/[0.08] via-brand/[0.03] to-background">
+          <main className="flex-1 overflow-auto bg-background">
             <Outlet />
           </main>
-          <footer className="shrink-0 border-t border-border/70 bg-gradient-to-r from-brand/12 via-primary/[0.06] to-brand/10 px-4 py-2.5 text-center text-[11px] text-muted-foreground">
+          <footer className="shrink-0 border-t border-border/70 bg-muted/25 px-4 py-2.5 text-center text-[11px] text-muted-foreground">
             Made by Rudra Raval
           </footer>
         </div>

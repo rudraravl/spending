@@ -6,7 +6,7 @@
 |--------|----------------|------|
 | `--brand` | `#3B82F6` at default `217 91% 60%` | Single source for primary actions, links, focus rings, sidebar selection, header bar, first chart series |
 
-**Change the brand everywhere:** edit the **`--brand`** line in [`frontend/src/index.css`](../frontend/src/index.css) under `:root` (three numbers: hue, saturation `%`, lightness `%` — same format as other Shadcn tokens).
+**Change the brand everywhere:** edit the **`--brand`** line in [`frontend/src/index.css`](../frontend/src/index.css) under `:root` (three numbers: hue, saturation `%`, lightness `%` — **space-separated, no commas**, e.g. `265 91% 58%`. Commas break the header glow and any `hsl(var(--brand) / opacity)` usage.)
 
 Tailwind: `text-brand`, `bg-brand`, `from-brand/20`, `shadow-brand/40`, etc. (`primary`, `ring`, and `sidebar-primary` all reference `var(--brand)`.)
 

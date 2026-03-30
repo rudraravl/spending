@@ -9,7 +9,6 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import queryClient from './queryClient'
 import AccountDetailPage from './pages/AccountDetailPage'
 import AccountsPage from './pages/AccountsPage'
-import AddTransactionPage from './pages/AddTransactionPage'
 import AllTransactionsPage from './pages/AllTransactionsPage'
 import DashboardPage from './pages/DashboardPage'
 import ImportCsvPage from './pages/ImportCsvPage'
@@ -18,9 +17,7 @@ import NotFoundPage from './pages/NotFoundPage'
 import BudgetsPage from '@/pages/BudgetsPage'
 import RecurringChargesPage from './pages/RecurringChargesPage'
 import SettingsPage from './pages/SettingsPage'
-import SimplefinConnectionsPage from './pages/SimplefinConnectionsPage'
 import SummariesPage from './pages/SummariesPage'
-import TransferPage from './pages/TransferPage'
 import ViewsPage from './pages/ViewsPage'
 
 export default function KeepApp() {
@@ -37,16 +34,16 @@ export default function KeepApp() {
                 <Route path="/accounts" element={<AccountsPage />} />
                 <Route path="/accounts/:accountId" element={<AccountDetailPage />} />
                 <Route path="/import" element={<ImportCsvPage />} />
-                <Route path="/add-transaction" element={<AddTransactionPage />} />
-                <Route path="/transfer" element={<TransferPage />} />
-                <Route path="/transfers/review" element={<Navigate to="/transfer" replace />} />
+                <Route path="/add-transaction" element={<Navigate to="/transactions?tab=add-transaction" replace />} />
+                <Route path="/transfer" element={<Navigate to="/transactions?tab=transfers" replace />} />
+                <Route path="/transfers/review" element={<Navigate to="/transactions?tab=transfers" replace />} />
                 <Route path="/transactions" element={<AllTransactionsPage />} />
                 <Route path="/recurring" element={<RecurringChargesPage />} />
                 <Route path="/budgets" element={<BudgetsPage />} />
                 <Route path="/views" element={<ViewsPage />} />
                 <Route path="/investments" element={<InvestmentsPage />} />
                 <Route path="/summaries" element={<SummariesPage />} />
-                <Route path="/connections" element={<SimplefinConnectionsPage />} />
+                <Route path="/connections" element={<Navigate to="/accounts?tab=connections" replace />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>
               <Route path="*" element={<NotFoundPage />} />

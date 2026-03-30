@@ -49,7 +49,7 @@ type TransferFormValues = {
   notes: string
 }
 
-export default function TransferPage() {
+export default function TransferPage({ embedded = false }: { embedded?: boolean } = {}) {
   const queryClient = useQueryClient()
   const [scanEnabled, setScanEnabled] = useState(false)
   const [reviewActionError, setReviewActionError] = useState<string | null>(null)
@@ -131,9 +131,8 @@ export default function TransferPage() {
   })
 
   return (
-    <div className="p-6 lg:p-8 max-w-3xl mx-auto">
+    <div className={embedded ? 'max-w-3xl mx-auto' : 'p-6 lg:p-8 max-w-3xl mx-auto'}>
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-        <h1 className="text-2xl font-semibold mb-1">Transfers</h1>
         <p className="text-muted-foreground mb-8">Review suggested transfer links, then add manual transfers.</p>
 
         {queryError ? <p className="text-sm text-destructive mb-4">{queryError.message}</p> : null}
@@ -146,7 +145,7 @@ export default function TransferPage() {
                 {holdoutCount} transaction{holdoutCount === 1 ? '' : 's'} still tagged under Bills → Payments. Link pairs
                 below or recategorize in{' '}
                 <Link to="/transactions" className="text-primary underline-offset-4 hover:underline">
-                  All transactions
+                  Transactions
                 </Link>
                 .
               </CardDescription>

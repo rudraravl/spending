@@ -311,7 +311,6 @@ export default function ImportCsvPage() {
   return (
     <div className="p-6 lg:p-8 max-w-6xl mx-auto">
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-        <h1 className="text-2xl font-semibold mb-1">Import CSV</h1>
         <p className="text-muted-foreground mb-8">Import transactions from your bank or card statement.</p>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

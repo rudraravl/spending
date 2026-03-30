@@ -53,6 +53,13 @@ function catName(categoryId: number, list: CategoryOut[]) {
 }
 
 export default function SettingsPage() {
+  const sectionLinks = [
+    { id: 'categories', label: 'Categories' },
+    { id: 'subcategories', label: 'Subcategories' },
+    { id: 'tags', label: 'Tags' },
+    { id: 'rules', label: 'Rules' },
+  ] as const
+
   const queryClient = useQueryClient()
 
   const [confirmState, setConfirmState] = useState<{
@@ -204,36 +211,55 @@ export default function SettingsPage() {
   const isLoading = settingsAllQuery.isLoading
 
   return (
-    <div className="p-6 lg:p-8 max-w-3xl mx-auto space-y-10">
-      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
-        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-        <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
-          Categories, tags, and rules for labeling transactions. Manage accounts on the{' '}
-          <Link to="/accounts" className="text-primary underline-offset-4 hover:underline">
-            Accounts
-          </Link>{' '}
-          page.
-        </p>
-      </motion.div>
+    <div className="p-6 lg:p-8 max-w-6xl mx-auto">
+      <div className="grid gap-8 md:grid-cols-[220px_minmax(0,1fr)]">
+        <aside className="hidden md:block">
+          <div className="sticky top-24 rounded-xl border bg-card/95 p-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-card/85">
+            <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Settings</p>
+            <nav className="space-y-1">
+              {sectionLinks.map((section) => (
+                <a
+                  key={section.id}
+                  href={`#${section.id}`}
+                  className="block rounded-md px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  {section.label}
+                </a>
+              ))}
+            </nav>
+          </div>
+        </aside>
 
-      <ConfirmDialog
-        open={confirmState != null}
-        title={confirmState?.title ?? ''}
-        message={confirmState?.message ?? ''}
-        onCancel={() => setConfirmState(null)}
-        onConfirm={async () => {
-          if (!confirmState) return
-          const fn = confirmState.action
-          setConfirmState(null)
-          await fn()
-        }}
-      />
+        <div className="space-y-10">
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
+            <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
+              Categories, tags, and rules for labeling transactions. Manage accounts on the{' '}
+              <Link to="/accounts" className="text-primary underline-offset-4 hover:underline">
+                Accounts
+              </Link>{' '}
+              page.
+            </p>
+          </motion.div>
 
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : (
-        <div className="space-y-8">
-          <Card className="shadow-card border-border/80">
+          <ConfirmDialog
+            open={confirmState != null}
+            title={confirmState?.title ?? ''}
+            message={confirmState?.message ?? ''}
+            onCancel={() => setConfirmState(null)}
+            onConfirm={async () => {
+              if (!confirmState) return
+              const fn = confirmState.action
+              setConfirmState(null)
+              await fn()
+            }}
+          />
+
+          {isLoading ? (
+            <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : (
+            <div className="space-y-8">
+          <section id="categories" className="scroll-mt-24">
+            <Card className="shadow-card border-border/80">
             <CardHeader className="pb-4">
               <CardTitle className="text-lg">Categories</CardTitle>
               <CardDescription className="text-sm leading-relaxed">
@@ -294,9 +320,11 @@ export default function SettingsPage() {
                 )}
               </div>
             </CardContent>
-          </Card>
+            </Card>
+          </section>
 
-          <Card className="shadow-card border-border/80">
+          <section id="subcategories" className="scroll-mt-24">
+            <Card className="shadow-card border-border/80">
             <CardHeader className="pb-4">
               <CardTitle className="text-lg">Subcategories</CardTitle>
               <CardDescription className="text-sm leading-relaxed">
@@ -347,9 +375,11 @@ export default function SettingsPage() {
                 Add subcategory
               </Button>
             </CardContent>
-          </Card>
+            </Card>
+          </section>
 
-          <Card className="shadow-card border-border/80">
+          <section id="tags" className="scroll-mt-24">
+            <Card className="shadow-card border-border/80">
             <CardHeader className="pb-4">
               <CardTitle className="text-lg">Tags</CardTitle>
               <CardDescription className="text-sm leading-relaxed">
@@ -406,9 +436,11 @@ export default function SettingsPage() {
                 </div>
               )}
             </CardContent>
-          </Card>
+            </Card>
+          </section>
 
-          <Card className="shadow-card border-border/80">
+          <section id="rules" className="scroll-mt-24">
+            <Card className="shadow-card border-border/80">
             <CardHeader className="pb-4">
               <CardTitle className="text-lg">Rules</CardTitle>
               <CardDescription className="text-sm leading-relaxed">
@@ -622,9 +654,12 @@ export default function SettingsPage() {
                 )}
               </div>
             </CardContent>
-          </Card>
+            </Card>
+          </section>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   )
 }

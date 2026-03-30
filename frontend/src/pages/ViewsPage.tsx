@@ -284,7 +284,6 @@ export default function ViewsPage() {
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-        <h1 className="text-2xl font-semibold mb-1">Views</h1>
         <p className="text-muted-foreground mb-0">Mix and match filters to explore your spending from any angle.</p>
       </motion.div>
 

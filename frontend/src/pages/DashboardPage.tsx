@@ -19,12 +19,13 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { apiGet } from '../api/client'
+import { apiGet, apiPostJson } from '../api/client'
 import { getAccounts } from '../api/accounts'
 import { listConnections, triggerSync } from '../api/simplefin'
 import type { SyncResult } from '../api/simplefin'
 import { queryKeys } from '../queryKeys'
 import { toast } from 'sonner'
+import ConfirmDialog from '@/components/ConfirmDialog'
 import { SortableTableHead } from '@/components/sortable-table-head'
 import { cycleSort, sortBySelector, type ColumnSortState } from '@/lib/tableSort'
 import { Badge } from '@/components/ui/badge'
@@ -168,6 +169,7 @@ export default function DashboardPage() {
   const [pinnedCategoryId, setPinnedCategoryId] = useState<number | null>(null)
   const [recentSort, setRecentSort] = useState<ColumnSortState | null>(null)
   const [showNetWorth, setShowNetWorth] = useState(readShowNetWorthPreference)
+  const [forceBackupOpen, setForceBackupOpen] = useState(false)
 
   useEffect(() => {
     try {
@@ -207,6 +209,16 @@ export default function DashboardPage() {
       void queryClient.invalidateQueries({ queryKey: ['simplefin', 'cached-accounts'] })
       void queryClient.invalidateQueries({ queryKey: queryKeys.investmentsSummary() })
       void queryClient.invalidateQueries({ queryKey: ['investments'] })
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  const forceBackupMutation = useMutation({
+    mutationFn: () => apiPostJson('/api/backups/force-today', {}),
+    onSuccess: (result: { overwritten: boolean; backup_path?: string }) => {
+      const suffix = result?.overwritten ? 'overwritten' : 'created'
+      toast.success(`DB backup ${suffix}.`)
+      setForceBackupOpen(false)
     },
     onError: (err: Error) => toast.error(err.message),
   })
@@ -334,8 +346,15 @@ export default function DashboardPage() {
             </Label>
           </div>
           <div className="flex-1 min-w-[120px]" />
-          <Button variant="outline" size="sm" className="text-xs" asChild>
-            <Link to="/add-transaction">Add transaction</Link>
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs"
+            type="button"
+            onClick={() => setForceBackupOpen(true)}
+            disabled={forceBackupMutation.isPending}
+          >
+            Force backup
           </Button>
           <Button variant="outline" size="sm" className="text-xs" asChild>
             <Link to="/import">Import CSV</Link>
@@ -367,6 +386,19 @@ export default function DashboardPage() {
             )}
           </Tooltip>
         </motion.div>
+
+        <ConfirmDialog
+          open={forceBackupOpen}
+          title="Force DB backup"
+          message="This will overwrite the most recent backup with the current DB state (today)."
+          confirmLabel={forceBackupMutation.isPending ? 'Backing up…' : 'Confirm'}
+          onCancel={() => setForceBackupOpen(false)}
+          onConfirm={async () => {
+            if (forceBackupMutation.isPending) return
+            await forceBackupMutation.mutateAsync()
+            // handled in onSuccess
+          }}
+        />
 
         {preset === 'custom' ? (
           <motion.div variants={item} className="flex flex-wrap items-end gap-3 mb-6">

@@ -100,6 +100,8 @@ export default function SimplefinConnectionsPage() {
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['simplefin', 'daily-budget'] })
       queryClient.invalidateQueries({ queryKey: ['simplefin', 'cached-accounts'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.investmentsSummary() })
+      queryClient.invalidateQueries({ queryKey: ['investments'] })
     },
     onError: (err: Error) => setSyncFeedback(`Sync failed: ${err.message}`),
   })

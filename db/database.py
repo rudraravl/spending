@@ -25,7 +25,7 @@ engine = create_engine(
 )
 
 # Bump this when schema changes require a rebuild.
-SCHEMA_VERSION = "2026-03-22-accounts-linkage"
+SCHEMA_VERSION = "2026-03-29-investment-portfolio"
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -112,6 +112,8 @@ def _migrate_accounts_columns(conn) -> None:
         conn.execute(text("ALTER TABLE accounts ADD COLUMN reported_balance FLOAT"))
     if "reported_balance_at" not in cols:
         conn.execute(text("ALTER TABLE accounts ADD COLUMN reported_balance_at DATETIME"))
+    if "is_robinhood_crypto" not in cols:
+        conn.execute(text("ALTER TABLE accounts ADD COLUMN is_robinhood_crypto INTEGER NOT NULL DEFAULT 0"))
 
 
 def _migrate_recurring_series_columns(conn) -> None:

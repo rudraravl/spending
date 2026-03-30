@@ -11,6 +11,7 @@ import {
   Settings,
   Wallet,
   Plug,
+  TrendingUp,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import {
@@ -42,6 +43,7 @@ const syncItems = [
 
 const analyticsItems = [
   { title: "Views", url: "/views", icon: BarChart3 },
+  { title: "Investments", url: "/investments", icon: TrendingUp },
   { title: "Summaries", url: "/summaries", icon: FileText },
 ];
 

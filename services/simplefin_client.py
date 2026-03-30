@@ -68,6 +68,21 @@ class SFINTransaction:
 
 
 @dataclass
+class SFINHolding:
+    """Investment position line from SimpleFIN (e.g. Robinhood via bridge)."""
+
+    id: str
+    currency: str
+    description: str
+    market_value: str
+    shares: str
+    symbol: str | None
+    cost_basis: str | None = None
+    purchase_price: str | None = None
+    created: int | None = None
+
+
+@dataclass
 class SFINAccount:
     id: str
     name: str
@@ -77,6 +92,7 @@ class SFINAccount:
     balance_date: int
     available_balance: str | None = None
     transactions: list[SFINTransaction] = field(default_factory=list)
+    holdings: list[SFINHolding] = field(default_factory=list)
 
 
 @dataclass
@@ -272,18 +288,74 @@ def _parse_transactions(raw: list[dict[str, Any]]) -> list[SFINTransaction]:
     return out
 
 
+def _first_str(d: dict[str, Any], *keys: str) -> str | None:
+    for k in keys:
+        v = d.get(k)
+        if v is None or v == "":
+            continue
+        return str(v)
+    return None
+
+
+def _parse_holdings(raw: Any) -> list[SFINHolding]:
+    if not isinstance(raw, list):
+        return []
+    out: list[SFINHolding] = []
+    for h in raw:
+        if not isinstance(h, dict):
+            continue
+        hid = h.get("id")
+        if hid is None:
+            continue
+        sym = _first_str(h, "symbol", "Symbol")
+        sym_clean = sym.strip().upper() if sym else None
+        if sym_clean == "":
+            sym_clean = None
+        desc_raw = _first_str(h, "description", "Description") or ""
+        mv = _first_str(h, "market_value", "market-value", "MarketValue")
+        sh = _first_str(h, "shares", "Shares")
+        if mv is None:
+            mv = "0"
+        if sh is None:
+            sh = "0"
+        cur = _first_str(h, "currency", "Currency") or "USD"
+        created_raw = h.get("created") or h.get("Created")
+        created: int | None = None
+        if created_raw is not None:
+            try:
+                created = int(created_raw)
+            except (TypeError, ValueError):
+                created = None
+        out.append(
+            SFINHolding(
+                id=str(hid),
+                currency=cur,
+                description=_sanitize(desc_raw),
+                market_value=mv,
+                shares=sh,
+                symbol=sym_clean,
+                cost_basis=_first_str(h, "cost_basis", "cost-basis", "CostBasis"),
+                purchase_price=_first_str(h, "purchase_price", "purchase-price", "PurchasePrice"),
+                created=created,
+            )
+        )
+    return out
+
+
 def _parse_accounts(raw: list[dict[str, Any]]) -> list[SFINAccount]:
     out: list[SFINAccount] = []
     for a in raw:
+        avail = _first_str(a, "available-balance", "available_balance", "AvailableBalance")
         out.append(SFINAccount(
             id=str(a["id"]),
             name=_sanitize(str(a.get("name", ""))),
             conn_id=str(a.get("conn_id", "")),
             currency=str(a.get("currency", "USD")),
             balance=str(a["balance"]),
-            balance_date=int(a.get("balance-date", 0)),
-            available_balance=a.get("available-balance"),
+            balance_date=int(a.get("balance-date", a.get("balance_date", 0))),
+            available_balance=avail,
             transactions=_parse_transactions(a.get("transactions", [])),
+            holdings=_parse_holdings(a.get("holdings", [])),
         ))
     return out
 

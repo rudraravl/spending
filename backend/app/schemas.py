@@ -24,12 +24,17 @@ class AccountOut(BaseModel):
     reported_balance_at: datetime | None = None
     # Display balance (same logic as GET …/summary: reported for asset types when set, else ledger sum)
     balance: float
+    is_robinhood_crypto: bool = False
 
 
 class AccountCreate(BaseModel):
     name: str
     type: str
     currency: str | None = None
+
+
+class AccountUpdate(BaseModel):
+    is_robinhood_crypto: bool | None = None
 
 
 class AccountSummaryOut(BaseModel):
@@ -363,4 +368,80 @@ class BudgetProgressOut(BaseModel):
     month_start: Date
     include_projected: bool = False
     categories: list[BudgetProgressCategoryOut] = []
+
+
+# --- Investments / portfolio ---
+
+
+class InvestmentHistoryPointOut(BaseModel):
+    captured_at: str | None
+    total_value: float
+    cash_balance: float
+    positions_value: float
+    currency: str
+
+
+class InvestmentAllocationRowOut(BaseModel):
+    symbol: str
+    market_value: float
+    shares: float
+    cost_basis: float | None = None
+    gain_pct: float | None = None
+    percent_of_grand_total: float | None = None
+
+
+class InvestmentAccountSummaryRow(BaseModel):
+    account_id: int
+    name: str
+    institution_name: str | None = None
+    currency: str
+    total_value: float
+    cash_balance: float | None = None
+    positions_count: int
+    unknown_on_account: float
+    last_snapshot_at: str | None = None
+
+
+class InvestmentsSummaryOut(BaseModel):
+    grand_total: float
+    total_cash: float
+    accounts: list[InvestmentAccountSummaryRow]
+    allocation: list[InvestmentAllocationRowOut]
+    day_change_pct: float | None = None
+
+
+class InvestmentManualPositionCreate(BaseModel):
+    symbol: str | None = None
+    quantity: float
+    cost_basis_total: float | None = None
+    as_of_date: Date
+    notes: str | None = None
+
+
+class InvestmentManualPositionUpdate(BaseModel):
+    symbol: str | None = None
+    quantity: float | None = None
+    cost_basis_total: float | None = None
+    as_of_date: Date | None = None
+    notes: str | None = None
+
+
+class InvestmentManualPositionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    account_id: int
+    symbol: str | None = None
+    quantity: float
+    cost_basis_total: float | None = None
+    as_of_date: Date
+    notes: str | None = None
+
+
+class InvestmentReclassifyIn(BaseModel):
+    account_id: int | None = None
+
+
+class InvestmentReclassifyOut(BaseModel):
+    updated_count: int
 

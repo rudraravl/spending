@@ -123,7 +123,8 @@ def dashboard(
     session: Session = Depends(get_db_session),
 ) -> dict[str, object]:
     start, end = _resolve_dashboard_range(range_preset, start_date, end_date)
-    filters = TransactionFilter(start_date=start, end_date=end)
+    _no_invest = ("investment",)
+    filters = TransactionFilter(start_date=start, end_date=end, exclude_account_types=_no_invest)
 
     # Net non-Income spending vs Income-category totals (split-aware in services).
     total_spending = calculate_net_spending_excluding_income(session, filters)
@@ -148,6 +149,7 @@ def dashboard(
 
     recent_txns = get_transactions(
         session,
+        filters=TransactionFilter(exclude_account_types=_no_invest),
         limit=10,
         include_transfers=False,
     )

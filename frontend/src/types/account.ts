@@ -13,6 +13,8 @@ export interface AccountOut {
   reported_balance_at?: string | null
   /** Display balance (matches account detail / summary). */
   balance: number
+  /** Sub-account is Robinhood crypto (positions-only; no cash in totals). */
+  is_robinhood_crypto?: boolean
 }
 
 /** Response from GET /api/accounts/{id}/summary */

@@ -59,9 +59,21 @@ class Account(Base):
     # Bank/custodian-reported balance (e.g. top-of-export Balance on checking CSV imports)
     reported_balance = Column(Float, nullable=True)
     reported_balance_at = Column(DateTime, nullable=True)
+    # Robinhood (SimpleFIN) may expose crypto as a separate "Crypto (####)" account; treat as positions-only.
+    is_robinhood_crypto = Column(Boolean, nullable=False, server_default="0", default=False)
 
     # Relationships
     transactions = relationship('Transaction', back_populates='account', cascade='all, delete-orphan')
+    investment_sync_snapshots = relationship(
+        "InvestmentSyncSnapshot",
+        back_populates="account",
+        cascade="all, delete-orphan",
+    )
+    investment_manual_positions = relationship(
+        "InvestmentManualPosition",
+        back_populates="account",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self):
         return f"<Account(id={self.id}, name='{self.name}', type='{self.type}')>"
@@ -166,6 +178,12 @@ class Transaction(Base):
         cascade="all, delete-orphan",
     )
     transfer_group = relationship("TransferGroup", back_populates="transactions")
+    investment_classification = relationship(
+        "InvestmentTxnClassification",
+        back_populates="transaction",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     # Dedupe support for imports: (source, external_id)
     __table_args__ = (
@@ -349,12 +367,98 @@ class SimpleFINSyncRun(Base):
     error_message = Column(Text, nullable=True)
 
     connection = relationship("SimpleFINConnection", back_populates="sync_runs")
+    investment_snapshots = relationship(
+        "InvestmentSyncSnapshot",
+        back_populates="sync_run",
+    )
 
     def __repr__(self):
         return (
             f"<SimpleFINSyncRun(id={self.id}, connection_id={self.connection_id}, "
             f"status='{self.status}')>"
         )
+
+
+class InvestmentSyncSnapshot(Base):
+    """Point-in-time portfolio value for an investment account (per SimpleFIN sync)."""
+
+    __tablename__ = "investment_sync_snapshots"
+
+    id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False)
+    captured_at = Column(DateTime, nullable=False)
+    simplefin_sync_run_id = Column(Integer, ForeignKey("simplefin_sync_runs.id"), nullable=True)
+    reported_balance = Column(Float, nullable=False)
+    positions_value = Column(Float, nullable=False)
+    cash_balance = Column(Float, nullable=False)
+    currency = Column(String, nullable=False, server_default="USD")
+
+    account = relationship("Account", back_populates="investment_sync_snapshots")
+    sync_run = relationship("SimpleFINSyncRun", back_populates="investment_snapshots")
+    holdings = relationship(
+        "InvestmentHoldingSnapshot",
+        back_populates="snapshot",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (Index("idx_inv_sync_snap_account_captured", "account_id", "captured_at"),)
+
+
+class InvestmentHoldingSnapshot(Base):
+    """Immutable holding line captured inside a sync snapshot."""
+
+    __tablename__ = "investment_holding_snapshots"
+
+    id = Column(Integer, primary_key=True)
+    snapshot_id = Column(Integer, ForeignKey("investment_sync_snapshots.id"), nullable=False)
+    external_holding_id = Column(String, nullable=False)
+    symbol = Column(String, nullable=True)
+    description = Column(Text, nullable=True)
+    shares = Column(Float, nullable=False)
+    market_value = Column(Float, nullable=False)
+    cost_basis = Column(Float, nullable=True)
+    purchase_price = Column(Float, nullable=True)
+    currency = Column(String, nullable=False, server_default="USD")
+
+    snapshot = relationship("InvestmentSyncSnapshot", back_populates="holdings")
+
+    __table_args__ = (Index("idx_inv_hold_snap_snapshot", "snapshot_id"),)
+
+
+class InvestmentTxnClassification(Base):
+    """Parsed investment activity for a transaction (ledger / UX); optional 1:1 with Transaction."""
+
+    __tablename__ = "investment_txn_classifications"
+
+    id = Column(Integer, primary_key=True)
+    transaction_id = Column(Integer, ForeignKey("transactions.id"), nullable=False, unique=True)
+    kind = Column(String, nullable=False)
+    parsed_symbol = Column(String, nullable=True)
+    confidence = Column(String, nullable=False)
+    parser_version = Column(String, nullable=False)
+
+    transaction = relationship("Transaction", back_populates="investment_classification")
+
+    __table_args__ = (Index("idx_inv_txn_class_txn", "transaction_id"),)
+
+
+class InvestmentManualPosition(Base):
+    """User-entered opening position for history not available via import."""
+
+    __tablename__ = "investment_manual_positions"
+
+    id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False)
+    symbol = Column(String, nullable=True)
+    quantity = Column(Float, nullable=False)
+    cost_basis_total = Column(Float, nullable=True)
+    as_of_date = Column(Date, nullable=False)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
+
+    account = relationship("Account", back_populates="investment_manual_positions")
+
+    __table_args__ = (Index("idx_inv_manual_acct", "account_id"),)
 
 
 class BudgetLimit(Base):

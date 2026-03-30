@@ -8,6 +8,7 @@ from backend.app.schemas import (
     AccountCreate,
     AccountOut,
     AccountSummaryOut,
+    AccountUpdate,
     CategoryCreate,
     CategoryOut,
     SubcategoryCreate,
@@ -42,6 +43,7 @@ def _account_to_out(session: Session, a: Account) -> AccountOut:
         reported_balance=a.reported_balance,
         reported_balance_at=a.reported_balance_at,
         balance=display,
+        is_robinhood_crypto=bool(getattr(a, "is_robinhood_crypto", False)),
     )
 
 
@@ -89,6 +91,31 @@ def create_account(
         session.rollback()
         raise _integrity_error_to_http(str(e)) from e
 
+    return _account_to_out(session, account)
+
+
+@router.patch("/api/accounts/{account_id}", response_model=AccountOut)
+def update_account(
+    account_id: int,
+    payload: AccountUpdate,
+    session: Session = Depends(get_db_session),
+) -> AccountOut:
+    account = session.query(Account).filter(Account.id == account_id).first()
+    if not account:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+    if payload.is_robinhood_crypto is not None:
+        if account.type != "investment":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Robinhood crypto mode is only valid for investment accounts",
+            )
+        account.is_robinhood_crypto = bool(payload.is_robinhood_crypto)
+    try:
+        session.commit()
+        session.refresh(account)
+    except Exception as e:  # pragma: no cover
+        session.rollback()
+        raise _integrity_error_to_http(str(e)) from e
     return _account_to_out(session, account)
 
 

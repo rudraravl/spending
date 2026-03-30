@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { ArrowRight, Info, Scale, TrendingDown, TrendingUp, Wallet } from 'lucide-react'
+import { ArrowRight, Info, RefreshCw, Scale, TrendingDown, TrendingUp, Wallet } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
@@ -19,7 +19,10 @@ import {
 } from 'recharts'
 import { apiGet } from '../api/client'
 import { getAccounts } from '../api/accounts'
+import { listConnections, triggerSync } from '../api/simplefin'
+import type { SyncResult } from '../api/simplefin'
 import { queryKeys } from '../queryKeys'
+import { toast } from 'sonner'
 import { SortableTableHead } from '@/components/sortable-table-head'
 import { cycleSort, sortBySelector, type ColumnSortState } from '@/lib/tableSort'
 import { Badge } from '@/components/ui/badge'
@@ -148,6 +151,7 @@ function fmtShortDate(iso: string) {
 }
 
 export default function DashboardPage() {
+  const queryClient = useQueryClient()
   const [preset, setPreset] = useState<RangeKey>('this_month')
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
@@ -168,6 +172,33 @@ export default function DashboardPage() {
   const { data: accounts } = useQuery({
     queryKey: queryKeys.accounts(),
     queryFn: () => getAccounts(),
+  })
+
+  const { data: simplefinConnections = [] } = useQuery({
+    queryKey: queryKeys.simplefinConnections(),
+    queryFn: listConnections,
+  })
+  const simplefinConnection = simplefinConnections[0] ?? null
+
+  const syncMutation = useMutation({
+    mutationFn: () => triggerSync({ connection_id: simplefinConnection?.id ?? null }),
+    onSuccess: (result: SyncResult) => {
+      const base = `Synced ${result.accounts_synced} account(s), imported ${result.transactions_imported} new transaction(s).`
+      if (result.errors?.length) {
+        toast.success(`${base} ${result.errors.join('; ')}`)
+      } else {
+        toast.success(base)
+      }
+      void queryClient.invalidateQueries({ queryKey: queryKeys.simplefinConnections() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
+      void queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      void queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      void queryClient.invalidateQueries({ queryKey: ['simplefin', 'daily-budget'] })
+      void queryClient.invalidateQueries({ queryKey: ['simplefin', 'cached-accounts'] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.investmentsSummary() })
+      void queryClient.invalidateQueries({ queryKey: ['investments'] })
+    },
+    onError: (err: Error) => toast.error(err.message),
   })
 
   const netWorthTotals = useMemo(() => {
@@ -289,6 +320,32 @@ export default function DashboardPage() {
           <Button variant="outline" size="sm" className="text-xs" asChild>
             <Link to="/import">Import CSV</Link>
           </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="text-xs gap-1.5"
+                  disabled={!simplefinConnection || syncMutation.isPending}
+                  onClick={() => syncMutation.mutate()}
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
+                  Sync banks
+                </Button>
+              </span>
+            </TooltipTrigger>
+            {!simplefinConnection ? (
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                Add a SimpleFIN connection under Connections first.
+              </TooltipContent>
+            ) : (
+              <TooltipContent side="bottom" className="text-xs">
+                Pull latest balances and transactions from SimpleFIN
+              </TooltipContent>
+            )}
+          </Tooltip>
         </motion.div>
 
         {preset === 'custom' ? (

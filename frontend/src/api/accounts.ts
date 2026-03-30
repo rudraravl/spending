@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPostJson } from './client'
+import { apiDelete, apiGet, apiPatchJson, apiPostJson } from './client'
 
 import type { AccountOut, AccountSummaryOut } from '../types'
 
@@ -14,4 +14,7 @@ export const createAccount = (payload: { name: string; type: string; currency: s
   apiPostJson<Account>('/api/accounts', payload)
 
 export const deleteAccount = (id: number) => apiDelete(`/api/accounts/${id}`)
+
+export const patchAccount = (id: number, body: { is_robinhood_crypto?: boolean }) =>
+  apiPatchJson<AccountOut>(`/api/accounts/${id}`, body)
 

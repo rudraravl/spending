@@ -1,11 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import PlotlyDefault from 'react-plotly.js'
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
+import { ChevronDown, ChevronRight, Info, Receipt, Tag, Trash2, X } from 'lucide-react'
 import { apiGet } from '../api/client'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -16,65 +27,47 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
-import { SortableHtmlTh } from '@/components/sortable-table-head'
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { SortableTableHead } from '@/components/sortable-table-head'
 import { columnLooksNumeric, cycleSort, sortByColumn, type ColumnSortState } from '@/lib/tableSort'
+import { cn } from '@/lib/utils'
+import {
+  breakdownMotionContainer as container,
+  breakdownMotionItem as item,
+  formatMoney,
+  rawSlicesFromRows,
+  SpendPieCard,
+  type BreakdownRow,
+} from '@/components/reports/SpendBreakdownCharts'
 import { queryKeys } from '../queryKeys'
 import { getAccounts } from '../api/accounts'
 import { getCategories, getSubcategories } from '../api/categories'
 import type { AccountOut, CategoryOut, SubcategoryOut, TagOut } from '../types'
 
-// `react-plotly.js` is CJS; depending on bundler interop, the React component can be nested under one or more `default` keys.
-const Plot: any =
-  (PlotlyDefault as any)?.default?.default ?? (PlotlyDefault as any)?.default ?? PlotlyDefault
+const VIEWS_SAVED_STORAGE_KEY = 'keep-views-saved-v1'
 
-function Pie({
-  labels,
-  values,
-  title,
-  plotOk,
-}: {
-  labels: string[]
-  values: number[]
-  title: string
-  plotOk: boolean
-}) {
-  return plotOk ? (
-    <Plot
-      data={[
-        {
-          type: 'pie',
-          labels,
-          values,
-          hole: 0.2,
-        },
-      ]}
-      layout={{
-        title,
-        height: 320,
-        margin: { t: 30, b: 10, l: 10, r: 10 },
-        showlegend: false,
-        paper_bgcolor: 'transparent',
-        plot_bgcolor: 'transparent',
-      }}
-      config={{ displayModeBar: false, responsive: true }}
-    />
-  ) : (
-    <div style={{ padding: 8, opacity: 0.75 }}>Plotly unavailable</div>
-  )
+function isoDate(d: Date) {
+  return d.toISOString().slice(0, 10)
 }
 
-function buildPieData(rows: Array<Record<string, any>>, labelKey: string): { labels: string[]; values: number[] } {
-  const labels: string[] = []
-  const values: number[] = []
-  for (const row of rows) {
-    const raw = Number(row.total)
-    if (!Number.isFinite(raw)) continue
-    const magnitude = Math.abs(raw)
-    if (magnitude <= 0) continue
-    labels.push(String(row[labelKey] ?? 'Unknown'))
-    values.push(magnitude)
+function rangeLast30Days() {
+  const today = new Date()
+  return {
+    start: isoDate(new Date(today.getTime() - 30 * 24 * 3600 * 1000)),
+    end: isoDate(today),
   }
-  return { labels, values }
+}
+
+function fmtShortDate(ymd: string) {
+  const [y, m, d] = ymd.split('-').map(Number)
+  if (!y || !m || !d) return ymd
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 type ViewsResponse = {
@@ -83,18 +76,77 @@ type ViewsResponse = {
   total: number
   transaction_count: number
   spending_over_time: Array<{ date: string; amount: number }>
-  by_tag: Array<Record<string, any>>
-  by_category: Array<Record<string, any>>
-  by_subcategory: Array<Record<string, any>>
-  transactions: Array<Record<string, any>>
+  by_tag: BreakdownRow[]
+  by_category: BreakdownRow[]
+  by_subcategory: BreakdownRow[]
+  transactions: TxnRow[]
+}
+
+type TxnRow = {
+  id?: number
+  Date: string
+  Merchant: string
+  Amount: number
+  Category: string
+  Subcategory: string
+  Tags: string
+  Notes: string
+  Acct: string
+  is_transfer?: boolean
 }
 
 type Preset = 'Custom' | 'Last 7 days' | 'Last 30 days' | 'Year to date'
 
+type PersistedViewState = {
+  preset: Preset
+  startDate: string
+  endDate: string
+  accountId: number | null
+  categoryId: number | null
+  subcategoryId: number | null
+  /** True when user chose “All subcategories” (API: no subcategory filter). */
+  subcategoryExplicitAll: boolean
+  /** True when user picked a specific subcategory (not auto-filled first). */
+  subcategoryUserPick: boolean
+  selectedTagIds: number[]
+  tagsMatchAny: boolean
+  minAmount: number
+  maxAmount: number
+}
+
+type SavedNamedView = { id: string; name: string; state: PersistedViewState }
+
+function loadSavedViews(): SavedNamedView[] {
+  try {
+    const raw = localStorage.getItem(VIEWS_SAVED_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      (x): x is SavedNamedView =>
+        x != null &&
+        typeof x === 'object' &&
+        typeof (x as SavedNamedView).id === 'string' &&
+        typeof (x as SavedNamedView).name === 'string' &&
+        (x as SavedNamedView).state != null,
+    )
+  } catch {
+    return []
+  }
+}
+
+function persistSavedViews(views: SavedNamedView[]) {
+  localStorage.setItem(VIEWS_SAVED_STORAGE_KEY, JSON.stringify(views))
+}
+
 export default function ViewsPage() {
-  const [preset, setPreset] = useState<Preset>('Custom')
-  const [startDate, setStartDate] = useState(() => '2024-01-01')
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const initialRange = useMemo(() => rangeLast30Days(), [])
+  const [preset, setPreset] = useState<Preset>('Last 30 days')
+  const [startDate, setStartDate] = useState(initialRange.start)
+  const [endDate, setEndDate] = useState(initialRange.end)
+  const [filtersOpen, setFiltersOpen] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 1024 : true,
+  )
 
   const accountsQuery = useQuery<AccountOut[], Error>({
     queryKey: queryKeys.accounts(),
@@ -118,9 +170,25 @@ export default function ViewsPage() {
   const [accountId, setAccountId] = useState<number | null>(null)
   const [categoryId, setCategoryId] = useState<number | null>(null)
   const [subcategoryId, setSubcategoryId] = useState<number | null>(null)
-  // When the user explicitly selects "All subcategories", keep `subcategoryId = null`
-  // and don't let the subcategory-loading effect auto-pick the first subcategory.
   const subcategoryAllExplicitRef = useRef(false)
+  const [subcategoryUserPick, setSubcategoryUserPick] = useState(false)
+
+  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
+  const [tagsMatchAny, setTagsMatchAny] = useState(false)
+  const [minAmount, setMinAmount] = useState(0)
+  const [maxAmount, setMaxAmount] = useState(0)
+  const [tagSearch, setTagSearch] = useState('')
+
+  const [breakdownTab, setBreakdownTab] = useState<'tag' | 'category' | 'subcategory'>('tag')
+  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null)
+
+  const [viewsTagSort, setViewsTagSort] = useState<ColumnSortState | null>(null)
+  const [viewsCategorySort, setViewsCategorySort] = useState<ColumnSortState | null>(null)
+  const [viewsSubcategorySort, setViewsSubcategorySort] = useState<ColumnSortState | null>(null)
+  const [viewsTxnSort, setViewsTxnSort] = useState<ColumnSortState | null>(null)
+
+  const [savedViews, setSavedViews] = useState<SavedNamedView[]>(() => loadSavedViews())
+  const [saveName, setSaveName] = useState('')
 
   const subcategoriesQuery = useQuery<SubcategoryOut[], Error>({
     queryKey: queryKeys.subcategories(categoryId),
@@ -130,71 +198,30 @@ export default function ViewsPage() {
 
   useEffect(() => {
     if (!categoryId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSubcategories([])
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSubcategoryId(null)
       subcategoryAllExplicitRef.current = false
+      setSubcategoryUserPick(false)
       return
     }
     if (!subcategoriesQuery.data) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSubcategories(subcategoriesQuery.data)
     if (subcategoryAllExplicitRef.current) return
 
     const firstId = subcategoriesQuery.data[0]?.id ?? null
     if (subcategoryId == null) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSubcategoryId(firstId)
       return
     }
 
     if (!subcategoriesQuery.data.find((s) => s.id === subcategoryId)) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSubcategoryId(firstId)
     }
   }, [categoryId, subcategoriesQuery.data, subcategoryId])
 
-  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
-  const [tagsMatchAny, setTagsMatchAny] = useState(false)
-  const [minAmount, setMinAmount] = useState<number>(0)
-  const [maxAmount, setMaxAmount] = useState<number>(0)
-
-  const [tab, setTab] = useState<'tag' | 'category' | 'subcategory'>('tag')
-  const [viewsTagSort, setViewsTagSort] = useState<ColumnSortState | null>(null)
-  const [viewsCategorySort, setViewsCategorySort] = useState<ColumnSortState | null>(null)
-  const [viewsSubcategorySort, setViewsSubcategorySort] = useState<ColumnSortState | null>(null)
-  const [viewsTxnSort, setViewsTxnSort] = useState<ColumnSortState | null>(null)
-  const plotOk = typeof Plot === 'function' || (typeof Plot === 'object' && Boolean((Plot as any)?.$$typeof))
-
-  const viewsThStyle = { textAlign: 'left' as const, padding: 8, borderBottom: '1px solid var(--border)' }
-
-  // Meta (accounts/categories/tags) comes from React Query.
-
   useEffect(() => {
-    const today = new Date()
-    const iso = (d: Date) => d.toISOString().slice(0, 10)
-    if (preset === 'Custom') return
-    if (preset === 'Last 7 days') {
-      const start = new Date(today.getTime() - 7 * 24 * 3600 * 1000)
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setStartDate(iso(start))
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setEndDate(iso(today))
-    } else if (preset === 'Last 30 days') {
-      const start = new Date(today.getTime() - 30 * 24 * 3600 * 1000)
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setStartDate(iso(start))
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setEndDate(iso(today))
-    } else if (preset === 'Year to date') {
-      const start = new Date(today.getFullYear(), 0, 1)
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setStartDate(iso(start))
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setEndDate(iso(today))
-    }
-  }, [preset])
+    setSelectedCategoryId(null)
+  }, [startDate, endDate, accountId, categoryId, subcategoryId, selectedTagIds, tagsMatchAny, minAmount, maxAmount])
 
   const shouldMinMaxInclude = useMemo(() => {
     const min = minAmount > 0 ? minAmount : undefined
@@ -241,6 +268,7 @@ export default function ViewsPage() {
   const data = viewsQuery.data ?? null
   const error = viewsQuery.error?.message ?? null
   const loading = viewsQuery.isLoading
+  const isFetching = viewsQuery.isFetching
 
   const sortedViewsByTag = useMemo(() => {
     if (!data?.by_tag?.length) return data?.by_tag ?? []
@@ -256,14 +284,20 @@ export default function ViewsPage() {
     ])
   }, [data?.by_category, viewsCategorySort])
 
+  const subcategoryRowsFiltered = useMemo(() => {
+    const rows = data?.by_subcategory ?? []
+    if (selectedCategoryId == null) return rows
+    return rows.filter((r) => r.category_id === selectedCategoryId)
+  }, [data?.by_subcategory, selectedCategoryId])
+
   const sortedViewsBySubcategory = useMemo(() => {
-    if (!data?.by_subcategory?.length) return data?.by_subcategory ?? []
-    return sortByColumn(data.by_subcategory as Record<string, unknown>[], viewsSubcategorySort, [
+    if (!subcategoryRowsFiltered.length) return subcategoryRowsFiltered
+    return sortByColumn(subcategoryRowsFiltered as Record<string, unknown>[], viewsSubcategorySort, [
       'total',
       'count',
       'percent',
     ])
-  }, [data?.by_subcategory, viewsSubcategorySort])
+  }, [subcategoryRowsFiltered, viewsSubcategorySort])
 
   const sortedViewsTransactions = useMemo(() => {
     if (!data?.transactions?.length) return data?.transactions ?? []
@@ -274,604 +308,1090 @@ export default function ViewsPage() {
     return sortByColumn(data.transactions as Record<string, unknown>[], viewsTxnSort, numeric)
   }, [data?.transactions, viewsTxnSort])
 
-  const tagPieData = useMemo(() => buildPieData(data?.by_tag ?? [], 'tag'), [data?.by_tag])
-  const categoryPieData = useMemo(() => buildPieData(data?.by_category ?? [], 'category'), [data?.by_category])
-  const subcategoryPieData = useMemo(
-    () => buildPieData(data?.by_subcategory ?? [], 'subcategory'),
-    [data?.by_subcategory]
+  const categoryRaw = useMemo(
+    () => rawSlicesFromRows(data?.by_category ?? [], 'category', 'category_id'),
+    [data?.by_category],
   )
+  const tagRaw = useMemo(() => rawSlicesFromRows(data?.by_tag ?? [], 'tag'), [data?.by_tag])
+  const subcategoryRaw = useMemo(() => {
+    const rows = data?.by_subcategory ?? []
+    const filtered =
+      selectedCategoryId == null ? rows : rows.filter((r) => r.category_id === selectedCategoryId)
+    const mapped: BreakdownRow[] = filtered.map((r) => ({
+      ...r,
+      subcategory: r.category ? `${r.category} › ${r.subcategory ?? '—'}` : String(r.subcategory ?? ''),
+    }))
+    return rawSlicesFromRows(mapped, 'subcategory')
+  }, [data?.by_subcategory, selectedCategoryId])
+
+  const selectedCategoryName =
+    selectedCategoryId != null
+      ? data?.by_category.find((c) => c.category_id === selectedCategoryId)?.category ?? ''
+      : ''
+
+  const onCategorySliceClick = useCallback((id: number) => {
+    setSelectedCategoryId(id)
+    setBreakdownTab('subcategory')
+  }, [])
+
+  const barData = useMemo(() => {
+    if (!data?.spending_over_time?.length) return []
+    return data.spending_over_time.map((r) => ({
+      label: fmtShortDate(r.date.slice(0, 10)),
+      amount: Number(r.amount),
+      iso: r.date.slice(0, 10),
+    }))
+  }, [data?.spending_over_time])
+
+  const avgAbsFromTxns = useMemo(() => {
+    if (!data?.transactions?.length) return 0
+    const sum = data.transactions.reduce((acc, r) => acc + Math.abs(Number(r.Amount)), 0)
+    return sum / data.transactions.length
+  }, [data?.transactions])
+
+  const activeFilterCount = useMemo(() => {
+    let n = 0
+    if (accountId != null) n++
+    if (categoryId != null) n++
+    if (subcategoryUserPick && subcategoryId != null) n++
+    if (selectedTagIds.length) n += selectedTagIds.length
+    if (tagsMatchAny && selectedTagIds.length > 1) n++
+    if (shouldMinMaxInclude.min !== undefined) n++
+    if (shouldMinMaxInclude.max !== undefined) n++
+    return n
+  }, [
+    accountId,
+    categoryId,
+    subcategoryId,
+    subcategoryUserPick,
+    selectedTagIds.length,
+    tagsMatchAny,
+    shouldMinMaxInclude.min,
+    shouldMinMaxInclude.max,
+  ])
+
+  const filterSummaryLine = `${startDate} → ${endDate}${activeFilterCount ? ` · ${activeFilterCount} filter${activeFilterCount === 1 ? '' : 's'}` : ''}`
+
+  const resetToDefaults = useCallback(() => {
+    const r = rangeLast30Days()
+    setPreset('Last 30 days')
+    setStartDate(r.start)
+    setEndDate(r.end)
+    setAccountId(null)
+    setCategoryId(null)
+    setSubcategoryId(null)
+    subcategoryAllExplicitRef.current = false
+    setSubcategoryUserPick(false)
+    setSelectedTagIds([])
+    setTagsMatchAny(false)
+    setMinAmount(0)
+    setMaxAmount(0)
+    setTagSearch('')
+  }, [])
+
+  const captureState = useCallback((): PersistedViewState => {
+    return {
+      preset,
+      startDate,
+      endDate,
+      accountId,
+      categoryId,
+      subcategoryId,
+      subcategoryExplicitAll: subcategoryAllExplicitRef.current,
+      subcategoryUserPick,
+      selectedTagIds: [...selectedTagIds],
+      tagsMatchAny,
+      minAmount,
+      maxAmount,
+    }
+  }, [
+    preset,
+    startDate,
+    endDate,
+    accountId,
+    categoryId,
+    subcategoryId,
+    subcategoryUserPick,
+    selectedTagIds,
+    tagsMatchAny,
+    minAmount,
+    maxAmount,
+  ])
+
+  const applyState = useCallback((s: PersistedViewState & { subcategoryAllExplicit?: boolean }) => {
+    setPreset(s.preset)
+    setStartDate(s.startDate)
+    setEndDate(s.endDate)
+    setAccountId(s.accountId)
+    setCategoryId(s.categoryId)
+    const explicitAll =
+      s.subcategoryExplicitAll ?? (s as { subcategoryAllExplicit?: boolean }).subcategoryAllExplicit ?? false
+    subcategoryAllExplicitRef.current = explicitAll
+    setSubcategoryId(s.subcategoryId)
+    const userPick =
+      'subcategoryUserPick' in s && typeof s.subcategoryUserPick === 'boolean'
+        ? s.subcategoryUserPick
+        : Boolean(s.subcategoryId != null && !explicitAll)
+    setSubcategoryUserPick(userPick)
+    setSelectedTagIds([...s.selectedTagIds])
+    setTagsMatchAny(s.tagsMatchAny)
+    setMinAmount(s.minAmount)
+    setMaxAmount(s.maxAmount)
+  }, [])
+
+  const handleSaveView = () => {
+    const name = saveName.trim()
+    if (!name) return
+    const next: SavedNamedView = {
+      id: crypto.randomUUID(),
+      name,
+      state: captureState(),
+    }
+    const merged = [...savedViews, next]
+    setSavedViews(merged)
+    persistSavedViews(merged)
+    setSaveName('')
+  }
+
+  const handleDeleteSaved = (id: string) => {
+    const merged = savedViews.filter((v) => v.id !== id)
+    setSavedViews(merged)
+    persistSavedViews(merged)
+  }
+
+  const filteredTagsForList = useMemo(() => {
+    const q = tagSearch.trim().toLowerCase()
+    if (!q) return tags
+    return tags.filter((t) => t.name.toLowerCase().includes(q))
+  }, [tags, tagSearch])
+
+  const toggleTag = (id: number) => {
+    setSelectedTagIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+
+  useEffect(() => {
+    const today = new Date()
+    const iso = (d: Date) => d.toISOString().slice(0, 10)
+    if (preset === 'Custom') return
+    if (preset === 'Last 7 days') {
+      const start = new Date(today.getTime() - 7 * 24 * 3600 * 1000)
+      setStartDate(iso(start))
+      setEndDate(iso(today))
+    } else if (preset === 'Last 30 days') {
+      const start = new Date(today.getTime() - 30 * 24 * 3600 * 1000)
+      setStartDate(iso(start))
+      setEndDate(iso(today))
+    } else if (preset === 'Year to date') {
+      const start = new Date(today.getFullYear(), 0, 1)
+      setStartDate(iso(start))
+      setEndDate(iso(today))
+    }
+  }, [preset])
+
+  const hasNoData = data != null && data.transaction_count === 0
+  const awaitingData = !data && !viewsQuery.error && (loading || isFetching)
+  const loadFailed = Boolean(viewsQuery.error) && !data
+
+  const accountName = accountId != null ? accounts.find((a) => a.id === accountId)?.name : null
+  const categoryName = categoryId != null ? categories.find((c) => c.id === categoryId)?.name : null
+  const subcategoryName =
+    subcategoryId != null ? subcategories.find((s) => s.id === subcategoryId)?.name : null
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
-      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-        <p className="text-muted-foreground mb-0">Mix and match filters to explore your spending from any angle.</p>
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
+        <p className="text-muted-foreground text-sm mb-1">
+          Build a custom slice of your data with date range, accounts, categories, tags, and amounts. Transfers are
+          excluded from totals and charts.
+        </p>
       </motion.div>
+
+      <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
+        <Card className="shadow-card">
+          <CardHeader className="pb-2 space-y-0">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" className="h-auto p-0 hover:bg-transparent gap-2 text-left font-semibold">
+                    {filtersOpen ? (
+                      <ChevronDown className="h-4 w-4 shrink-0 opacity-70" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 shrink-0 opacity-70" />
+                    )}
+                    <span>Filters</span>
+                  </Button>
+                </CollapsibleTrigger>
+                <CardDescription className="mt-1.5 pl-6 text-xs">
+                  {filtersOpen ? 'Set the window, then narrow by classification, tags, or amount.' : filterSummaryLine}
+                </CardDescription>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <Button type="button" variant="outline" size="sm" onClick={resetToDefaults}>
+                  Reset filters
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CollapsibleContent>
+            <CardContent className="space-y-8 pt-2">
+              <section className="space-y-3">
+                <h2 className="text-sm font-semibold text-foreground tracking-tight">Saved views</h2>
+                <p className="text-xs text-muted-foreground">
+                  Save the current filter set with a name, then load it anytime (stored in this browser).
+                </p>
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="space-y-1.5 flex-1 min-w-[160px] max-w-xs">
+                    <Label htmlFor="views-save-name" className="text-xs text-muted-foreground">
+                      Name
+                    </Label>
+                    <Input
+                      id="views-save-name"
+                      value={saveName}
+                      onChange={(e) => setSaveName(e.target.value)}
+                      placeholder="e.g. Dining out — last quarter"
+                      className="bg-background"
+                    />
+                  </div>
+                  <Button type="button" size="sm" onClick={handleSaveView} disabled={!saveName.trim()}>
+                    Save current
+                  </Button>
+                </div>
+                {savedViews.length > 0 ? (
+                  <ul className="flex flex-wrap gap-2 pt-1">
+                    {savedViews.map((v) => (
+                      <li key={v.id} className="flex items-center gap-1">
+                        <Button type="button" variant="secondary" size="sm" onClick={() => applyState(v.state)}>
+                          {v.name}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground"
+                          aria-label={`Delete saved view ${v.name}`}
+                          onClick={() => handleDeleteSaved(v.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </section>
+
+              <Separator />
+
+              <section className="space-y-3">
+                <h2 className="text-sm font-semibold text-foreground tracking-tight">Date range</h2>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="views-preset">Quick range</Label>
+                    <Select value={preset} onValueChange={(v) => setPreset(v as Preset)}>
+                      <SelectTrigger id="views-preset" className="w-full bg-background">
+                        <SelectValue placeholder="Preset" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(['Custom', 'Last 7 days', 'Last 30 days', 'Year to date'] as Preset[]).map((p) => (
+                          <SelectItem key={p} value={p}>
+                            {p}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="views-start">Start date</Label>
+                    <Input
+                      id="views-start"
+                      type="date"
+                      className="bg-background"
+                      value={startDate}
+                      onChange={(e) => {
+                        setPreset('Custom')
+                        setStartDate(e.target.value)
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2 lg:col-span-1">
+                    <Label htmlFor="views-end">End date</Label>
+                    <Input
+                      id="views-end"
+                      type="date"
+                      className="bg-background"
+                      value={endDate}
+                      onChange={(e) => {
+                        setPreset('Custom')
+                        setEndDate(e.target.value)
+                      }}
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <Separator />
+
+              <section className="space-y-3">
+                <h2 className="text-sm font-semibold text-foreground tracking-tight">Classification</h2>
+                <p className="text-xs text-muted-foreground -mt-1">
+                  Optional. Use “All” to skip narrowing by account or category.
+                </p>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="views-account">Account</Label>
+                    <Select
+                      value={accountId != null ? String(accountId) : '__all__'}
+                      onValueChange={(v) => setAccountId(v === '__all__' ? null : Number(v))}
+                    >
+                      <SelectTrigger id="views-account" className="bg-background">
+                        <SelectValue placeholder="All accounts" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__all__">All accounts</SelectItem>
+                        {accounts.map((a) => (
+                          <SelectItem key={a.id} value={String(a.id)}>
+                            {a.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="views-category">Category</Label>
+                    <Select
+                      value={categoryId != null ? String(categoryId) : '__all__'}
+                      onValueChange={(v) => {
+                        setCategoryId(v === '__all__' ? null : Number(v))
+                        setSubcategoryUserPick(false)
+                      }}
+                    >
+                      <SelectTrigger id="views-category" className="bg-background">
+                        <SelectValue placeholder="All categories" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__all__">All categories</SelectItem>
+                        {categories.map((c) => (
+                          <SelectItem key={c.id} value={String(c.id)}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="views-subcategory" className={!categoryId ? 'text-muted-foreground' : undefined}>
+                      Subcategory
+                    </Label>
+                    <Select
+                      value={subcategoryId != null ? String(subcategoryId) : '__all__'}
+                      onValueChange={(v) => {
+                        const next = v === '__all__' ? null : Number(v)
+                        subcategoryAllExplicitRef.current = next === null
+                        setSubcategoryUserPick(next !== null)
+                        setSubcategoryId(next)
+                      }}
+                      disabled={!categoryId}
+                    >
+                      <SelectTrigger id="views-subcategory" className="bg-background">
+                        <SelectValue placeholder={categoryId ? 'All subcategories' : 'Pick a category first'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__all__">All subcategories</SelectItem>
+                        {subcategories.map((s) => (
+                          <SelectItem key={s.id} value={String(s.id)}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </section>
+
+              <Separator />
+
+              <section className="space-y-3">
+                <h2 className="text-sm font-semibold text-foreground tracking-tight">Tags</h2>
+                <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="views-tag-search">Find tags</Label>
+                    <Input
+                      id="views-tag-search"
+                      className="bg-background max-w-md"
+                      placeholder="Search…"
+                      value={tagSearch}
+                      onChange={(e) => setTagSearch(e.target.value)}
+                    />
+                  </div>
+                  <div className="max-h-[200px] overflow-y-auto rounded-md border border-border bg-background p-2 space-y-1">
+                    {filteredTagsForList.length === 0 ? (
+                      <p className="text-xs text-muted-foreground px-2 py-3">No tags match.</p>
+                    ) : (
+                      filteredTagsForList.map((t) => (
+                        <label
+                          key={t.id}
+                          className="flex items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-muted/60 cursor-pointer"
+                        >
+                          <Checkbox
+                            checked={selectedTagIds.includes(t.id)}
+                            onCheckedChange={() => toggleTag(t.id)}
+                          />
+                          <span className="text-sm">{t.name}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="views-tags-or"
+                      checked={tagsMatchAny}
+                      onCheckedChange={(c) => setTagsMatchAny(c === true)}
+                    />
+                    <Label htmlFor="views-tags-or" className="text-sm font-normal leading-snug cursor-pointer">
+                      Match any selected tag (OR). Off = must have all selected tags (AND).
+                    </Label>
+                  </div>
+                </div>
+              </section>
+
+              <Separator />
+
+              <section className="space-y-3">
+                <h2 className="text-sm font-semibold text-foreground tracking-tight">Amount</h2>
+                <p className="text-xs text-muted-foreground -mt-1">
+                  Leave at 0 for no bound; only positive values apply a filter.
+                </p>
+                <div className="grid gap-4 sm:grid-cols-2 max-w-xl">
+                  <div className="space-y-2">
+                    <Label htmlFor="views-min-amt">Min amount</Label>
+                    <Input
+                      id="views-min-amt"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      className="bg-background"
+                      value={minAmount || ''}
+                      onChange={(e) => setMinAmount(e.target.value === '' ? 0 : Number(e.target.value))}
+                      placeholder="No minimum"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="views-max-amt">Max amount</Label>
+                    <Input
+                      id="views-max-amt"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      className="bg-background"
+                      value={maxAmount || ''}
+                      onChange={(e) => setMaxAmount(e.target.value === '' ? 0 : Number(e.target.value))}
+                      placeholder="No maximum"
+                    />
+                  </div>
+                </div>
+              </section>
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
       {error ? <div className="text-sm text-destructive">{error}</div> : null}
       {!data && loading ? <div className="text-sm text-muted-foreground">Loading…</div> : null}
 
-      <Card className="shadow-card">
-        <CardHeader className="pb-4">
-          <CardTitle className="text-lg">Filters</CardTitle>
-          <CardDescription>Set the reporting window, then narrow by account, category, tags, or amount.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-8">
-          <section className="space-y-3">
-            <h2 className="text-sm font-semibold text-foreground tracking-tight">Date range</h2>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="views-preset">Quick range</Label>
-                <Select value={preset} onValueChange={(v) => setPreset(v as Preset)}>
-                  <SelectTrigger id="views-preset" className="w-full">
-                    <SelectValue placeholder="Preset" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(['Custom', 'Last 7 days', 'Last 30 days', 'Year to date'] as Preset[]).map((p) => (
-                      <SelectItem key={p} value={p}>
-                        {p}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="views-start">Start date</Label>
-                <Input
-                  id="views-start"
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => {
-                    setPreset('Custom')
-                    setStartDate(e.target.value)
-                  }}
-                />
-              </div>
-              <div className="space-y-2 sm:col-span-2 lg:col-span-1">
-                <Label htmlFor="views-end">End date</Label>
-                <Input
-                  id="views-end"
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => {
-                    setPreset('Custom')
-                    setEndDate(e.target.value)
-                  }}
-                />
-              </div>
-            </div>
-          </section>
-
-          <Separator />
-
-          <section className="space-y-3">
-            <h2 className="text-sm font-semibold text-foreground tracking-tight">Classification</h2>
-            <p className="text-xs text-muted-foreground -mt-1">
-              Optional. Choose All accounts / categories / subcategories to avoid narrowing by classification.
-            </p>
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="views-account">Account</Label>
-                <Select
-                  value={accountId != null ? String(accountId) : '__all__'}
-                  onValueChange={(v) => setAccountId(v === '__all__' ? null : Number(v))}
-                >
-                  <SelectTrigger id="views-account">
-                    <SelectValue placeholder="All accounts" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__all__">All accounts</SelectItem>
-                    {accounts.map((a) => (
-                      <SelectItem key={a.id} value={String(a.id)}>
-                        {a.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="views-category">Category</Label>
-                <Select
-                  value={categoryId != null ? String(categoryId) : '__all__'}
-                  onValueChange={(v) => setCategoryId(v === '__all__' ? null : Number(v))}
-                >
-                  <SelectTrigger id="views-category">
-                    <SelectValue placeholder="All categories" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__all__">All categories</SelectItem>
-                    {categories.map((c) => (
-                      <SelectItem key={c.id} value={String(c.id)}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="views-subcategory" className={!categoryId ? 'text-muted-foreground' : undefined}>
-                  Subcategory
-                </Label>
-                <Select
-                  value={subcategoryId != null ? String(subcategoryId) : '__all__'}
-                  onValueChange={(v) => {
-                    const next = v === '__all__' ? null : Number(v)
-                    subcategoryAllExplicitRef.current = next === null
-                    setSubcategoryId(next)
-                  }}
-                  disabled={!categoryId}
-                >
-                  <SelectTrigger id="views-subcategory">
-                    <SelectValue placeholder={categoryId ? 'All subcategories' : 'Pick a category first'} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__all__">All subcategories</SelectItem>
-                    {subcategories.map((s) => (
-                      <SelectItem key={s.id} value={String(s.id)}>
-                        {s.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </section>
-
-          <Separator />
-
-          <section className="space-y-3">
-            <h2 className="text-sm font-semibold text-foreground tracking-tight">Tags</h2>
-            <div className="rounded-lg border border-input bg-muted/30 p-3 space-y-3">
-              <div className="space-y-2">
-                <Label htmlFor="views-tags">Select tags</Label>
-                <select
-                  id="views-tags"
-                  multiple
-                  value={selectedTagIds.map(String)}
-                  onChange={(e) => {
-                    const selected = Array.from(e.target.selectedOptions).map((o) => Number(o.value))
-                    setSelectedTagIds(selected)
-                  }}
-                  className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {tags.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-muted-foreground">Hold Ctrl (Windows) or ⌘ (Mac) to select multiple.</p>
-              </div>
-              <div className="flex items-center gap-2 pt-1">
-                <Checkbox
-                  id="views-tags-or"
-                  checked={tagsMatchAny}
-                  onCheckedChange={(c) => setTagsMatchAny(c === true)}
-                />
-                <Label htmlFor="views-tags-or" className="text-sm font-normal leading-snug cursor-pointer">
-                  Match any selected tag (OR). When off, transactions must include all selected tags (AND).
-                </Label>
-              </div>
-            </div>
-          </section>
-
-          <Separator />
-
-          <section className="space-y-3">
-            <h2 className="text-sm font-semibold text-foreground tracking-tight">Amount</h2>
-            <p className="text-xs text-muted-foreground -mt-1">
-              Leave at 0 or empty for no bound; only positive values filter by amount.
-            </p>
-            <div className="grid gap-4 sm:grid-cols-2 max-w-xl">
-              <div className="space-y-2">
-                <Label htmlFor="views-min-amt">Min amount</Label>
-                <Input
-                  id="views-min-amt"
-                  type="number"
-                  step="0.01"
-                  min={0}
-                  value={minAmount || ''}
-                  onChange={(e) => setMinAmount(e.target.value === '' ? 0 : Number(e.target.value))}
-                  placeholder="No minimum"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="views-max-amt">Max amount</Label>
-                <Input
-                  id="views-max-amt"
-                  type="number"
-                  step="0.01"
-                  min={0}
-                  value={maxAmount || ''}
-                  onChange={(e) => setMaxAmount(e.target.value === '' ? 0 : Number(e.target.value))}
-                  placeholder="No maximum"
-                />
-              </div>
-            </div>
-          </section>
-        </CardContent>
-      </Card>
-
       {data ? (
-        <div style={{ marginTop: 16 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 16 }}>
-            <div className="rounded-xl border bg-card shadow-card p-4">
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>Total</div>
-              <div style={{ fontSize: 26 }}>${data.total.toFixed(2)}</div>
-              <div style={{ opacity: 0.7, marginTop: 8, fontSize: 13 }}>
-                Across {data.transaction_count} matching transactions from {data.start_date} to {data.end_date}.
-              </div>
-            </div>
-
-            <div className="rounded-xl border bg-card shadow-card p-4">
-              <div style={{ fontWeight: 700, marginBottom: 8 }}>Spending over time</div>
-              {plotOk ? (
-                <Plot
-                  data={[
-                    {
-                      x: data.spending_over_time.map((r) => r.date),
-                      y: data.spending_over_time.map((r) => r.amount),
-                      type: 'bar',
-                      marker: { color: 'rgba(170, 59, 255, 0.8)' },
-                    },
-                  ]}
-                  layout={{
-                    height: 280,
-                    margin: { t: 20, b: 40, l: 40, r: 20 },
-                    title: 'Daily spending',
-                    xaxis: { tickformat: '%b %d' },
+        <>
+          <div className="flex flex-wrap items-center gap-2 min-h-[28px]">
+            <span className="text-xs text-muted-foreground mr-1">Active filters</span>
+            {accountName ? (
+              <Badge variant="secondary" className="gap-1 font-normal">
+                Account: {accountName}
+                <button
+                  type="button"
+                  className="rounded-sm hover:bg-muted p-0.5"
+                  aria-label="Clear account"
+                  onClick={() => setAccountId(null)}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ) : null}
+            {categoryName ? (
+              <Badge variant="secondary" className="gap-1 font-normal">
+                Category: {categoryName}
+                <button
+                  type="button"
+                  className="rounded-sm hover:bg-muted p-0.5"
+                  aria-label="Clear category"
+                  onClick={() => {
+                    setCategoryId(null)
+                    setSubcategoryId(null)
+                    subcategoryAllExplicitRef.current = false
                   }}
-                  config={{ displayModeBar: false, responsive: true }}
-                />
-              ) : (
-                <div style={{ padding: 8, opacity: 0.75 }}>Plotly unavailable</div>
-              )}
-            </div>
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ) : null}
+            {subcategoryUserPick && subcategoryId != null && subcategoryName ? (
+              <Badge variant="secondary" className="gap-1 font-normal">
+                Subcategory: {subcategoryName}
+                <button
+                  type="button"
+                  className="rounded-sm hover:bg-muted p-0.5"
+                  aria-label="Clear subcategory"
+                  onClick={() => {
+                    subcategoryAllExplicitRef.current = true
+                    setSubcategoryUserPick(false)
+                    setSubcategoryId(null)
+                  }}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ) : null}
+            {selectedTagIds.map((tid) => {
+              const tname = tags.find((t) => t.id === tid)?.name ?? `#${tid}`
+              return (
+                <Badge key={tid} variant="secondary" className="gap-1 font-normal">
+                  <Tag className="h-3 w-3 opacity-70" />
+                  {tname}
+                  <button
+                    type="button"
+                    className="rounded-sm hover:bg-muted p-0.5"
+                    aria-label={`Remove tag ${tname}`}
+                    onClick={() => setSelectedTagIds((prev) => prev.filter((x) => x !== tid))}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              )
+            })}
+            {tagsMatchAny && selectedTagIds.length > 1 ? (
+              <Badge variant="outline" className="font-normal">
+                Tags: match any
+                <button
+                  type="button"
+                  className="ml-1 rounded-sm hover:bg-muted p-0.5"
+                  aria-label="Use match all for tags"
+                  onClick={() => setTagsMatchAny(false)}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ) : null}
+            {shouldMinMaxInclude.min !== undefined ? (
+              <Badge variant="secondary" className="gap-1 font-normal">
+                Min ${shouldMinMaxInclude.min.toFixed(2)}
+                <button
+                  type="button"
+                  className="rounded-sm hover:bg-muted p-0.5"
+                  onClick={() => setMinAmount(0)}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ) : null}
+            {shouldMinMaxInclude.max !== undefined ? (
+              <Badge variant="secondary" className="gap-1 font-normal">
+                Max ${shouldMinMaxInclude.max.toFixed(2)}
+                <button
+                  type="button"
+                  className="rounded-sm hover:bg-muted p-0.5"
+                  onClick={() => setMaxAmount(0)}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ) : null}
+            {activeFilterCount === 0 ? (
+              <span className="text-xs text-muted-foreground">None beyond date range</span>
+            ) : null}
+            {isFetching ? <span className="text-xs text-muted-foreground">Updating…</span> : null}
           </div>
 
-          <div style={{ marginTop: 16 }}>
-            <div className="flex flex-wrap gap-2 mb-3">
-              <Button variant={tab === 'tag' ? 'default' : 'outline'} size="sm" onClick={() => setTab('tag')}>
-                By tag
-              </Button>
-              <Button variant={tab === 'category' ? 'default' : 'outline'} size="sm" onClick={() => setTab('category')}>
-                By category
-              </Button>
-              <Button variant={tab === 'subcategory' ? 'default' : 'outline'} size="sm" onClick={() => setTab('subcategory')}>
-                By subcategory
-              </Button>
+          {!loadFailed && hasNoData && !awaitingData ? (
+            <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+              No transactions match these filters. Try widening the date range or removing filters.
             </div>
+          ) : null}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              {tab === 'tag' ? (
-                <>
-                  <div className="rounded-xl border bg-card shadow-card p-4">
-                    <div style={{ fontWeight: 700, marginBottom: 8 }}>By Tag</div>
-                    <div style={{ overflow: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                          <tr>
-                            <SortableHtmlTh
-                              label="tag"
-                              columnKey="tag"
-                              sort={viewsTagSort}
-                              onSort={(k) => setViewsTagSort((p) => cycleSort(p, k))}
-                              style={viewsThStyle}
-                            />
-                            <SortableHtmlTh
-                              label="total"
-                              columnKey="total"
-                              sort={viewsTagSort}
-                              onSort={(k) => setViewsTagSort((p) => cycleSort(p, k))}
-                              style={viewsThStyle}
-                            />
-                            <SortableHtmlTh
-                              label="count"
-                              columnKey="count"
-                              sort={viewsTagSort}
-                              onSort={(k) => setViewsTagSort((p) => cycleSort(p, k))}
-                              style={viewsThStyle}
-                            />
-                            <SortableHtmlTh
-                              label="percent"
-                              columnKey="percent"
-                              sort={viewsTagSort}
-                              onSort={(k) => setViewsTagSort((p) => cycleSort(p, k))}
-                              style={viewsThStyle}
-                            />
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {data.by_tag.length === 0 ? (
-                            <tr>
-                              <td colSpan={4} style={{ padding: 8, opacity: 0.7 }}>
-                                No tags assigned.
-                              </td>
-                            </tr>
-                          ) : (
-                            sortedViewsByTag.map((r, idx) => (
-                              <tr key={idx}>
-                                <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.tag}</td>
-                                <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>${Number(r.total).toFixed(2)}</td>
-                                <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.count}</td>
-                                <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{Number(r.percent).toFixed(2)}%</td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
+          {!loadFailed ? (
+            <motion.div
+              variants={container}
+              initial="hidden"
+              animate="show"
+              className="space-y-8"
+              style={{ opacity: awaitingData ? 0.72 : 1, transition: 'opacity 0.15s ease' }}
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <motion.div variants={item} className="rounded-xl border bg-card p-5 shadow-card">
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <div className="brand-icon-well h-8 w-8 !rounded-lg">
+                      <Receipt className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <p className="text-xs font-medium text-muted-foreground">Net total</p>
+                      <Tooltip>
+                        <TooltipTrigger type="button" className="shrink-0">
+                          <Info className="h-3 w-3 text-muted-foreground/50" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-xs">
+                          Signed sum of all matching non-transfer amounts (inflows positive, outflows negative). Not the
+                          same as “spending only” on Reports.
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
                   </div>
-                  <div className="rounded-xl border bg-card shadow-card p-4">
-                    <div style={{ fontWeight: 700, marginBottom: 8 }}>Spend by Tag</div>
-                    {tagPieData.values.length ? (
-                      <Pie
-                        plotOk={plotOk}
-                        labels={tagPieData.labels}
-                        values={tagPieData.values}
-                        title="Spend by Tag"
-                      />
-                    ) : (
-                      <div style={{ opacity: 0.7 }}>No data.</div>
-                    )}
-                  </div>
-                </>
-              ) : null}
-
-              {tab === 'category' ? (
-                <>
-                  <div className="rounded-xl border bg-card shadow-card p-4">
-                    <div style={{ fontWeight: 700, marginBottom: 8 }}>By Category</div>
-                    <div style={{ overflow: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                          <tr>
-                            <SortableHtmlTh
-                              label="category"
-                              columnKey="category"
-                              sort={viewsCategorySort}
-                              onSort={(k) => setViewsCategorySort((p) => cycleSort(p, k))}
-                              style={viewsThStyle}
-                            />
-                            <SortableHtmlTh
-                              label="total"
-                              columnKey="total"
-                              sort={viewsCategorySort}
-                              onSort={(k) => setViewsCategorySort((p) => cycleSort(p, k))}
-                              style={viewsThStyle}
-                            />
-                            <SortableHtmlTh
-                              label="count"
-                              columnKey="count"
-                              sort={viewsCategorySort}
-                              onSort={(k) => setViewsCategorySort((p) => cycleSort(p, k))}
-                              style={viewsThStyle}
-                            />
-                            <SortableHtmlTh
-                              label="percent"
-                              columnKey="percent"
-                              sort={viewsCategorySort}
-                              onSort={(k) => setViewsCategorySort((p) => cycleSort(p, k))}
-                              style={viewsThStyle}
-                            />
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {data.by_category.length === 0 ? (
-                            <tr>
-                              <td colSpan={4} style={{ padding: 8, opacity: 0.7 }}>
-                                No categories.
-                              </td>
-                            </tr>
-                          ) : (
-                            sortedViewsByCategory.map((r, idx) => (
-                              <tr key={idx}>
-                                <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.category}</td>
-                                <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>${Number(r.total).toFixed(2)}</td>
-                                <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.count}</td>
-                                <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{Number(r.percent).toFixed(2)}%</td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                  <div className="rounded-xl border bg-card shadow-card p-4">
-                    <div style={{ fontWeight: 700, marginBottom: 8 }}>Spend by Category</div>
-                    {categoryPieData.values.length ? (
-                      <Pie
-                        plotOk={plotOk}
-                        labels={categoryPieData.labels}
-                        values={categoryPieData.values}
-                        title="Spend by Category"
-                      />
-                    ) : (
-                      <div style={{ opacity: 0.7 }}>No data.</div>
-                    )}
-                  </div>
-                </>
-              ) : null}
-
-              {tab === 'subcategory' ? (
-                <>
-                  <div className="rounded-xl border bg-card shadow-card p-4">
-                    <div style={{ fontWeight: 700, marginBottom: 8 }}>By Subcategory</div>
-                    <div style={{ overflow: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                          <tr>
-                            <SortableHtmlTh
-                              label="category"
-                              columnKey="category"
-                              sort={viewsSubcategorySort}
-                              onSort={(k) => setViewsSubcategorySort((p) => cycleSort(p, k))}
-                              style={viewsThStyle}
-                            />
-                            <SortableHtmlTh
-                              label="subcategory"
-                              columnKey="subcategory"
-                              sort={viewsSubcategorySort}
-                              onSort={(k) => setViewsSubcategorySort((p) => cycleSort(p, k))}
-                              style={viewsThStyle}
-                            />
-                            <SortableHtmlTh
-                              label="total"
-                              columnKey="total"
-                              sort={viewsSubcategorySort}
-                              onSort={(k) => setViewsSubcategorySort((p) => cycleSort(p, k))}
-                              style={viewsThStyle}
-                            />
-                            <SortableHtmlTh
-                              label="count"
-                              columnKey="count"
-                              sort={viewsSubcategorySort}
-                              onSort={(k) => setViewsSubcategorySort((p) => cycleSort(p, k))}
-                              style={viewsThStyle}
-                            />
-                            <SortableHtmlTh
-                              label="percent"
-                              columnKey="percent"
-                              sort={viewsSubcategorySort}
-                              onSort={(k) => setViewsSubcategorySort((p) => cycleSort(p, k))}
-                              style={viewsThStyle}
-                            />
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {data.by_subcategory.length === 0 ? (
-                            <tr>
-                              <td colSpan={5} style={{ padding: 8, opacity: 0.7 }}>
-                                No subcategories.
-                              </td>
-                            </tr>
-                          ) : (
-                            sortedViewsBySubcategory.map((r, idx) => (
-                              <tr key={idx}>
-                                <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.category}</td>
-                                <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.subcategory}</td>
-                                <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>${Number(r.total).toFixed(2)}</td>
-                                <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.count}</td>
-                                <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{Number(r.percent).toFixed(2)}%</td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                  <div className="rounded-xl border bg-card shadow-card p-4">
-                    <div style={{ fontWeight: 700, marginBottom: 8 }}>Spend by Subcategory</div>
-                    {subcategoryPieData.values.length ? (
-                      <Pie
-                        plotOk={plotOk}
-                        labels={subcategoryPieData.labels}
-                        values={subcategoryPieData.values}
-                        title="Spend by Subcategory"
-                      />
-                    ) : (
-                      <div style={{ opacity: 0.7 }}>No data.</div>
-                    )}
-                  </div>
-                </>
-              ) : null}
-            </div>
-          </div>
-
-          <div style={{ marginTop: 18 }}>
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>Transactions</div>
-            <div className="rounded-xl border bg-card shadow-card p-4 overflow-auto">
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr>
-                    <SortableHtmlTh
-                      label="Date"
-                      columnKey="Date"
-                      sort={viewsTxnSort}
-                      onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
-                      style={viewsThStyle}
-                    />
-                    <SortableHtmlTh
-                      label="Merchant"
-                      columnKey="Merchant"
-                      sort={viewsTxnSort}
-                      onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
-                      style={viewsThStyle}
-                    />
-                    <SortableHtmlTh
-                      label="Amount"
-                      columnKey="Amount"
-                      sort={viewsTxnSort}
-                      onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
-                      style={{ ...viewsThStyle, textAlign: 'right' }}
-                      align="right"
-                    />
-                    <SortableHtmlTh
-                      label="Category"
-                      columnKey="Category"
-                      sort={viewsTxnSort}
-                      onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
-                      style={viewsThStyle}
-                    />
-                    <SortableHtmlTh
-                      label="Subcategory"
-                      columnKey="Subcategory"
-                      sort={viewsTxnSort}
-                      onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
-                      style={viewsThStyle}
-                    />
-                    <SortableHtmlTh
-                      label="Tags"
-                      columnKey="Tags"
-                      sort={viewsTxnSort}
-                      onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
-                      style={viewsThStyle}
-                    />
-                    <SortableHtmlTh
-                      label="Notes"
-                      columnKey="Notes"
-                      sort={viewsTxnSort}
-                      onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
-                      style={viewsThStyle}
-                    />
-                    <SortableHtmlTh
-                      label="Acct"
-                      columnKey="Acct"
-                      sort={viewsTxnSort}
-                      onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
-                      style={viewsThStyle}
-                    />
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.transactions.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} style={{ padding: 8, opacity: 0.7 }}>
-                        No transactions found.
-                      </td>
-                    </tr>
+                  {awaitingData ? (
+                    <div className="text-2xl font-mono text-muted-foreground">—</div>
                   ) : (
-                    sortedViewsTransactions.map((r: Record<string, unknown>, idx: number) => (
-                      <tr key={idx}>
-                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{String(r.Date ?? '')}</td>
-                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{String(r.Merchant ?? '')}</td>
-                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)', textAlign: 'right' }}>
-                          ${Number(r.Amount).toFixed(2)}
-                        </td>
-                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{String(r.Category ?? '')}</td>
-                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{String(r.Subcategory ?? '')}</td>
-                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{String(r.Tags ?? '')}</td>
-                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{String(r.Notes ?? '')}</td>
-                        <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{String(r.Acct ?? '')}</td>
-                      </tr>
-                    ))
+                    <p
+                      className={cn(
+                        'text-2xl font-bold tabular-nums font-mono',
+                        Number(data.total) < 0 ? 'text-income' : 'text-foreground',
+                      )}
+                    >
+                      {formatMoney(Number(data.total))}
+                    </p>
                   )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+                </motion.div>
+
+                <motion.div variants={item} className="rounded-xl border bg-card p-5 shadow-card">
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/20 shadow-sm">
+                      <Tag className="h-4 w-4 text-primary" />
+                    </div>
+                    <p className="text-xs font-medium text-muted-foreground">Transactions</p>
+                  </div>
+                  {awaitingData ? (
+                    <div className="text-2xl font-mono text-muted-foreground">—</div>
+                  ) : (
+                    <p className="text-2xl font-bold tabular-nums font-mono text-foreground">{data.transaction_count}</p>
+                  )}
+                  <p className="text-[11px] text-muted-foreground mt-1.5">
+                    {data.start_date} → {data.end_date}
+                  </p>
+                </motion.div>
+
+                <motion.div variants={item} className="rounded-xl border bg-card p-5 shadow-card">
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted ring-1 ring-border shadow-sm">
+                      <Receipt className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs font-medium text-muted-foreground">Avg |amount|</p>
+                      <Tooltip>
+                        <TooltipTrigger type="button">
+                          <Info className="h-3 w-3 text-muted-foreground/50" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-xs">
+                          Mean of absolute transaction amounts in the result set (client-side from loaded rows).
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </div>
+                  {awaitingData ? (
+                    <div className="text-2xl font-mono text-muted-foreground">—</div>
+                  ) : data.transaction_count === 0 ? (
+                    <p className="text-2xl font-bold tabular-nums font-mono text-muted-foreground">—</p>
+                  ) : (
+                    <p className="text-2xl font-bold tabular-nums font-mono text-foreground">
+                      {formatMoney(avgAbsFromTxns)}
+                    </p>
+                  )}
+                </motion.div>
+              </div>
+
+              <motion.div variants={item} className="rounded-xl border bg-card p-6 shadow-card">
+                <h2 className="text-sm font-semibold mb-1">Daily activity in view</h2>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Net non-rent spending by day for charting (same logic as the previous views chart). Bars show signed
+                  daily totals in your filter window.
+                </p>
+                {awaitingData ? (
+                  <p className="text-sm text-muted-foreground py-12 text-center">Loading chart…</p>
+                ) : hasNoData ? (
+                  <p className="text-sm text-muted-foreground py-12 text-center">No data for this view.</p>
+                ) : barData.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-12 text-center">No daily series for this range.</p>
+                ) : (
+                  <div className="h-[min(38vh,320px)] min-h-[220px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={barData} margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                        <XAxis
+                          dataKey="label"
+                          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                          tickLine={false}
+                          axisLine={false}
+                          interval="preserveStartEnd"
+                          height={36}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                          tickLine={false}
+                          axisLine={false}
+                          width={56}
+                          tickFormatter={(v) => {
+                            const n = Number(v)
+                            const s = Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 })
+                            if (n < 0) return `−$${s}`
+                            if (n > 0) return `$${s}`
+                            return '$0'
+                          }}
+                        />
+                        <RechartsTooltip
+                          formatter={(value: number) => [
+                            `$${Number(value).toLocaleString('en-US', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}`,
+                            'Amount',
+                          ]}
+                          labelFormatter={(label) => String(label)}
+                          contentStyle={{
+                            fontSize: 12,
+                            borderRadius: 8,
+                            border: '1px solid hsl(var(--border))',
+                          }}
+                        />
+                        <Bar dataKey="amount" fill="hsl(var(--primary))" maxBarSize={32} radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </motion.div>
+
+              <motion.div variants={item}>
+                <Tabs value={breakdownTab} onValueChange={(v) => setBreakdownTab(v as typeof breakdownTab)}>
+                  <TabsList className="mb-4">
+                    <TabsTrigger value="tag">By tag</TabsTrigger>
+                    <TabsTrigger value="category">By category</TabsTrigger>
+                    <TabsTrigger value="subcategory">By subcategory</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="tag" className="mt-0">
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                      <div className="rounded-xl border bg-card p-6 shadow-card min-w-0">
+                        <h2 className="text-sm font-semibold mb-4">Table</h2>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <SortableTableHead
+                                label="Tag"
+                                columnKey="tag"
+                                sort={viewsTagSort}
+                                onSort={(k) => setViewsTagSort((p) => cycleSort(p, k))}
+                              />
+                              <SortableTableHead
+                                label="Total"
+                                columnKey="total"
+                                sort={viewsTagSort}
+                                onSort={(k) => setViewsTagSort((p) => cycleSort(p, k))}
+                              />
+                              <SortableTableHead
+                                label="Count"
+                                columnKey="count"
+                                sort={viewsTagSort}
+                                onSort={(k) => setViewsTagSort((p) => cycleSort(p, k))}
+                              />
+                              <SortableTableHead
+                                label="%"
+                                columnKey="percent"
+                                sort={viewsTagSort}
+                                onSort={(k) => setViewsTagSort((p) => cycleSort(p, k))}
+                              />
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {data.by_tag.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={4} className="text-muted-foreground">
+                                  No tags assigned.
+                                </TableCell>
+                              </TableRow>
+                            ) : (
+                              sortedViewsByTag.map((r, idx) => (
+                                <TableRow key={idx}>
+                                  <TableCell className="font-medium">{String(r.tag)}</TableCell>
+                                  <TableCell className="tabular-nums">{formatMoney(Number(r.total))}</TableCell>
+                                  <TableCell className="tabular-nums">{String(r.count ?? '')}</TableCell>
+                                  <TableCell className="tabular-nums">{Number(r.percent).toFixed(1)}%</TableCell>
+                                </TableRow>
+                              ))
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
+                      <SpendPieCard
+                        title="Spend by tag"
+                        rawSlices={tagRaw}
+                        emptyHint="No tagged spending in this view."
+                        twoThirdsPieLayout
+                      />
+                    </div>
+                  </TabsContent>
+                  <TabsContent value="category" className="mt-0">
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                      <div className="rounded-xl border bg-card p-6 shadow-card min-w-0">
+                        <h2 className="text-sm font-semibold mb-4">Table</h2>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <SortableTableHead
+                                label="Category"
+                                columnKey="category"
+                                sort={viewsCategorySort}
+                                onSort={(k) => setViewsCategorySort((p) => cycleSort(p, k))}
+                              />
+                              <SortableTableHead
+                                label="Total"
+                                columnKey="total"
+                                sort={viewsCategorySort}
+                                onSort={(k) => setViewsCategorySort((p) => cycleSort(p, k))}
+                              />
+                              <SortableTableHead
+                                label="Count"
+                                columnKey="count"
+                                sort={viewsCategorySort}
+                                onSort={(k) => setViewsCategorySort((p) => cycleSort(p, k))}
+                              />
+                              <SortableTableHead
+                                label="%"
+                                columnKey="percent"
+                                sort={viewsCategorySort}
+                                onSort={(k) => setViewsCategorySort((p) => cycleSort(p, k))}
+                              />
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {data.by_category.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={4} className="text-muted-foreground">
+                                  No categories.
+                                </TableCell>
+                              </TableRow>
+                            ) : (
+                              sortedViewsByCategory.map((r, idx) => (
+                                <TableRow key={idx}>
+                                  <TableCell className="font-medium">{String(r.category)}</TableCell>
+                                  <TableCell className="tabular-nums">{formatMoney(Number(r.total))}</TableCell>
+                                  <TableCell className="tabular-nums">{String(r.count ?? '')}</TableCell>
+                                  <TableCell className="tabular-nums">{Number(r.percent).toFixed(1)}%</TableCell>
+                                </TableRow>
+                              ))
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
+                      <SpendPieCard
+                        title="Spend by category"
+                        subtitle="Click a slice to focus subcategories in the next tab."
+                        rawSlices={categoryRaw}
+                        emptyHint="No categorized spending in this view."
+                        interactiveCategory
+                        selectedCategoryId={selectedCategoryId}
+                        onCategorySliceClick={onCategorySliceClick}
+                        twoThirdsPieLayout
+                      />
+                    </div>
+                  </TabsContent>
+                  <TabsContent value="subcategory" className="mt-0">
+                    <div className="flex flex-wrap items-center gap-2 mb-3">
+                      {selectedCategoryId != null ? (
+                        <Button type="button" variant="secondary" size="sm" onClick={() => setSelectedCategoryId(null)}>
+                          All subcategories
+                        </Button>
+                      ) : null}
+                      {selectedCategoryId != null && selectedCategoryName ? (
+                        <span className="text-xs text-muted-foreground">
+                          Filtered: <span className="font-medium text-foreground">{selectedCategoryName}</span>
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                      <div className="rounded-xl border bg-card p-6 shadow-card min-w-0 overflow-x-auto">
+                        <h2 className="text-sm font-semibold mb-4">Table</h2>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <SortableTableHead
+                                label="Category"
+                                columnKey="category"
+                                sort={viewsSubcategorySort}
+                                onSort={(k) => setViewsSubcategorySort((p) => cycleSort(p, k))}
+                              />
+                              <SortableTableHead
+                                label="Subcategory"
+                                columnKey="subcategory"
+                                sort={viewsSubcategorySort}
+                                onSort={(k) => setViewsSubcategorySort((p) => cycleSort(p, k))}
+                              />
+                              <SortableTableHead
+                                label="Total"
+                                columnKey="total"
+                                sort={viewsSubcategorySort}
+                                onSort={(k) => setViewsSubcategorySort((p) => cycleSort(p, k))}
+                              />
+                              <SortableTableHead
+                                label="Count"
+                                columnKey="count"
+                                sort={viewsSubcategorySort}
+                                onSort={(k) => setViewsSubcategorySort((p) => cycleSort(p, k))}
+                              />
+                              <SortableTableHead
+                                label="%"
+                                columnKey="percent"
+                                sort={viewsSubcategorySort}
+                                onSort={(k) => setViewsSubcategorySort((p) => cycleSort(p, k))}
+                              />
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {subcategoryRowsFiltered.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={5} className="text-muted-foreground">
+                                  {selectedCategoryId != null
+                                    ? 'No subcategories for the selected category in this view.'
+                                    : 'No subcategories.'}
+                                </TableCell>
+                              </TableRow>
+                            ) : (
+                              sortedViewsBySubcategory.map((r, idx) => (
+                                <TableRow key={idx}>
+                                  <TableCell className="font-medium whitespace-nowrap">{String(r.category)}</TableCell>
+                                  <TableCell>{String(r.subcategory)}</TableCell>
+                                  <TableCell className="tabular-nums">{formatMoney(Number(r.total))}</TableCell>
+                                  <TableCell className="tabular-nums">{String(r.count ?? '')}</TableCell>
+                                  <TableCell className="tabular-nums">{Number(r.percent).toFixed(1)}%</TableCell>
+                                </TableRow>
+                              ))
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
+                      <SpendPieCard
+                        title="Spend by subcategory"
+                        subtitle={
+                          selectedCategoryId != null && selectedCategoryName
+                            ? `Filtered: ${selectedCategoryName}`
+                            : 'Click a category slice on the previous tab to narrow.'
+                        }
+                        rawSlices={subcategoryRaw}
+                        emptyHint={
+                          selectedCategoryId != null
+                            ? 'No subcategory spending for this category in this view.'
+                            : 'No subcategory breakdown in this view.'
+                        }
+                        twoThirdsPieLayout
+                      />
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              </motion.div>
+
+              <motion.div variants={item} className="rounded-xl border bg-card p-6 shadow-card">
+                <h2 className="text-sm font-semibold mb-4">Transactions</h2>
+                <div className="overflow-x-auto -mx-2 px-2">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <SortableTableHead
+                          label="Date"
+                          columnKey="Date"
+                          sort={viewsTxnSort}
+                          onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
+                        />
+                        <SortableTableHead
+                          label="Merchant"
+                          columnKey="Merchant"
+                          sort={viewsTxnSort}
+                          onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
+                        />
+                        <SortableTableHead
+                          label="Amount"
+                          columnKey="Amount"
+                          sort={viewsTxnSort}
+                          onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
+                          align="right"
+                        />
+                        <SortableTableHead
+                          label="Category"
+                          columnKey="Category"
+                          sort={viewsTxnSort}
+                          onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
+                        />
+                        <SortableTableHead
+                          label="Subcategory"
+                          columnKey="Subcategory"
+                          sort={viewsTxnSort}
+                          onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
+                        />
+                        <SortableTableHead
+                          label="Tags"
+                          columnKey="Tags"
+                          sort={viewsTxnSort}
+                          onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
+                        />
+                        <SortableTableHead
+                          label="Notes"
+                          columnKey="Notes"
+                          sort={viewsTxnSort}
+                          onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
+                        />
+                        <SortableTableHead
+                          label="Account"
+                          columnKey="Acct"
+                          sort={viewsTxnSort}
+                          onSort={(k) => setViewsTxnSort((p) => cycleSort(p, k))}
+                        />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {data.transactions.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={8} className="text-muted-foreground">
+                            No transactions found.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        sortedViewsTransactions.map((r, idx) => {
+                          const row = r as unknown as TxnRow
+                          return (
+                            <TableRow key={row.id ?? idx}>
+                              <TableCell className="whitespace-nowrap tabular-nums text-xs">{row.Date}</TableCell>
+                              <TableCell className="max-w-[140px] truncate" title={row.Merchant}>
+                                {row.Merchant}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {formatMoney(Number(row.Amount))}
+                              </TableCell>
+                              <TableCell>{row.Category}</TableCell>
+                              <TableCell>{row.Subcategory}</TableCell>
+                              <TableCell className="max-w-[120px] truncate" title={row.Tags}>
+                                {row.Tags}
+                              </TableCell>
+                              <TableCell className="max-w-[120px] truncate" title={row.Notes}>
+                                {row.Notes}
+                              </TableCell>
+                              <TableCell className="whitespace-nowrap">
+                                <span className="mr-1.5">{row.Acct}</span>
+                                {row.is_transfer ? (
+                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">
+                                    Transfer
+                                  </Badge>
+                                ) : null}
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </motion.div>
+            </motion.div>
+          ) : null}
+        </>
       ) : null}
     </div>
   )
 }
-

@@ -12,7 +12,7 @@ const pageMeta: Record<string, { title: string; description: string }> = {
   "/transactions": { title: "Transactions", description: "Record and review activity" },
   "/recurring": { title: "Recurring charges", description: "Confirm or ignore detected recurring charges" },
   "/budgets": { title: "Budgets", description: "Set monthly limits and track progress" },
-  "/views": { title: "Views", description: "Custom filtered analytics" },
+  "/views": { title: "Views", description: "Custom filters, charts, and saved views" },
   "/investments": { title: "Investments", description: "Portfolio allocation and account performance" },
   "/reports": { title: "Reports", description: "Monthly spending, income, and breakdowns" },
   "/summaries": { title: "Reports", description: "Monthly spending, income, and breakdowns" },
@@ -29,11 +29,11 @@ export default function AppLayout() {
       : { title: "", description: "" });
 
   return (
-    <SidebarProvider>
-      <div className="min-h-screen flex w-full">
+    <SidebarProvider className="h-svh min-h-0 overflow-hidden">
+      <div className="flex min-h-0 w-full flex-1">
         <AppSidebar />
-        <div className="flex-1 flex flex-col min-w-0">
-          <header className="app-shell-header h-14 flex items-center px-4 shrink-0 gap-3">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <header className="app-shell-header sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 px-4">
             <div className="relative z-10 flex w-full items-center gap-3 min-h-14">
               <SidebarTrigger className="text-white hover:bg-white/20 hover:text-white rounded-lg transition-colors size-9 shrink-0 [&_svg]:size-5" />
               <div className="h-6 w-px shrink-0 bg-white/35" aria-hidden />
@@ -45,7 +45,7 @@ export default function AppLayout() {
               </div>
             </div>
           </header>
-          <main className="flex-1 overflow-auto bg-background">
+          <main className="min-h-0 flex-1 overflow-auto bg-background">
             <Outlet />
           </main>
           <footer className="shrink-0 border-t border-border/70 bg-muted/25 px-4 py-2.5 text-center text-[11px] text-muted-foreground">

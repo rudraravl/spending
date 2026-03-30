@@ -17,7 +17,7 @@ import NotFoundPage from './pages/NotFoundPage'
 import BudgetsPage from '@/pages/BudgetsPage'
 import RecurringChargesPage from './pages/RecurringChargesPage'
 import SettingsPage from './pages/SettingsPage'
-import SummariesPage from './pages/SummariesPage'
+import ReportsPage from './pages/ReportsPage'
 import ViewsPage from './pages/ViewsPage'
 
 export default function KeepApp() {
@@ -42,7 +42,8 @@ export default function KeepApp() {
                 <Route path="/budgets" element={<BudgetsPage />} />
                 <Route path="/views" element={<ViewsPage />} />
                 <Route path="/investments" element={<InvestmentsPage />} />
-                <Route path="/summaries" element={<SummariesPage />} />
+                <Route path="/reports" element={<ReportsPage />} />
+                <Route path="/summaries" element={<Navigate to="/reports" replace />} />
                 <Route path="/connections" element={<Navigate to="/accounts?tab=connections" replace />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>

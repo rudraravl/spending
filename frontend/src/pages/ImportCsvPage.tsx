@@ -219,7 +219,7 @@ export default function ImportCsvPage() {
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['views'] })
-      queryClient.invalidateQueries({ queryKey: ['summaries'] })
+      queryClient.invalidateQueries({ queryKey: ['reports'] })
 
       const candidates = res.transfer_match_candidates ?? []
       if (candidates.length > 0) {

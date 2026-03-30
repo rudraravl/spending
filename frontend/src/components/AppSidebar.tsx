@@ -35,7 +35,7 @@ const mainItems = [
 const analyticsItems = [
   { title: "Views", url: "/views", icon: BarChart3 },
   { title: "Investments", url: "/investments", icon: TrendingUp },
-  { title: "Summaries", url: "/summaries", icon: FileText },
+  { title: "Reports", url: "/reports", icon: FileText },
 ];
 
 export function AppSidebar() {

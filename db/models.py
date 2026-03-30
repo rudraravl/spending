@@ -371,6 +371,10 @@ class SimpleFINSyncRun(Base):
         "InvestmentSyncSnapshot",
         back_populates="sync_run",
     )
+    net_worth_snapshots = relationship(
+        "NetWorthSnapshot",
+        back_populates="sync_run",
+    )
 
     def __repr__(self):
         return (
@@ -459,6 +463,24 @@ class InvestmentManualPosition(Base):
     account = relationship("Account", back_populates="investment_manual_positions")
 
     __table_args__ = (Index("idx_inv_manual_acct", "account_id"),)
+
+
+class NetWorthSnapshot(Base):
+    """Point-in-time net worth snapshot across all accounts."""
+
+    __tablename__ = "net_worth_snapshots"
+
+    id = Column(Integer, primary_key=True)
+    captured_at = Column(DateTime, nullable=False)
+    simplefin_sync_run_id = Column(Integer, ForeignKey("simplefin_sync_runs.id"), nullable=True)
+    total_value = Column(Float, nullable=False)
+    currency = Column(String, nullable=False, server_default="USD")
+    mixed_currencies = Column(Boolean, nullable=False, server_default="0", default=False)
+    accounts_count = Column(Integer, nullable=False, server_default="0")
+
+    sync_run = relationship("SimpleFINSyncRun", back_populates="net_worth_snapshots")
+
+    __table_args__ = (Index("idx_net_worth_captured_at", "captured_at"),)
 
 
 class BudgetLimit(Base):

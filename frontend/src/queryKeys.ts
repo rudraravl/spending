@@ -43,7 +43,7 @@ export const queryKeys = {
   // Views endpoint takes a large parameter set; pass a stable string “paramsKey”.
   views: (paramsKey: string) => ['views', paramsKey] as const,
 
-  summaries: (rangeType: string) => ['summaries', rangeType] as const,
+  reportsMonthly: (year: number, month: number) => ['reports', 'monthly', year, month] as const,
 
   importAdapters: () => ['import', 'adapters'] as const,
   csvPreview: (signature: string) => ['csvPreview', signature] as const,

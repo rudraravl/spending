@@ -297,7 +297,7 @@ export function useTransactions() {
       queryClient.invalidateQueries({ queryKey: ['splits'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['views'] })
-      queryClient.invalidateQueries({ queryKey: ['summaries'] })
+      queryClient.invalidateQueries({ queryKey: ['reports'] })
       toast.success('Changes saved', { duration: 1000 })
     },
     onError: (e: unknown) => {
@@ -334,7 +334,7 @@ export function useTransactions() {
       queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['views'] })
-      queryClient.invalidateQueries({ queryKey: ['summaries'] })
+      queryClient.invalidateQueries({ queryKey: ['reports'] })
     },
     onError: (e: unknown) => {
       setError(e instanceof Error ? e.message : 'Could not link as transfer')
@@ -369,7 +369,7 @@ export function useTransactions() {
       queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['views'] })
-      queryClient.invalidateQueries({ queryKey: ['summaries'] })
+      queryClient.invalidateQueries({ queryKey: ['reports'] })
     },
     onError: (e: unknown) => {
       setError(e instanceof Error ? e.message : 'Could not unlink transfer')
@@ -388,7 +388,7 @@ export function useTransactions() {
       queryClient.invalidateQueries({ queryKey: ['splits'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['views'] })
-      queryClient.invalidateQueries({ queryKey: ['summaries'] })
+      queryClient.invalidateQueries({ queryKey: ['reports'] })
     },
     onError: (e: unknown) => {
       setError(e instanceof Error ? e.message : 'Failed to delete transactions')

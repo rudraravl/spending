@@ -9,6 +9,7 @@ Semester definitions:
 Auto-detects based on current date.
 """
 
+from calendar import monthrange
 from datetime import date, timedelta
 from typing import Tuple
 from enum import Enum
@@ -150,3 +151,21 @@ def get_last_month_range() -> Tuple[date, date]:
     end_prev = first_this_month - timedelta(days=1)
     start_prev = date(end_prev.year, end_prev.month, 1)
     return start_prev, end_prev
+
+
+def shift_calendar_month(year: int, month: int, delta: int) -> Tuple[int, int]:
+    """Return (year, month) after moving ``delta`` months (negative allowed)."""
+    m = month - 1 + delta
+    y = year + m // 12
+    m = m % 12 + 1
+    return y, m
+
+
+def get_calendar_month_range(year: int, month: int) -> Tuple[date, date]:
+    """
+    Inclusive first and last calendar day of the given month.
+    """
+    start = date(year, month, 1)
+    last_day = monthrange(year, month)[1]
+    end = date(year, month, last_day)
+    return start, end

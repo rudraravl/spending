@@ -121,7 +121,7 @@ export default function TransferPage({ embedded = false }: { embedded?: boolean 
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
       queryClient.invalidateQueries({ queryKey: ['splits'] })
       queryClient.invalidateQueries({ queryKey: ['views'] })
-      queryClient.invalidateQueries({ queryKey: ['summaries'] })
+      queryClient.invalidateQueries({ queryKey: ['reports'] })
     },
     onError: (e: unknown) => {
       const message = e instanceof Error ? e.message : 'Transfer failed'

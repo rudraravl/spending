@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Set, Tuple
 import pandas as pd
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, union_all
-from db.models import Transaction, Tag, Category, Subcategory, TransactionSplit
+from db.models import Account, Transaction, Tag, Category, Subcategory, TransactionSplit
 from utils.filters import TransactionFilter
 
 
@@ -66,6 +66,10 @@ def _apply_filters_base(query, filters: Optional[TransactionFilter]):
     if filters.subcategory_id:
         query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
 
+    if filters.exclude_account_types:
+        query = query.join(Account, Transaction.account_id == Account.id)
+        query = query.filter(~Account.type.in_(list(filters.exclude_account_types)))
+
     return query
 
 
@@ -109,6 +113,10 @@ def _apply_filters_splits(query, filters: Optional[TransactionFilter]):
 
     if filters.subcategory_id:
         query = query.filter(TransactionSplit.subcategory_id == filters.subcategory_id)
+
+    if filters.exclude_account_types:
+        query = query.join(Account, Transaction.account_id == Account.id)
+        query = query.filter(~Account.type.in_(list(filters.exclude_account_types)))
 
     return query
 
@@ -408,6 +416,10 @@ def summarize_by_tag(
         # Filter by subcategory
         if filters.subcategory_id:
             query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
+
+        if filters.exclude_account_types:
+            query = query.join(Account, Transaction.account_id == Account.id)
+            query = query.filter(~Account.type.in_(list(filters.exclude_account_types)))
     
     results = query.all()
     
@@ -677,3 +689,96 @@ def export_transactions(
     df.to_csv(filename, index=False)
 
     return filename
+
+
+def daily_net_spending_non_income_by_date(
+    session: Session,
+    filters: Optional[TransactionFilter] = None,
+) -> Dict[date, float]:
+    """
+    Per calendar day: net outflow from non-Income categories (split-aware), transfers excluded.
+    Positive value means net spending (outflow) that day.
+    """
+    split_q = (
+        session.query(
+            Transaction.date.label("d"),
+            TransactionSplit.amount.label("amount"),
+        )
+        .select_from(TransactionSplit)
+        .join(TransactionSplit.category)
+        .join(TransactionSplit.transaction)
+        .filter(Category.name != INCOME_CATEGORY_NAME)
+    )
+    split_q = _exclude_non_spend_transactions(split_q)
+    split_q = _apply_filters_splits(split_q, filters)
+
+    base_q = (
+        session.query(
+            Transaction.date.label("d"),
+            Transaction.amount.label("amount"),
+        )
+        .select_from(Transaction)
+        .outerjoin(Transaction.category)
+        .filter(~Transaction.splits.any())
+        .filter(
+            or_(Category.id.is_(None), Category.name != INCOME_CATEGORY_NAME),
+        )
+    )
+    base_q = _exclude_non_spend_transactions(base_q)
+    base_q = _apply_filters_base(base_q, filters)
+
+    combined = union_all(split_q, base_q).subquery("daily_non_income")
+    rows = (
+        session.query(
+            combined.c.d,
+            func.sum(combined.c.amount).label("raw"),
+        )
+        .group_by(combined.c.d)
+        .all()
+    )
+    out: Dict[date, float] = {}
+    for r in rows:
+        if r.d is None:
+            continue
+        raw = float(r.raw or 0.0)
+        out[r.d] = -raw
+    return out
+
+
+def cumulative_spending_by_day_of_month(
+    daily: Dict[date, float],
+    month_start: date,
+) -> list[float]:
+    """
+    31 points: cumulative net spending through day-of-month 1..31.
+    After the last day of a short month, the cumulative stays flat through day 31.
+    """
+    from calendar import monthrange
+
+    y, m = month_start.year, month_start.month
+    dim = monthrange(y, m)[1]
+    running = 0.0
+    series: list[float] = []
+    for dom in range(1, 32):
+        if dom <= dim:
+            d = date(y, m, dom)
+            running += daily.get(d, 0.0)
+        series.append(running)
+    return series
+
+
+def average_transaction_abs_amount(
+    session: Session,
+    filters: Optional[TransactionFilter] = None,
+) -> Tuple[float, int]:
+    """Mean |amount| over non-transfer parent transactions in range. Returns (avg, count)."""
+    query = session.query(
+        func.count(Transaction.id),
+        func.avg(func.abs(Transaction.amount)),
+    ).select_from(Transaction)
+    query = _exclude_non_spend_transactions(query)
+    query = _apply_filters_base(query, filters)
+    row = query.one()
+    n = int(row[0] or 0)
+    avg = float(row[1] or 0.0)
+    return avg, n

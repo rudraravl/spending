@@ -9,6 +9,8 @@ import {
   CartesianGrid,
   Cell,
   Legend,
+  Line,
+  LineChart,
   Pie,
   PieChart,
   ReferenceLine,
@@ -63,6 +65,13 @@ type SubcategoryRow = {
 }
 
 type TrendPoint = { date: string; spending: number; credits: number }
+type NetWorthPoint = {
+  captured_at: string
+  total_value: number
+  currency: string
+  mixed_currencies: boolean
+  accounts_count: number
+}
 
 type RecentRow = {
   id: number
@@ -81,6 +90,7 @@ type DashboardResponse = {
   by_category: CategoryRow[]
   by_subcategory: SubcategoryRow[]
   spending_over_time: TrendPoint[]
+  net_worth_over_time: NetWorthPoint[]
   recent_transactions: RecentRow[]
 }
 
@@ -258,6 +268,16 @@ export default function DashboardPage() {
       creditsNeg: -Number(r.credits),
     }))
   }, [data])
+
+  const netWorthSeries = useMemo(() => {
+    if (!data?.net_worth_over_time?.length) return []
+    return data.net_worth_over_time.map((point) => ({
+      time: fmtShortDate(point.captured_at.slice(0, 10)),
+      value: Number(point.total_value),
+      currency: point.currency,
+      mixed: point.mixed_currencies,
+    }))
+  }, [data?.net_worth_over_time])
 
   const selectedCategoryName =
     data?.by_category.find((c) => c.category_id === selectedCategoryId)?.category ?? ''
@@ -505,6 +525,65 @@ export default function DashboardPage() {
 
             {/* Full-width daily chart */}
             <div className="mb-8">
+              {showNetWorth ? (
+                <motion.div variants={item} className="rounded-xl border bg-card p-6 shadow-card mb-6">
+                  <h2 className="text-sm font-semibold mb-1">Net worth trend</h2>
+                  <p className="text-xs text-muted-foreground mb-4">
+                    Snapshot captured on each sync.
+                  </p>
+                  {netWorthSeries.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-12 text-center">
+                      No snapshots yet. Run sync to start building net worth history.
+                    </p>
+                  ) : (
+                    <div className="h-[min(38vh,320px)] min-h-[220px] w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={netWorthSeries} margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                          <XAxis
+                            dataKey="time"
+                            tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                            tickLine={false}
+                            axisLine={false}
+                            interval="preserveStartEnd"
+                            height={36}
+                          />
+                          <YAxis
+                            tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                            tickLine={false}
+                            axisLine={false}
+                            width={64}
+                            tickFormatter={(v) => `$${Math.abs(Number(v)).toLocaleString('en-US', { maximumFractionDigits: 0 })}`}
+                          />
+                          <RechartsTooltip
+                            formatter={(value: number) => [
+                              `$${Number(value).toLocaleString('en-US', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}`,
+                              'Net worth',
+                            ]}
+                            labelFormatter={(label) => String(label)}
+                            contentStyle={{
+                              fontSize: 12,
+                              borderRadius: 8,
+                              border: '1px solid hsl(var(--border))',
+                            }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="value"
+                            stroke="hsl(var(--primary))"
+                            strokeWidth={2.25}
+                            dot={{ r: 2.5, strokeWidth: 0, fill: 'hsl(var(--primary))' }}
+                            activeDot={{ r: 4 }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </motion.div>
+              ) : null}
               <motion.div variants={item} className="rounded-xl border bg-card p-6 shadow-card">
                 <h2 className="text-sm font-semibold mb-1">Daily spending (excl. Income)</h2>
                 <p className="text-xs text-muted-foreground mb-4">

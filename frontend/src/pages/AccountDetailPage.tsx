@@ -111,7 +111,7 @@ export default function AccountDetailPage() {
     await queryClient.invalidateQueries({ queryKey: ['transactions'] })
     await queryClient.invalidateQueries({ queryKey: queryKeys.dashboard() })
     await queryClient.invalidateQueries({ queryKey: ['views'] })
-    await queryClient.invalidateQueries({ queryKey: ['summaries'] })
+    await queryClient.invalidateQueries({ queryKey: ['reports'] })
     await queryClient.invalidateQueries({ queryKey: queryKeys.investmentsSummary() })
     await queryClient.invalidateQueries({ queryKey: ['investments'] })
     await queryClient.invalidateQueries({ queryKey: queryKeys.investmentsSummary() })

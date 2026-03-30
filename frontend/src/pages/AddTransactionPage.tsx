@@ -143,7 +143,7 @@ export default function AddTransactionPage({ embedded = false }: { embedded?: bo
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['views'] })
-      queryClient.invalidateQueries({ queryKey: ['summaries'] })
+      queryClient.invalidateQueries({ queryKey: ['reports'] })
     },
     onError: (e: unknown) => {
       setFeedbackTitle('Failed to add transaction')

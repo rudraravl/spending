@@ -26,6 +26,7 @@ from services.encryption import decrypt, encrypt
 from services.import_service import ensure_category, ensure_subcategory
 from services.investment_snapshot_service import record_investment_snapshot
 from services.investment_txn_parser import classify_investment_transaction
+from services.net_worth_service import capture_net_worth_snapshot
 from services.rule_service import apply_rules_to_transaction
 from services.simplefin_client import (
     SFINAccountSet,
@@ -770,6 +771,14 @@ def sync_connection(
         if error_messages:
             result.errors = error_messages
             run.error_message = "; ".join(error_messages)
+
+        # Record one aggregate net-worth point per sync run so the dashboard can
+        # plot trend history over time.
+        capture_net_worth_snapshot(
+            session,
+            captured_at=now,
+            simplefin_sync_run_id=run.id,
+        )
 
         session.commit()
         return result

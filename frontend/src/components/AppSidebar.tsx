@@ -30,12 +30,13 @@ const mainItems = [
   { title: "Transactions", url: "/transactions", icon: List },
   { title: "Recurring charges", url: "/recurring", icon: Repeat },
   { title: "Budgets", url: "/budgets", icon: Wallet },
+  { title: "Investments", url: "/investments", icon: TrendingUp },
 ];
 
 const analyticsItems = [
   { title: "Views", url: "/views", icon: BarChart3 },
-  { title: "Investments", url: "/investments", icon: TrendingUp },
-  { title: "Summaries", url: "/summaries", icon: FileText },
+  { title: "Net worth", url: "/net-worth", icon: TrendingUp },
+  { title: "Reports", url: "/reports", icon: FileText },
 ];
 
 export function AppSidebar() {

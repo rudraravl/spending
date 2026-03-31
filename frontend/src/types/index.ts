@@ -5,12 +5,6 @@ export type { TagOut } from './tag'
 export type { TransactionOut } from './transaction'
 export type { TransactionSplitIn, TransactionSplitOut } from './transactionSplit'
 export type {
-  BudgetLimitOut,
-  BudgetLimitUpsertIn,
-  BudgetMonthOut,
-  BudgetProgressCategoryOut,
-  BudgetProgressOut,
-  BudgetProgressSubcategoryOut,
   ZbbAssignIn,
   BudgetCategoryOut,
   ZbbCategoryRowOut,

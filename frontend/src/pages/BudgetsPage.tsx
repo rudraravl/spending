@@ -15,7 +15,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 
 function money(n: number) {
@@ -36,7 +35,6 @@ export default function BudgetsPage() {
     const y = now.getFullYear()
     return [y - 1, y, y + 1]
   }, [now])
-  const [activeTab, setActiveTab] = useState<'zero-based' | 'legacy'>('zero-based')
   const [moveOpen, setMoveOpen] = useState(false)
   const [moveFrom, setMoveFrom] = useState<string>('')
   const [moveTo, setMoveTo] = useState<string>('')
@@ -156,150 +154,135 @@ export default function BudgetsPage() {
         </CardContent>
       </Card>
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'zero-based' | 'legacy')}>
-        <TabsList>
-          <TabsTrigger value="zero-based">Zero-Based</TabsTrigger>
-          <TabsTrigger value="legacy">Legacy Caps</TabsTrigger>
-        </TabsList>
-        <TabsContent value="zero-based" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Ready to Assign</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div
-                className={cn(
-                  'text-3xl font-bold font-mono',
-                  (zbbQ.data?.ready_to_assign ?? 0) < 0 ? 'text-red-600' : 'text-emerald-600',
-                )}
-              >
-                {money(zbbQ.data?.ready_to_assign ?? 0)}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Ready to Assign</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div
+            className={cn(
+              'text-3xl font-bold font-mono',
+              (zbbQ.data?.ready_to_assign ?? 0) < 0 ? 'text-red-600' : 'text-emerald-600',
+            )}
+          >
+            {money(zbbQ.data?.ready_to_assign ?? 0)}
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Liquid Pool {money(zbbQ.data?.liquid_pool ?? 0)} • Assigned {money(zbbQ.data?.total_assigned ?? 0)}
+          </p>
+          <div className="mt-3 flex items-center gap-2">
+            <Label className="text-xs">Rollover mode</Label>
+            <Select
+              value={(zbbQ.data?.rollover_mode as 'strict' | 'flexible' | undefined) ?? 'strict'}
+              onValueChange={(v) => modeMut.mutate(v as 'strict' | 'flexible')}
+            >
+              <SelectTrigger className="w-[160px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="strict">Strict</SelectItem>
+                <SelectItem value="flexible">Flexible</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Strict:</span> negative category balances carry into next
+            month. <span className="font-medium text-foreground">Flexible:</span> categories reset to $0 and the
+            overspent amount is deducted from next month&apos;s Ready to Assign.
+          </p>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Envelope Grid ({monthLabel(year, month)})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {zbbQ.isLoading ? <p className="text-sm text-muted-foreground">Loading...</p> : null}
+          {zbbQ.error ? <p className="text-sm text-destructive">{(zbbQ.error as Error).message}</p> : null}
+          <div className="space-y-2">
+            {zbbQ.data?.rows.map((row) => (
+              <div key={row.category_id} className="grid grid-cols-12 gap-2 items-center border rounded-md px-3 py-2">
+                <div className="col-span-4 text-sm font-medium">
+                  {row.category_name}
+                  {row.is_system && row.system_kind === 'cc_payment' ? (
+                    <span className="ml-2 text-[10px] rounded bg-muted px-1.5 py-0.5">Protected</span>
+                  ) : null}
+                </div>
+                <div className="col-span-3">
+                  <Input
+                    defaultValue={String(row.assigned)}
+                    inputMode="decimal"
+                    onBlur={(e) => {
+                      const v = Number(e.target.value)
+                      if (!Number.isFinite(v)) return
+                      if (v === row.assigned) return
+                      assignMut.mutate({ category_id: row.category_id, assigned: v })
+                    }}
+                  />
+                </div>
+                <div className="col-span-2 text-xs text-muted-foreground text-right">{money(row.activity)}</div>
+                <div className={cn('col-span-3 text-right font-mono text-sm', row.available < 0 ? 'text-red-600' : '')}>
+                  {money(row.available)}
+                </div>
               </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                Liquid Pool {money(zbbQ.data?.liquid_pool ?? 0)} • Assigned {money(zbbQ.data?.total_assigned ?? 0)}
-              </p>
-              <div className="mt-3 flex items-center gap-2">
-                <Label className="text-xs">Rollover mode</Label>
-                <Select
-                  value={(zbbQ.data?.rollover_mode as 'strict' | 'flexible' | undefined) ?? 'strict'}
-                  onValueChange={(v) => modeMut.mutate(v as 'strict' | 'flexible')}
-                >
-                  <SelectTrigger className="w-[160px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="strict">Strict</SelectItem>
-                    <SelectItem value="flexible">Flexible</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <p className="mt-2 text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">Strict:</span> negative category balances carry into next
-                month. <span className="font-medium text-foreground">Flexible:</span> categories reset to $0 and the
-                overspent amount is deducted from next month&apos;s Ready to Assign.
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Envelope Grid ({monthLabel(year, month)})</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {zbbQ.isLoading ? <p className="text-sm text-muted-foreground">Loading...</p> : null}
-              {zbbQ.error ? <p className="text-sm text-destructive">{(zbbQ.error as Error).message}</p> : null}
-              <div className="space-y-2">
-                {zbbQ.data?.rows.map((row) => (
-                  <div key={row.category_id} className="grid grid-cols-12 gap-2 items-center border rounded-md px-3 py-2">
-                    <div className="col-span-4 text-sm font-medium">
-                      {row.category_name}
-                      {row.is_system && row.system_kind === 'cc_payment' ? (
-                        <span className="ml-2 text-[10px] rounded bg-muted px-1.5 py-0.5">Protected</span>
-                      ) : null}
-                    </div>
-                    <div className="col-span-3">
-                      <Input
-                        defaultValue={String(row.assigned)}
-                        inputMode="decimal"
-                        onBlur={(e) => {
-                          const v = Number(e.target.value)
-                          if (!Number.isFinite(v)) return
-                          if (v === row.assigned) return
-                          assignMut.mutate({ category_id: row.category_id, assigned: v })
-                        }}
-                      />
-                    </div>
-                    <div className="col-span-2 text-xs text-muted-foreground text-right">{money(row.activity)}</div>
-                    <div className={cn('col-span-3 text-right font-mono text-sm', row.available < 0 ? 'text-red-600' : '')}>
-                      {money(row.available)}
-                    </div>
-                  </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Add Budget Category</CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+          <div className="md:col-span-1">
+            <Label>Name</Label>
+            <Input value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="Emergency Fund" />
+          </div>
+          <div className="md:col-span-1">
+            <Label>Txn category (optional)</Label>
+            <Select value={newTxnCategoryId} onValueChange={setNewTxnCategoryId}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                {(txnCategoriesQ.data ?? []).map((c) => (
+                  <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
                 ))}
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Add Budget Category</CardTitle>
-            </CardHeader>
-            <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-              <div className="md:col-span-1">
-                <Label>Name</Label>
-                <Input value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="Emergency Fund" />
-              </div>
-              <div className="md:col-span-1">
-                <Label>Txn category (optional)</Label>
-                <Select value={newTxnCategoryId} onValueChange={setNewTxnCategoryId}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    {(txnCategoriesQ.data ?? []).map((c) => (
-                      <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="md:col-span-1">
-                <Label>Txn subcategory (optional)</Label>
-                <Select value={newTxnSubcategoryId} onValueChange={setNewTxnSubcategoryId}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    {(newTxnCategoryId !== 'none' ? (txnSubcategoriesQ.data?.[Number(newTxnCategoryId)] ?? []) : []).map((s) => (
-                      <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="md:col-span-1 flex justify-end">
-                <Button
-                  onClick={() =>
-                    createCategoryMut.mutate({
-                      name: newCategoryName,
-                      txn_category_id: newTxnCategoryId === 'none' ? null : Number(newTxnCategoryId),
-                      txn_subcategory_id: newTxnSubcategoryId === 'none' ? null : Number(newTxnSubcategoryId),
-                    })
-                  }
-                  disabled={!newCategoryName.trim() || createCategoryMut.isPending}
-                >
-                  Add
-                </Button>
-              </div>
-              {zbbCategoriesQ.data ? (
-                <p className="md:col-span-4 text-xs text-muted-foreground">
-                  {zbbCategoriesQ.data.filter((c) => c.is_system).length} protected system categories are managed automatically.
-                </p>
-              ) : null}
-            </CardContent>
-          </Card>
-        </TabsContent>
-        <TabsContent value="legacy">
-          <Card>
-            <CardContent className="py-8 text-sm text-muted-foreground">
-              Legacy monthly cap budgeting remains available, but Zero-Based budgeting is now the default.
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="md:col-span-1">
+            <Label>Txn subcategory (optional)</Label>
+            <Select value={newTxnSubcategoryId} onValueChange={setNewTxnSubcategoryId}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                {(newTxnCategoryId !== 'none' ? (txnSubcategoriesQ.data?.[Number(newTxnCategoryId)] ?? []) : []).map((s) => (
+                  <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="md:col-span-1 flex justify-end">
+            <Button
+              onClick={() =>
+                createCategoryMut.mutate({
+                  name: newCategoryName,
+                  txn_category_id: newTxnCategoryId === 'none' ? null : Number(newTxnCategoryId),
+                  txn_subcategory_id: newTxnSubcategoryId === 'none' ? null : Number(newTxnSubcategoryId),
+                })
+              }
+              disabled={!newCategoryName.trim() || createCategoryMut.isPending}
+            >
+              Add
+            </Button>
+          </div>
+          {zbbCategoriesQ.data ? (
+            <p className="md:col-span-4 text-xs text-muted-foreground">
+              {zbbCategoriesQ.data.filter((c) => c.is_system).length} protected system categories are managed automatically.
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
 
       <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
         <DialogContent>

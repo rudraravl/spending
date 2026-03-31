@@ -310,69 +310,6 @@ class RecurringSeriesDetailOut(RecurringSeriesCardOut):
     total_occurrences: int = 0
 
 
-class BudgetLimitUpsertIn(BaseModel):
-    """
-    Upsert a budget limit.
-
-    - subcategory_id = None => category-level cap
-    - subcategory_id != None => subcategory allocation under the category
-    """
-
-    category_id: int
-    subcategory_id: int | None = None
-    limit_amount: float
-
-
-class BudgetLimitOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    budget_month_id: int
-    category_id: int
-    category_name: str | None = None
-    subcategory_id: int | None = None
-    subcategory_name: str | None = None
-    limit_amount: float
-
-
-class BudgetMonthOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    month_start: Date
-    limits: list[BudgetLimitOut] = []
-
-
-class BudgetProgressSubcategoryOut(BaseModel):
-    category_id: int
-    subcategory_id: int
-    subcategory_name: str
-    limit_amount: float
-    spent_amount: float
-    remaining_amount: float
-    percent_used: float
-    projected_spent_amount: float = 0.0
-
-
-class BudgetProgressCategoryOut(BaseModel):
-    category_id: int
-    category_name: str
-    limit_amount: float
-    allocated_to_subcategories: float
-    unallocated_amount: float
-    spent_amount: float
-    remaining_amount: float
-    percent_used: float
-    projected_spent_amount: float = 0.0
-    subcategories: list[BudgetProgressSubcategoryOut] = []
-
-
-class BudgetProgressOut(BaseModel):
-    month_start: Date
-    include_projected: bool = False
-    categories: list[BudgetProgressCategoryOut] = []
-
-
 class ZbbCategoryRowOut(BaseModel):
     category_id: int
     category_name: str

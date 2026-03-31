@@ -11,5 +11,11 @@ export type {
   BudgetProgressCategoryOut,
   BudgetProgressOut,
   BudgetProgressSubcategoryOut,
+  ZbbAssignIn,
+  BudgetCategoryOut,
+  ZbbCategoryRowOut,
+  ZbbMonthOut,
+  ZbbMoveMoneyIn,
+  ZbbRolloverSettingOut,
 } from './budget'
 

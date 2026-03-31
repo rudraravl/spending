@@ -25,6 +25,7 @@ class AccountOut(BaseModel):
     # Display balance (same logic as GET …/summary: reported for asset types when set, else ledger sum)
     balance: float
     is_robinhood_crypto: bool = False
+    is_budget_account: bool = False
 
 
 class AccountCreate(BaseModel):
@@ -34,7 +35,9 @@ class AccountCreate(BaseModel):
 
 
 class AccountUpdate(BaseModel):
+    type: str | None = None
     is_robinhood_crypto: bool | None = None
+    is_budget_account: bool | None = None
 
 
 class AccountSummaryOut(BaseModel):
@@ -368,6 +371,68 @@ class BudgetProgressOut(BaseModel):
     month_start: Date
     include_projected: bool = False
     categories: list[BudgetProgressCategoryOut] = []
+
+
+class ZbbCategoryRowOut(BaseModel):
+    category_id: int
+    category_name: str
+    assigned: float
+    activity: float
+    rollover: float
+    available: float
+    is_system: bool = False
+    system_kind: str | None = None
+
+
+class ZbbMonthOut(BaseModel):
+    year: int
+    month: int
+    rollover_mode: str
+    liquid_pool: float
+    total_assigned: float
+    ready_to_assign: float
+    rows: list[ZbbCategoryRowOut]
+
+
+class ZbbAssignIn(BaseModel):
+    category_id: int
+    assigned: float
+
+
+class ZbbMoveMoneyIn(BaseModel):
+    from_category_id: int
+    to_category_id: int
+    amount: float
+
+
+class ZbbRolloverSettingOut(BaseModel):
+    rollover_mode: str
+
+
+class ZbbRolloverSettingUpdateIn(BaseModel):
+    rollover_mode: Literal["strict", "flexible"]
+
+
+class BudgetCategoryOut(BaseModel):
+    id: int
+    name: str
+    is_system: bool = False
+    system_kind: str | None = None
+    linked_account_id: int | None = None
+    txn_category_id: int | None = None
+    txn_subcategory_id: int | None = None
+
+
+class BudgetCategoryCreateIn(BaseModel):
+    name: str
+    txn_category_id: int | None = None
+    txn_subcategory_id: int | None = None
+
+
+class BudgetCategoryUpdateIn(BaseModel):
+    name: str | None = None
+    txn_category_id: int | None = None
+    txn_subcategory_id: int | None = None
 
 
 # --- Investments / portfolio ---

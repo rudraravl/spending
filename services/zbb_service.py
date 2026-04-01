@@ -381,10 +381,11 @@ def _period_rollovers_recursive(
         base = ({int(b.id): 0.0 for b in session.query(BudgetCategory).all()}, 0.0)
         memo[key] = base
         return base
-    prev_rollovers, _ = _period_rollovers_recursive(session, py, pm, mode, memo)
+    prev_rollovers, inherited_deficit = _period_rollovers_recursive(session, py, pm, mode, memo)
     prev_rows = _rows_for_period(session, int(prev.id))
     roll: dict[int, float] = {int(b.id): 0.0 for b in session.query(BudgetCategory).all()}
-    deficit = 0.0
+    # Flexible mode: overspend from earlier months is carried forward so RTA is not understated.
+    deficit = float(inherited_deficit)
     for row in prev_rows:
         bcid = int(row.budget_category_id) if row.budget_category_id is not None else None
         if bcid is None:
@@ -403,9 +404,15 @@ def _period_rollovers_recursive(
 
 
 def _period_rollovers(session: Session, *, year: int, month: int, mode: str) -> tuple[dict[int, float], float]:
-    py, pm = _prev_month(year, month)
-    _ = ensure_period(session, py, pm)
-    return _period_rollovers_recursive(session, py, pm, mode, {})
+    """
+    Rollover **into** (year, month): end-of-previous-month envelope balances, plus cumulative flexible
+    overspend (deficit) applied to this month's RTA.
+
+    The recursive key must be the month being **viewed**, not the calendar month before it: otherwise
+    we'd use the prior month's *starting* rollover and skip that month's assigned/activity entirely.
+    """
+    _ = ensure_period(session, year, month)
+    return _period_rollovers_recursive(session, year, month, mode, {})
 
 
 def get_month_overview(session: Session, year: int, month: int) -> dict[str, object]:

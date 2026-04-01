@@ -116,6 +116,27 @@ class TestZbbService(unittest.TestCase):
         payment_rows = [r for r in out["rows"] if str(r.get("system_kind") or "") == "cc_payment"]
         self.assertGreaterEqual(len(payment_rows), 1)
 
+    def test_rollover_includes_full_prior_month_not_only_prior_start(self):
+        """Assigned in February must carry into March rollover (not only January→February start)."""
+        food_bc = self.session.query(BudgetCategory).filter(BudgetCategory.name == "Food").first()
+        feb = self.session.query(BudgetPeriod).filter(BudgetPeriod.year == 2026, BudgetPeriod.month == 2).first()
+        if feb is None:
+            get_month_overview(self.session, 2026, 2)
+            self.session.commit()
+            feb = self.session.query(BudgetPeriod).filter(BudgetPeriod.year == 2026, BudgetPeriod.month == 2).first()
+        feb_row = (
+            self.session.query(CategoryBudget)
+            .filter(CategoryBudget.budget_period_id == feb.id, CategoryBudget.budget_category_id == food_bc.id)
+            .first()
+        )
+        feb_row.assigned = 80.0
+        self.session.commit()
+
+        march = get_month_overview(self.session, 2026, 3)
+        self.session.commit()
+        march_food = next(r for r in march["rows"] if str(r["category_name"]) == "Food")
+        self.assertAlmostEqual(float(march_food["rollover"]), 80.0, places=6)
+
 
 if __name__ == "__main__":
     unittest.main()

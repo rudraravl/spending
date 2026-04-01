@@ -164,7 +164,7 @@ export default function BudgetsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Ready to Assign</CardTitle>
+              <CardTitle className="text-base">Ready to Assign (RTA)</CardTitle>
             </CardHeader>
             <CardContent>
               <div
@@ -176,7 +176,15 @@ export default function BudgetsPage() {
                 {money(zbbQ.data?.ready_to_assign ?? 0)}
               </div>
               <p className="text-xs text-muted-foreground mt-2">
-                Liquid Pool {money(zbbQ.data?.liquid_pool ?? 0)} • Assigned {money(zbbQ.data?.total_assigned ?? 0)}
+                Liquid Pool {money(zbbQ.data?.liquid_pool ?? 0)} • Assigned this month{' '}
+                {money(zbbQ.data?.total_assigned ?? 0)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
+                RTA is what is left to assign after accounting for every envelope&apos;s{' '}
+                <span className="font-medium text-foreground">Available</span> (money already covering
+                categories) and, in <span className="font-medium text-foreground">flexible</span> mode,
+                overspend pulled from prior months. See the <span className="font-medium text-foreground">ZBB help</span>{' '}
+                tab for the exact formula and where each number is computed.
               </p>
               <div className="mt-3 flex items-center gap-2">
                 <Label className="text-xs">Rollover mode</Label>
@@ -210,20 +218,21 @@ export default function BudgetsPage() {
               {zbbQ.error ? <p className="text-sm text-destructive">{(zbbQ.error as Error).message}</p> : null}
               <div className="space-y-2">
                 <div className="grid grid-cols-12 gap-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  <div className="col-span-4">Category</div>
-                  <div className="col-span-3">Assigned</div>
+                  <div className="col-span-3">Category</div>
+                  <div className="col-span-2">Assigned</div>
+                  <div className="col-span-2 text-right">Rollover</div>
                   <div className="col-span-2 text-right">Activity</div>
                   <div className="col-span-3 text-right">Available</div>
                 </div>
                 {zbbQ.data?.rows.map((row) => (
                   <div key={row.category_id} className="grid grid-cols-12 gap-2 items-center border rounded-md px-3 py-2">
-                    <div className="col-span-4 text-sm font-medium">
+                    <div className="col-span-3 text-sm font-medium min-w-0">
                       {row.category_name}
                       {row.is_system && row.system_kind === 'cc_payment' ? (
                         <span className="ml-2 text-[10px] rounded bg-muted px-1.5 py-0.5">Protected</span>
                       ) : null}
                     </div>
-                    <div className="col-span-3">
+                    <div className="col-span-2">
                       <Input
                         defaultValue={String(row.assigned)}
                         inputMode="decimal"
@@ -236,12 +245,16 @@ export default function BudgetsPage() {
                       />
                     </div>
                     <div className="col-span-2 text-right">
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground sm:hidden">Rollover</p>
+                      <p className="text-xs text-muted-foreground font-mono tabular-nums">{money(row.rollover)}</p>
+                    </div>
+                    <div className="col-span-2 text-right">
                       <p className="text-[10px] uppercase tracking-wide text-muted-foreground sm:hidden">Activity</p>
                       <p className="text-xs text-muted-foreground">{money(row.activity)}</p>
                     </div>
                     <div
                       className={cn(
-                        'col-span-3 text-right font-mono text-sm',
+                        'col-span-3 text-right font-mono text-sm tabular-nums',
                         row.available < 0 ? 'text-red-600' : '',
                       )}
                     >
@@ -329,72 +342,191 @@ export default function BudgetsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="help">
+        <TabsContent value="help" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Zero-Based Budgeting (ZBB)</CardTitle>
+              <CardTitle className="text-base">How this app implements ZBB</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4 text-sm text-muted-foreground">
-              <p>
-                Zero-based budgeting means every available dollar in your{' '}
-                <span className="font-medium text-foreground">Liquid Pool</span> is intentionally assigned to a
-                category. At the start of the month, <span className="font-medium text-foreground">Ready to Assign</span>{' '}
-                shows how much cash you can give a job.
+            <CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
+              <p className="text-foreground/90">
+                You already know the idea: give every dollar a job. This page is tied to a specific implementation in
+                the app: a <span className="font-medium text-foreground">liquid pool</span> from selected accounts,
+                per-month <span className="font-medium text-foreground">assigned</span> amounts you edit,
+                <span className="font-medium text-foreground"> activity</span> derived from transactions, and{' '}
+                <span className="font-medium text-foreground">rollover</span> from how last month ended. Nothing
+                “recursive” runs in a loop; each number is computed once when you load or save the month.
               </p>
-              <div className="space-y-1">
-                <p className="font-medium text-foreground text-xs uppercase tracking-wide">How to use this page</p>
-                <ul className="list-disc pl-5 space-y-1.5">
-                  <li>
-                    Pick a <span className="font-medium text-foreground">Year</span> and{' '}
-                    <span className="font-medium text-foreground">Month</span> you want to plan.
-                  </li>
-                  <li>
-                    In the <span className="font-medium text-foreground">Envelope Grid</span>, type how much you want
-                    to assign to each category in the <span className="font-medium text-foreground">Assigned</span>{' '}
-                    column. Your changes update{' '}
-                    <span className="font-medium text-foreground">Ready to Assign</span> at the top.
-                  </li>
-                  <li>
-                    Use <span className="font-medium text-foreground">Move money</span> to shift assigned amounts from
-                    one category to another without changing the total assigned.
-                  </li>
-                  <li>
-                    <span className="font-medium text-foreground">Activity</span> is how much you&apos;ve actually
-                    spent in that category this month (based on categorized transactions).
-                  </li>
-                  <li>
-                    <span className="font-medium text-foreground">Available</span> is{' '}
-                    <span className="font-mono text-foreground">rollover + assigned − activity</span> — how much is
-                    left in that envelope, including prior-month rollovers.
-                  </li>
-                </ul>
-              </div>
-              <div className="space-y-1">
-                <p className="font-medium text-foreground text-xs uppercase tracking-wide">Rollover modes</p>
-                <ul className="list-disc pl-5 space-y-1.5">
-                  <li>
-                    <span className="font-medium text-foreground">Strict</span>: each category keeps its positive and
-                    negative balance month to month.
-                  </li>
-                  <li>
-                    <span className="font-medium text-foreground">Flexible</span>: negative category balances reset to
-                    $0, and the overspent total is pulled out of next month&apos;s{' '}
-                    <span className="font-medium text-foreground">Ready to Assign</span>.
-                  </li>
-                </ul>
-              </div>
-              <div className="space-y-1">
-                <p className="font-medium text-foreground text-xs uppercase tracking-wide">
-                  Credit card payment categories
-                </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Where each top-of-page number comes from</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
+              <div className="space-y-2">
+                <p className="font-medium text-foreground">Liquid Pool</p>
                 <p>
-                  Categories marked <span className="inline-block rounded bg-muted px-1.5 py-0.5 text-[10px]">Protected</span>{' '}
-                  are automatic payment envelopes for linked credit cards. Their{' '}
-                  <span className="font-medium text-foreground">Activity</span> reflects card spending and payments,
-                  and they are designed so you don&apos;t accidentally reassign money that needs to go toward paying
-                  off the card.
+                  Sum of <span className="font-medium text-foreground">display balances</span> for every account marked
+                  as a budget account (on the Accounts screen). Display balance uses the bank/sync{' '}
+                  <span className="font-mono text-xs">reported_balance</span> when set, otherwise the ledger sum of all
+                  transactions including transfers. Credit cards are usually{' '}
+                  <span className="font-medium text-foreground">not</span> included in the liquid pool unless you
+                  explicitly treat them as budget accounts.
                 </p>
               </div>
+              <div className="space-y-2">
+                <p className="font-medium text-foreground">Assigned (subtitle)</p>
+                <p>
+                  Sum of the <span className="font-medium text-foreground">Assigned</span> column for the month you
+                  selected—only that calendar month&apos;s envelope plan, not history.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <p className="font-medium text-foreground">Ready to Assign (RTA)</p>
+                <p>
+                  After the app knows how much is in the liquid pool and how much is already “covered” in envelopes
+                  (see below), RTA is what is left to assign. Concretely:
+                </p>
+                <ul className="list-disc pl-5 space-y-1.5 font-mono text-xs text-foreground/80 bg-muted/50 rounded-md p-3 mt-2">
+                  <li>RTA = LiquidPool − Σ max(0, Availableᵢ) − Σ max(0, −Availableᵢ) − priorDeficit</li>
+                </ul>
+                <p className="mt-2">
+                  The middle two terms are “money already spoken for” in categories with positive{' '}
+                  <span className="font-medium text-foreground">Available</span>, plus explicit overspend (negative
+                  Available) so RTA does not pretend that missing dollars do not exist. In{' '}
+                  <span className="font-medium text-foreground">flexible</span> rollover mode, overspend from earlier
+                  months is also tracked as <span className="font-mono text-xs">priorDeficit</span> and subtracted once
+                  from RTA (not in a loop with category rows).
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Envelope grid columns</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
+              <p>
+                For the selected <span className="font-medium text-foreground">Year / Month</span>, each row is one
+                budget category (envelope). The columns are tied to fields returned by the server:
+              </p>
+              <dl className="space-y-3">
+                <div>
+                  <dt className="font-medium text-foreground">Assigned</dt>
+                  <dd className="mt-1">
+                    What you plan to budget into this envelope this month. Stored per month in the database; editing
+                    and blurring the field saves. Increasing assignment reduces RTA until you hit the API guard
+                    (assignments that would make RTA negative are rejected).
+                  </dd>
+                </div>
+                <div>
+                  <dt className="font-medium text-foreground">Rollover</dt>
+                  <dd className="mt-1">
+                    What carried <span className="font-medium text-foreground">into this month</span> from how the{' '}
+                    <span className="font-medium text-foreground">previous calendar month</span> ended—after that
+                    month&apos;s own assigned and activity, and after applying your strict vs flexible rules. It is{' '}
+                    <span className="font-medium text-foreground">not</span> editable; it is derived.
+                  </dd>
+                </div>
+                <div>
+                  <dt className="font-medium text-foreground">Activity</dt>
+                  <dd className="mt-1">
+                    For normal categories: spending this month from categorized, non-transfer transactions—mapped from
+                    your transaction <span className="font-medium text-foreground">category / subcategory</span> to
+                    this budget category when you linked them. Amounts use your app&apos;s sign convention (outflows
+                    negative); activity is shown as a spending-style positive number where applicable. For{' '}
+                    <span className="font-medium text-foreground">Protected</span> CC payment rows, activity comes from
+                    charges and payments on that credit account in the month, not from Food/Shopping categories.
+                  </dd>
+                </div>
+                <div>
+                  <dt className="font-medium text-foreground">Available</dt>
+                  <dd className="mt-1">
+                    Single rule for every row:{' '}
+                    <span className="font-mono text-xs text-foreground/90">
+                      Available = Rollover + Assigned − Activity
+                    </span>
+                    . This is the envelope balance for the month so far. It is not stored independently; it is
+                    recomputed whenever the month is loaded.
+                  </dd>
+                </div>
+              </dl>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Monthly flow (no double counting)</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-muted-foreground leading-relaxed">
+              <p>
+                For each request, the server (1) refreshes <span className="font-medium text-foreground">activity</span>{' '}
+                from transactions for that month only, (2) walks prior months only to compute starting{' '}
+                <span className="font-medium text-foreground">rollover</span> and flexible deficit—using each prior
+                month once in a chain with memoization, (3) computes <span className="font-medium text-foreground">available</span>{' '}
+                and then <span className="font-medium text-foreground">RTA</span>. Assignments and activity are not
+                applied twice to the same dollar in the same month.
+              </p>
+              <p>
+                <span className="font-medium text-foreground">Move money</span> only adjusts{' '}
+                <span className="font-medium text-foreground">Assigned</span> between two categories for that month;
+                total assigned across all categories stays the same, and RTA is unchanged.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Strict vs flexible rollover</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-muted-foreground leading-relaxed">
+              <p>
+                <span className="font-medium text-foreground">Strict:</span> At the start of a new month, each
+                envelope&apos;s rollover is last month&apos;s Available (positive or negative). Underspending and
+                overspending both roll forward in the category.
+              </p>
+              <p>
+                <span className="font-medium text-foreground">Flexible:</span> Negative Available at the end of a month
+                is zeroed for the next month&apos;s rollover—that category starts fresh at 0 carried in—but the
+                overspent amount is tracked and subtracted from next month&apos;s RTA so the books still balance.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Setup checklist</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm text-muted-foreground leading-relaxed">
+              <ul className="list-disc pl-5 space-y-1.5">
+                <li>
+                  Mark checking/savings/cash (and any account that should count as “cash to assign”) as budget accounts.
+                </li>
+                <li>
+                  Categorize transactions: uncategorized non-transfer rows in the selected month block new assignments
+                  (the API enforces this so Activity and RTA stay honest).
+                </li>
+                <li>
+                  Optionally link a budget category to a transaction category/subcategory so Activity flows into the
+                  right envelope.
+                </li>
+              </ul>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Protected (credit card payment) rows</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground leading-relaxed">
+              <p>
+                One system envelope per credit card account. Their Activity reflects net card usage and payments in the
+                month so Available tracks how much you still need for the payment. They are marked{' '}
+                <span className="inline-block rounded bg-muted px-1.5 py-0.5 text-[10px]">Protected</span> from edits in
+                category management; treat them as part of the plan, not optional slush.
+              </p>
             </CardContent>
           </Card>
         </TabsContent>

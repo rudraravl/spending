@@ -4,7 +4,7 @@ from datetime import datetime
 from datetime import date as Date
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class AccountOut(BaseModel):
@@ -319,12 +319,18 @@ class ZbbCategoryRowOut(BaseModel):
     available: float
     is_system: bool = False
     system_kind: str | None = None
+    linked_account_id: int | None = None
+    cc_balance_target: float | None = None
+    cc_balance_mismatch: bool = False
 
 
 class ZbbMonthOut(BaseModel):
     year: int
     month: int
     rollover_mode: str
+    budget_start_year: int | None = None
+    budget_start_month: int | None = None
+    is_before_budget_start: bool = False
     liquid_pool: float
     total_assigned: float
     ready_to_assign: float
@@ -344,10 +350,34 @@ class ZbbMoveMoneyIn(BaseModel):
 
 class ZbbRolloverSettingOut(BaseModel):
     rollover_mode: str
+    budget_start_year: int | None = None
+    budget_start_month: int | None = None
 
 
 class ZbbRolloverSettingUpdateIn(BaseModel):
-    rollover_mode: Literal["strict", "flexible"]
+    rollover_mode: Literal["strict", "flexible"] | None = None
+    clear_budget_start: bool = False
+    budget_start_year: int | None = None
+    budget_start_month: int | None = None
+
+    @model_validator(mode="after")
+    def budget_start_patch_consistency(self) -> ZbbRolloverSettingUpdateIn:
+        if self.clear_budget_start and (
+            self.budget_start_year is not None or self.budget_start_month is not None
+        ):
+            raise ValueError("Do not set budget_start_year/month when clear_budget_start is true")
+        if (self.budget_start_year is not None) ^ (self.budget_start_month is not None):
+            raise ValueError("budget_start_year and budget_start_month must be set together")
+        if self.budget_start_month is not None and not (1 <= int(self.budget_start_month) <= 12):
+            raise ValueError("budget_start_month must be 1..12")
+        if (
+            self.rollover_mode is None
+            and not self.clear_budget_start
+            and self.budget_start_year is None
+            and self.budget_start_month is None
+        ):
+            raise ValueError("No changes provided")
+        return self
 
 
 class BudgetCategoryOut(BaseModel):

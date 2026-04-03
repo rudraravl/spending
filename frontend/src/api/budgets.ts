@@ -27,7 +27,12 @@ export function getZbbSettings() {
   return apiGet<ZbbRolloverSettingOut>('/api/budgets/zbb/settings')
 }
 
-export function patchZbbSettings(body: { rollover_mode: 'strict' | 'flexible' }) {
+export function patchZbbSettings(body: {
+  rollover_mode?: 'strict' | 'flexible'
+  clear_budget_start?: boolean
+  budget_start_year?: number
+  budget_start_month?: number
+}) {
   return apiPatchJson<ZbbRolloverSettingOut>('/api/budgets/zbb/settings', body)
 }
 

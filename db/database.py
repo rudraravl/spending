@@ -139,6 +139,10 @@ def _migrate_budget_settings_table(conn) -> None:
     if row is None:
         conn.execute(text("INSERT INTO budget_settings (id, rollover_mode) VALUES (1, 'strict')"))
     conn.execute(text("UPDATE budget_settings SET rollover_mode = 'strict' WHERE rollover_mode NOT IN ('strict','flexible')"))
+    if "budget_start_year" not in cols:
+        conn.execute(text("ALTER TABLE budget_settings ADD COLUMN budget_start_year INTEGER"))
+    if "budget_start_month" not in cols:
+        conn.execute(text("ALTER TABLE budget_settings ADD COLUMN budget_start_month INTEGER"))
 
 
 def _seed_zbb_period_rows(conn) -> None:

@@ -32,6 +32,9 @@ class ZbbCategoryRow:
     available: float
     is_system: bool
     system_kind: str | None
+    linked_account_id: int | None = None
+    cc_balance_target: float | None = None
+    cc_balance_mismatch: bool = False
 
 
 def _month_bounds(year: int, month: int) -> tuple[date, date]:
@@ -51,6 +54,45 @@ def _prev_month(year: int, month: int) -> tuple[int, int]:
 
 def _next_month(year: int, month: int) -> tuple[int, int]:
     return (year + 1, 1) if month == 12 else (year, month + 1)
+
+
+def _ym_before(year: int, month: int, start_year: int, start_month: int) -> bool:
+    """True if (year, month) is strictly before the genesis (start) month."""
+    return year < start_year or (year == start_year and month < start_month)
+
+
+def get_budget_start_month(session: Session) -> tuple[int, int] | None:
+    """First month that participates in ZBB; None = legacy (all history affects rollover)."""
+    row = session.query(BudgetSetting).order_by(BudgetSetting.id.asc()).first()
+    if not row:
+        return None
+    y, m = row.budget_start_year, row.budget_start_month
+    if y is None or m is None:
+        return None
+    yi, mi = int(y), int(m)
+    if mi < 1 or mi > 12:
+        return None
+    return (yi, mi)
+
+
+def set_budget_start_month(session: Session, year: int | None, month: int | None) -> tuple[int, int] | None:
+    """Set or clear the first ZBB month. Both None clears; both must be int together otherwise."""
+    if (year is None) != (month is None):
+        raise ValueError("budget_start_year and budget_start_month must both be set or both omitted")
+    if month is not None and (int(month) < 1 or int(month) > 12):
+        raise ValueError("budget_start_month must be 1..12")
+    row = session.query(BudgetSetting).order_by(BudgetSetting.id.asc()).first()
+    if not row:
+        row = BudgetSetting(id=1, rollover_mode="strict")
+        session.add(row)
+    if year is None:
+        row.budget_start_year = None
+        row.budget_start_month = None
+    else:
+        row.budget_start_year = int(year)
+        row.budget_start_month = int(month)
+    session.flush()
+    return get_budget_start_month(session)
 
 
 def get_rollover_mode(session: Session) -> str:
@@ -282,20 +324,14 @@ def _txn_net_rows(session: Session, start: date, end: date) -> list[tuple[int, i
     ]
 
 
-def _cc_reserve_delta_for_month(session: Session, start: date, end: date) -> dict[int, float]:
-    # +delta increases payment reserve (credit spend), -delta decreases reserve (payment transfer to credit).
+def _cc_payment_activity_delta_for_month(session: Session, start: date, end: date) -> dict[int, float]:
+    """
+    Per credit account: net **payments** booked on the card in the month (transfer legs with amount > 0 on the card).
+
+    Card charges are excluded so Activity on the CC payment envelope only moves when money actually pays down the
+    bank balance; spending stays on category envelopes (Food, etc.).
+    """
     out: dict[int, float] = {}
-    credit_txns = (
-        session.query(Transaction)
-        .join(Account, Transaction.account_id == Account.id)
-        .filter(func.lower(Account.type) == "credit")
-        .filter(Transaction.is_transfer.is_(False))
-        .filter(Transaction.date >= start, Transaction.date <= end)
-        .all()
-    )
-    for tx in credit_txns:
-        if float(tx.amount) < 0:
-            out[int(tx.account_id)] = out.get(int(tx.account_id), 0.0) + abs(float(tx.amount))
     payment_transfers = (
         session.query(Transaction)
         .join(Account, Transaction.account_id == Account.id)
@@ -310,11 +346,43 @@ def _cc_reserve_delta_for_month(session: Session, start: date, end: date) -> dic
     return out
 
 
+def _cc_card_charge_outflows_by_account(session: Session, start: date, end: date) -> dict[int, float]:
+    """
+    Per credit account: total card **charges** (non-transfer outflows) in the month.
+
+    These amounts are added only to CC payment **Available** (not Activity) so Assigned stays “plan” while
+    envelope cash power moves from category rows (via their Activity) into the card payment row.
+    """
+    out: dict[int, float] = {}
+    txns = (
+        session.query(Transaction)
+        .join(Account, Transaction.account_id == Account.id)
+        .filter(func.lower(Account.type) == "credit")
+        .filter(Transaction.is_transfer.is_(False))
+        .filter(Transaction.date >= start, Transaction.date <= end)
+        .all()
+    )
+    for tx in txns:
+        amt = float(tx.amount)
+        if amt < 0:
+            aid = int(tx.account_id)
+            out[aid] = out.get(aid, 0.0) + abs(amt)
+    return out
+
+
 def recompute_activity_for_month(session: Session, year: int, month: int) -> None:
     period = ensure_period(session, year, month)
+    start_ym = get_budget_start_month(session)
+    if start_ym is not None and _ym_before(year, month, start_ym[0], start_ym[1]):
+        rows = session.query(CategoryBudget).filter(CategoryBudget.budget_period_id == int(period.id)).all()
+        for row in rows:
+            row.activity = 0.0
+        session.flush()
+        return
+
     start, end = _month_bounds(year, month)
     txn_rows = _txn_net_rows(session, start, end)
-    cc_delta = _cc_reserve_delta_for_month(session, start, end)
+    cc_payment_delta = _cc_payment_activity_delta_for_month(session, start, end)
 
     rows = session.query(CategoryBudget).filter(CategoryBudget.budget_period_id == int(period.id)).all()
     bc_map = {int(b.id): b for b in session.query(BudgetCategory).all()}
@@ -335,7 +403,7 @@ def recompute_activity_for_month(session: Session, year: int, month: int) -> Non
             continue
         if bc.is_system and bc.system_kind == "cc_payment":
             linked = int(bc.linked_account_id) if bc.linked_account_id is not None else None
-            row.activity = -float(cc_delta.get(linked, 0.0)) if linked is not None else 0.0
+            row.activity = -float(cc_payment_delta.get(linked, 0.0)) if linked is not None else 0.0
             continue
         tcid = int(bc.txn_category_id) if bc.txn_category_id is not None else None
         tsid = int(bc.txn_subcategory_id) if bc.txn_subcategory_id is not None else None
@@ -349,8 +417,18 @@ def recompute_activity_for_month(session: Session, year: int, month: int) -> Non
 
 
 def _liquid_budget_pool(session: Session) -> float:
+    """
+    Net cash for ZBB: sum of budget (cash-side) accounts plus every credit card's display balance.
+
+    Credit balances are typically negative (debt), so they reduce the pool without requiring cards to be budget accounts.
+    """
     total = 0.0
     for acct in session.query(Account).filter(Account.is_budget_account.is_(True)).all():
+        if str(acct.type).lower() == "credit":
+            continue
+        display_balance, _ = account_display_balance(session, acct)
+        total += float(display_balance)
+    for acct in session.query(Account).filter(func.lower(Account.type) == "credit").all():
         display_balance, _ = account_display_balance(session, acct)
         total += float(display_balance)
     return total
@@ -371,26 +449,45 @@ def _period_rollovers_recursive(
     month: int,
     mode: str,
     memo: dict[tuple[int, int], tuple[dict[int, float], float]],
+    budget_start: tuple[int, int] | None,
 ) -> tuple[dict[int, float], float]:
     key = (year, month)
     if key in memo:
         return memo[key]
     py, pm = _prev_month(year, month)
+    if budget_start is not None and _ym_before(py, pm, budget_start[0], budget_start[1]):
+        base = ({int(b.id): 0.0 for b in session.query(BudgetCategory).all()}, 0.0)
+        memo[key] = base
+        return base
     prev = session.query(BudgetPeriod).filter(BudgetPeriod.year == py, BudgetPeriod.month == pm).first()
     if not prev:
         base = ({int(b.id): 0.0 for b in session.query(BudgetCategory).all()}, 0.0)
         memo[key] = base
         return base
-    prev_rollovers, inherited_deficit = _period_rollovers_recursive(session, py, pm, mode, memo)
+    prev_rollovers, inherited_deficit = _period_rollovers_recursive(session, py, pm, mode, memo, budget_start)
     prev_rows = _rows_for_period(session, int(prev.id))
     roll: dict[int, float] = {int(b.id): 0.0 for b in session.query(BudgetCategory).all()}
+    p_start, p_end = _month_bounds(int(prev.year), int(prev.month))
+    cc_charges_prev = _cc_card_charge_outflows_by_account(session, p_start, p_end)
+    bc_by_id = {int(b.id): b for b in session.query(BudgetCategory).all()}
     # Flexible mode: overspend from earlier months is carried forward so RTA is not understated.
     deficit = float(inherited_deficit)
     for row in prev_rows:
         bcid = int(row.budget_category_id) if row.budget_category_id is not None else None
         if bcid is None:
             continue
-        prev_available = float(prev_rollovers.get(bcid, 0.0)) + float(row.assigned) - float(row.activity)
+        base_avail = float(prev_rollovers.get(bcid, 0.0)) + float(row.assigned) - float(row.activity)
+        bc_prev = bc_by_id.get(bcid)
+        if (
+            bc_prev is not None
+            and bc_prev.is_system
+            and bc_prev.system_kind == "cc_payment"
+            and bc_prev.linked_account_id is not None
+        ):
+            la = int(bc_prev.linked_account_id)
+            prev_available = base_avail + float(cc_charges_prev.get(la, 0.0))
+        else:
+            prev_available = base_avail
         if mode == "strict":
             roll[bcid] = prev_available
         else:
@@ -412,7 +509,7 @@ def _period_rollovers(session: Session, *, year: int, month: int, mode: str) -> 
     we'd use the prior month's *starting* rollover and skip that month's assigned/activity entirely.
     """
     _ = ensure_period(session, year, month)
-    return _period_rollovers_recursive(session, year, month, mode, {})
+    return _period_rollovers_recursive(session, year, month, mode, {}, get_budget_start_month(session))
 
 
 def get_month_overview(session: Session, year: int, month: int) -> dict[str, object]:
@@ -420,9 +517,13 @@ def get_month_overview(session: Session, year: int, month: int) -> dict[str, obj
     recompute_activity_for_month(session, year, month)
     period = ensure_period(session, year, month)
     mode = get_rollover_mode(session)
+    start_ym = get_budget_start_month(session)
+    before_budget = start_ym is not None and _ym_before(year, month, start_ym[0], start_ym[1])
     rollovers, prior_deficit = _period_rollovers(session, year=year, month=month, mode=mode)
     rows = _rows_for_period(session, int(period.id))
     bc_map = {int(b.id): b for b in session.query(BudgetCategory).all()}
+    m_start, m_end = _month_bounds(year, month)
+    cc_charge_by_acct = _cc_card_charge_outflows_by_account(session, m_start, m_end)
 
     out_rows: list[ZbbCategoryRow] = []
     total_available_non_negative = 0.0
@@ -437,13 +538,32 @@ def get_month_overview(session: Session, year: int, month: int) -> dict[str, obj
             continue
         rollover = float(rollovers.get(bcid, 0.0))
         assigned = float(row.assigned or 0.0)
+        if before_budget:
+            assigned = 0.0
         activity = float(row.activity or 0.0)
-        available = rollover + assigned - activity
+        linked_aid = int(bc.linked_account_id) if bc.linked_account_id is not None else None
+        cc_system_shift = 0.0
+        if (
+            not before_budget
+            and bc.is_system
+            and bc.system_kind == "cc_payment"
+            and linked_aid is not None
+        ):
+            cc_system_shift = float(cc_charge_by_acct.get(linked_aid, 0.0))
+        available = rollover + assigned - activity + cc_system_shift
         total_assigned += assigned
         if available >= 0:
             total_available_non_negative += available
         else:
             total_overspent += abs(available)
+        cc_target: float | None = None
+        cc_mismatch = False
+        if bc.is_system and bc.system_kind == "cc_payment" and linked_aid is not None:
+            acct = session.query(Account).filter(Account.id == linked_aid).first()
+            if acct is not None:
+                bal, _ = account_display_balance(session, acct)
+                cc_target = abs(float(bal))
+                cc_mismatch = abs(float(available) - cc_target) > 0.009
         out_rows.append(
             ZbbCategoryRow(
                 category_id=bcid,
@@ -454,6 +574,9 @@ def get_month_overview(session: Session, year: int, month: int) -> dict[str, obj
                 available=available,
                 is_system=bool(bc.is_system),
                 system_kind=str(bc.system_kind) if bc.system_kind else None,
+                linked_account_id=linked_aid,
+                cc_balance_target=cc_target,
+                cc_balance_mismatch=cc_mismatch,
             )
         )
     liquid_pool = _liquid_budget_pool(session)
@@ -464,6 +587,9 @@ def get_month_overview(session: Session, year: int, month: int) -> dict[str, obj
         "year": year,
         "month": month,
         "rollover_mode": mode,
+        "budget_start_year": start_ym[0] if start_ym else None,
+        "budget_start_month": start_ym[1] if start_ym else None,
+        "is_before_budget_start": before_budget,
         "liquid_pool": liquid_pool,
         "total_assigned": total_assigned,
         "ready_to_assign": rta,
@@ -471,7 +597,16 @@ def get_month_overview(session: Session, year: int, month: int) -> dict[str, obj
     }
 
 
+def _assert_budget_month_active(session: Session, year: int, month: int) -> None:
+    start_ym = get_budget_start_month(session)
+    if start_ym is not None and _ym_before(year, month, start_ym[0], start_ym[1]):
+        raise ValueError(
+            "This month is before your first budget month. Change the month selector or update Budget start in settings."
+        )
+
+
 def _validate_assignment_preconditions(session: Session, year: int, month: int) -> None:
+    _assert_budget_month_active(session, year, month)
     budget_accounts = session.query(Account).filter(Account.is_budget_account.is_(True)).count()
     if int(budget_accounts) <= 0:
         raise ValueError("Configure at least one Budget account before assigning money.")
@@ -499,7 +634,10 @@ def assign_amount(session: Session, year: int, month: int, category_id: int, ass
         raise ValueError("Category budget row not found")
     row.assigned = float(assigned)
     session.flush()
-    return get_month_overview(session, year, month)
+    out = get_month_overview(session, year, month)
+    if float(out["ready_to_assign"]) < 0:
+        raise ValueError("Cannot assign money you do not have (Ready to Assign would be negative).")
+    return out
 
 
 def move_money(
@@ -511,6 +649,7 @@ def move_money(
     to_category_id: int,
     amount: float,
 ) -> dict[str, object]:
+    _assert_budget_month_active(session, year, month)
     if from_category_id == to_category_id:
         raise ValueError("from_category_id and to_category_id must differ")
     if float(amount) <= 0:

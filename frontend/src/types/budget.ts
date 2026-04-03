@@ -7,12 +7,18 @@ export type ZbbCategoryRowOut = {
   available: number
   is_system?: boolean
   system_kind?: string | null
+  linked_account_id?: number | null
+  cc_balance_target?: number | null
+  cc_balance_mismatch?: boolean
 }
 
 export type ZbbMonthOut = {
   year: number
   month: number
   rollover_mode: 'strict' | 'flexible' | string
+  budget_start_year?: number | null
+  budget_start_month?: number | null
+  is_before_budget_start?: boolean
   liquid_pool: number
   total_assigned: number
   ready_to_assign: number
@@ -32,6 +38,8 @@ export type ZbbMoveMoneyIn = {
 
 export type ZbbRolloverSettingOut = {
   rollover_mode: 'strict' | 'flexible' | string
+  budget_start_year?: number | null
+  budget_start_month?: number | null
 }
 
 export type BudgetCategoryOut = {

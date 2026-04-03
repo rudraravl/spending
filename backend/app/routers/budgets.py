@@ -18,10 +18,12 @@ from services.zbb_service import (
     assign_amount,
     create_budget_category,
     delete_budget_category as delete_zbb_budget_category,
+    get_budget_start_month,
     get_month_overview,
     get_rollover_mode,
     list_budget_categories,
     move_money,
+    set_budget_start_month,
     set_rollover_mode,
     update_budget_category,
 )
@@ -58,12 +60,6 @@ def patch_zbb_assign(
             category_id=payload.category_id,
             assigned=payload.assigned,
         )
-        if float(out["ready_to_assign"]) < 0:
-            session.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot assign money you do not have (Ready to Assign would be negative).",
-            )
         session.commit()
         return ZbbMonthOut(**out)
     except ValueError as e:
@@ -97,8 +93,13 @@ def post_zbb_move_money(
 @router.get("/api/budgets/zbb/settings", response_model=ZbbRolloverSettingOut)
 def get_zbb_settings(session: Session = Depends(get_db_session)) -> ZbbRolloverSettingOut:
     mode = get_rollover_mode(session)
+    start = get_budget_start_month(session)
     session.commit()
-    return ZbbRolloverSettingOut(rollover_mode=mode)
+    return ZbbRolloverSettingOut(
+        rollover_mode=mode,
+        budget_start_year=start[0] if start else None,
+        budget_start_month=start[1] if start else None,
+    )
 
 
 @router.patch("/api/budgets/zbb/settings", response_model=ZbbRolloverSettingOut)
@@ -107,9 +108,20 @@ def patch_zbb_settings(
     session: Session = Depends(get_db_session),
 ) -> ZbbRolloverSettingOut:
     try:
-        mode = set_rollover_mode(session, payload.rollover_mode)
+        if payload.rollover_mode is not None:
+            set_rollover_mode(session, payload.rollover_mode)
+        if payload.clear_budget_start:
+            set_budget_start_month(session, None, None)
+        elif payload.budget_start_year is not None:
+            set_budget_start_month(session, payload.budget_start_year, payload.budget_start_month)
+        mode = get_rollover_mode(session)
+        start = get_budget_start_month(session)
         session.commit()
-        return ZbbRolloverSettingOut(rollover_mode=mode)
+        return ZbbRolloverSettingOut(
+            rollover_mode=mode,
+            budget_start_year=start[0] if start else None,
+            budget_start_month=start[1] if start else None,
+        )
     except ValueError as e:
         session.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

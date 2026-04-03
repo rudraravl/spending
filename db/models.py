@@ -410,6 +410,9 @@ class BudgetSetting(Base):
 
     id = Column(Integer, primary_key=True)
     rollover_mode = Column(String, nullable=False, server_default="strict")  # strict | flexible
+    # First calendar month that counts for ZBB: no rollover from earlier months; pre-start activity ignored.
+    budget_start_year = Column(Integer, nullable=True)
+    budget_start_month = Column(Integer, nullable=True)
     created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
     updated_at = Column(
         DateTime,

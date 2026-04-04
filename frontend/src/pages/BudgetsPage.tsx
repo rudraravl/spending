@@ -34,6 +34,18 @@ function money(n: number) {
   return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(n)
 }
 
+/** Integer cents for comparisons — avoids float noise at penny boundaries (e.g. last $0.01 of RTA). */
+function moneyCents(n: number): number {
+  return Math.round(n * 100)
+}
+
+/** RTA shown in the header card: cents-rounded, no −$0.00 from float dust or negative zero. */
+function rtaDisplayDollars(rta: number): number {
+  const c = moneyCents(rta)
+  if (c === 0) return 0
+  return c / 100
+}
+
 function monthLabel(y: number, m: number) {
   const d = new Date(y, m - 1, 1)
   return d.toLocaleString(undefined, { month: 'long', year: 'numeric' })
@@ -365,13 +377,13 @@ export default function BudgetsPage() {
               <div
                 className={cn(
                   'text-3xl font-bold font-mono',
-                  (zbbQ.data?.ready_to_assign ?? 0) < 0 ? 'text-red-600' : 'text-emerald-600',
-                  rtaAssignInputWarn && (zbbQ.data?.ready_to_assign ?? 0) >= 0
+                  moneyCents(zbbQ.data?.ready_to_assign ?? 0) < 0 ? 'text-red-600' : 'text-emerald-600',
+                  rtaAssignInputWarn && moneyCents(zbbQ.data?.ready_to_assign ?? 0) >= 0
                     ? 'text-amber-600 dark:text-amber-400'
                     : '',
                 )}
               >
-                {money(zbbQ.data?.ready_to_assign ?? 0)}
+                {money(rtaDisplayDollars(zbbQ.data?.ready_to_assign ?? 0))}
               </div>
               {rtaAssignInputWarn ? (
                 <p className="text-xs text-amber-700 dark:text-amber-300 mt-1.5 font-medium leading-relaxed">
@@ -460,14 +472,15 @@ export default function BudgetsPage() {
                           title={(() => {
                             const need = row.cc_balance_target! - row.available
                             const rta = zbbQ.data?.ready_to_assign ?? 0
-                            if (need > rta + 1e-6) {
+                            if (moneyCents(need) > moneyCents(rta)) {
                               return `Need ${money(need)} more in Assigned but only ${money(rta)} Ready to Assign`
                             }
                             return `Set Assigned so Available matches card: ${money(row.available)} → ${money(row.cc_balance_target!)}`
                           })()}
                           disabled={
                             assignMut.isPending ||
-                            (row.cc_balance_target - row.available > (zbbQ.data?.ready_to_assign ?? 0) + 1e-6)
+                            moneyCents(row.cc_balance_target - row.available) >
+                              moneyCents(zbbQ.data?.ready_to_assign ?? 0)
                           }
                           onClick={() => {
                             const delta = row.cc_balance_target! - row.available
@@ -501,7 +514,7 @@ export default function BudgetsPage() {
                           }
                           const rta = zbbQ.data?.ready_to_assign ?? 0
                           const maxAssignable = row.assigned + rta
-                          setRtaAssignInputWarn(v > maxAssignable + 1e-6)
+                          setRtaAssignInputWarn(moneyCents(v) > moneyCents(maxAssignable))
                         }}
                         onBlur={(e) => {
                           setRtaAssignInputWarn(false)
@@ -515,7 +528,7 @@ export default function BudgetsPage() {
                           if (v === row.assigned) return
                           const rta = zbbQ.data?.ready_to_assign ?? 0
                           const maxAssignable = row.assigned + rta
-                          if (v > maxAssignable + 1e-6) {
+                          if (moneyCents(v) > moneyCents(maxAssignable)) {
                             el.value = String(row.assigned)
                             return
                           }
@@ -548,13 +561,13 @@ export default function BudgetsPage() {
                           variant="outline"
                           className="h-7 text-[11px] shrink-0"
                           title={
-                            (zbbQ.data?.ready_to_assign ?? 0) + 1e-6 < -row.available
+                            moneyCents(zbbQ.data?.ready_to_assign ?? 0) < moneyCents(-row.available)
                               ? 'Not enough Ready to Assign to cover this deficit'
                               : undefined
                           }
                           disabled={
                             assignMut.isPending ||
-                            (zbbQ.data?.ready_to_assign ?? 0) + 1e-6 < -row.available
+                            moneyCents(zbbQ.data?.ready_to_assign ?? 0) < moneyCents(-row.available)
                           }
                           onClick={() =>
                             assignMut.mutate({

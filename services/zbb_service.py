@@ -635,7 +635,8 @@ def assign_amount(session: Session, year: int, month: int, category_id: int, ass
     row.assigned = float(assigned)
     session.flush()
     out = get_month_overview(session, year, month)
-    if float(out["ready_to_assign"]) < 0:
+    # Float accumulation can yield a tiny negative (e.g. -1e-15) when RTA is effectively zero.
+    if float(out["ready_to_assign"]) < -1e-6:
         raise ValueError("Cannot assign money you do not have (Ready to Assign would be negative).")
     return out
 

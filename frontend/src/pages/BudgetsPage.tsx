@@ -761,6 +761,63 @@ export default function BudgetsPage() {
 
           <Card>
             <CardHeader>
+              <CardTitle className="text-base">Transactions: how values update and why</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
+              <p className="text-foreground/90">
+                The budget view is not a separate ledger you edit by hand for spending.{' '}
+                <strong>Imported or entered transactions drive the numbers</strong> so envelopes stay aligned with your
+                accounts.
+              </p>
+              <div className="space-y-2">
+                <p className="font-medium text-foreground">How it updates</p>
+                <ul className="list-disc pl-5 space-y-1.5">
+                  <li>
+                    Whenever this app loads a month for ZBB, it <strong>recomputes Activity</strong> from your
+                    transactions in that calendar month (using each budget category&apos;s linked transaction category
+                    and, if set, subcategory).{' '}
+                    <span className="font-medium text-foreground">Assigned</span> is whatever you last saved; it does
+                    not change when a new transaction arrives.
+                  </li>
+                  <li>
+                    <span className="font-medium text-foreground">Available</span> then changes automatically because{' '}
+                    <span className="font-mono text-xs">Available = Rollover + Assigned − Activity</span> (plus the
+                    special credit-card adjustments described below). More spending in a category increases Activity and
+                    lowers Available unless you assign more or cover from elsewhere.
+                  </li>
+                  <li>
+                    <span className="font-medium text-foreground">Liquid pool</span> is the sum of your budget cash
+                    accounts and credit card balances <em>as of now</em>. New transactions and sync updates change those
+                    balances, so the pool—and therefore <span className="font-medium text-foreground">RTA</span>—can
+                    move even if you did not touch Assigned.
+                  </li>
+                  <li>
+                    For ordinary expense envelopes, Activity counts <strong>outflows</strong> tied to that category;
+                    inflows do not add negative Activity here. Credit card <strong>charges</strong> hit the spending
+                    category; <strong>payments</strong> to the card are reflected on the protected CC payment row
+                    (transfers), not as generic category spending.
+                  </li>
+                </ul>
+              </div>
+              <div className="space-y-2">
+                <p className="font-medium text-foreground">Why it works this way</p>
+                <p>
+                  ZBB separates <strong>plan</strong> (Assigned) from <strong>what actually happened</strong>{' '}
+                  (Activity). If the app did not refresh Activity from transactions, you would have to re-type spending
+                  to see whether you still have money in an envelope. Linking categories and keeping transactions
+                  categorized keeps one source of truth: the same data that updates your account balances also updates
+                  your budget.
+                </p>
+                <p>
+                  Until every transaction in the month has a category (and subcategory when your budget line uses one),
+                  the app may block assigning money so the plan cannot drift while totals are incomplete.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle className="text-base">Protected (Credit Card Payment) Logic</CardTitle>
             </CardHeader>
             <CardContent className="text-sm text-muted-foreground leading-relaxed space-y-4">

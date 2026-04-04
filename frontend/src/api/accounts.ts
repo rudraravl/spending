@@ -15,6 +15,9 @@ export const createAccount = (payload: { name: string; type: string; currency: s
 
 export const deleteAccount = (id: number) => apiDelete(`/api/accounts/${id}`)
 
-export const patchAccount = (id: number, body: { is_robinhood_crypto?: boolean }) =>
+export const patchAccount = (
+  id: number,
+  body: { type?: string; is_robinhood_crypto?: boolean; is_budget_account?: boolean },
+) =>
   apiPatchJson<AccountOut>(`/api/accounts/${id}`, body)
 

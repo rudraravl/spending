@@ -4,7 +4,7 @@ from datetime import datetime
 from datetime import date as Date
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class AccountOut(BaseModel):
@@ -25,6 +25,7 @@ class AccountOut(BaseModel):
     # Display balance (same logic as GET …/summary: reported for asset types when set, else ledger sum)
     balance: float
     is_robinhood_crypto: bool = False
+    is_budget_account: bool = False
 
 
 class AccountCreate(BaseModel):
@@ -34,7 +35,9 @@ class AccountCreate(BaseModel):
 
 
 class AccountUpdate(BaseModel):
+    type: str | None = None
     is_robinhood_crypto: bool | None = None
+    is_budget_account: bool | None = None
 
 
 class AccountSummaryOut(BaseModel):
@@ -307,67 +310,96 @@ class RecurringSeriesDetailOut(RecurringSeriesCardOut):
     total_occurrences: int = 0
 
 
-class BudgetLimitUpsertIn(BaseModel):
-    """
-    Upsert a budget limit.
-
-    - subcategory_id = None => category-level cap
-    - subcategory_id != None => subcategory allocation under the category
-    """
-
-    category_id: int
-    subcategory_id: int | None = None
-    limit_amount: float
-
-
-class BudgetLimitOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    budget_month_id: int
-    category_id: int
-    category_name: str | None = None
-    subcategory_id: int | None = None
-    subcategory_name: str | None = None
-    limit_amount: float
-
-
-class BudgetMonthOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    month_start: Date
-    limits: list[BudgetLimitOut] = []
-
-
-class BudgetProgressSubcategoryOut(BaseModel):
-    category_id: int
-    subcategory_id: int
-    subcategory_name: str
-    limit_amount: float
-    spent_amount: float
-    remaining_amount: float
-    percent_used: float
-    projected_spent_amount: float = 0.0
-
-
-class BudgetProgressCategoryOut(BaseModel):
+class ZbbCategoryRowOut(BaseModel):
     category_id: int
     category_name: str
-    limit_amount: float
-    allocated_to_subcategories: float
-    unallocated_amount: float
-    spent_amount: float
-    remaining_amount: float
-    percent_used: float
-    projected_spent_amount: float = 0.0
-    subcategories: list[BudgetProgressSubcategoryOut] = []
+    assigned: float
+    activity: float
+    rollover: float
+    available: float
+    is_system: bool = False
+    system_kind: str | None = None
+    linked_account_id: int | None = None
+    cc_balance_target: float | None = None
+    cc_balance_mismatch: bool = False
 
 
-class BudgetProgressOut(BaseModel):
-    month_start: Date
-    include_projected: bool = False
-    categories: list[BudgetProgressCategoryOut] = []
+class ZbbMonthOut(BaseModel):
+    year: int
+    month: int
+    rollover_mode: str
+    budget_start_year: int | None = None
+    budget_start_month: int | None = None
+    is_before_budget_start: bool = False
+    liquid_pool: float
+    total_assigned: float
+    ready_to_assign: float
+    rows: list[ZbbCategoryRowOut]
+
+
+class ZbbAssignIn(BaseModel):
+    category_id: int
+    assigned: float
+
+
+class ZbbMoveMoneyIn(BaseModel):
+    from_category_id: int
+    to_category_id: int
+    amount: float
+
+
+class ZbbRolloverSettingOut(BaseModel):
+    rollover_mode: str
+    budget_start_year: int | None = None
+    budget_start_month: int | None = None
+
+
+class ZbbRolloverSettingUpdateIn(BaseModel):
+    rollover_mode: Literal["strict", "flexible"] | None = None
+    clear_budget_start: bool = False
+    budget_start_year: int | None = None
+    budget_start_month: int | None = None
+
+    @model_validator(mode="after")
+    def budget_start_patch_consistency(self) -> ZbbRolloverSettingUpdateIn:
+        if self.clear_budget_start and (
+            self.budget_start_year is not None or self.budget_start_month is not None
+        ):
+            raise ValueError("Do not set budget_start_year/month when clear_budget_start is true")
+        if (self.budget_start_year is not None) ^ (self.budget_start_month is not None):
+            raise ValueError("budget_start_year and budget_start_month must be set together")
+        if self.budget_start_month is not None and not (1 <= int(self.budget_start_month) <= 12):
+            raise ValueError("budget_start_month must be 1..12")
+        if (
+            self.rollover_mode is None
+            and not self.clear_budget_start
+            and self.budget_start_year is None
+            and self.budget_start_month is None
+        ):
+            raise ValueError("No changes provided")
+        return self
+
+
+class BudgetCategoryOut(BaseModel):
+    id: int
+    name: str
+    is_system: bool = False
+    system_kind: str | None = None
+    linked_account_id: int | None = None
+    txn_category_id: int | None = None
+    txn_subcategory_id: int | None = None
+
+
+class BudgetCategoryCreateIn(BaseModel):
+    name: str
+    txn_category_id: int | None = None
+    txn_subcategory_id: int | None = None
+
+
+class BudgetCategoryUpdateIn(BaseModel):
+    name: str | None = None
+    txn_category_id: int | None = None
+    txn_subcategory_id: int | None = None
 
 
 # --- Investments / portfolio ---

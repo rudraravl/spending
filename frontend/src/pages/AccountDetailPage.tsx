@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Info, Trash2 } from 'lucide-react'
@@ -8,7 +8,7 @@ import { getPortfolio } from '../api/investments'
 import { getTransactions } from '../api/transactions'
 import AccountTxnsTable from '../features/accounts/AccountTxnsTable'
 import AccountPortfolioTab from '../features/investments/AccountPortfolioTab'
-import { accountTypeLabel, accountViewKind } from '../features/accounts/accountViewKind'
+import { ACCOUNT_TYPES, accountTypeLabel, accountViewKind, type AccountType } from '../features/accounts/accountViewKind'
 import { queryKeys } from '../queryKeys'
 import type { TransactionOut } from '../types'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -18,6 +18,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   Tooltip,
   TooltipContent,
@@ -52,6 +53,7 @@ export default function AccountDetailPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [selectedType, setSelectedType] = useState<AccountType>('credit')
   const { accountId: rawId } = useParams<{ accountId: string }>()
   const id = rawId ? Number.parseInt(rawId, 10) : NaN
   const validId = Number.isFinite(id)
@@ -104,6 +106,21 @@ export default function AccountDetailPage() {
     },
     onError: (e: Error) => toast.error(e.message),
   })
+  const patchTypeMutation = useMutation({
+    mutationFn: (type: AccountType) => patchAccount(id, { type }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(queryKeys.accountDetail(id), data)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.accountSummary(id) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.investmentPortfolio(id) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.investmentHistory(id, 365) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.investmentsSummary() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard() })
+      void queryClient.invalidateQueries({ queryKey: ['reports'] })
+      void queryClient.invalidateQueries({ queryKey: ['views'] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
 
   async function afterAccountDeleted() {
     await queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
@@ -117,6 +134,11 @@ export default function AccountDetailPage() {
     await queryClient.invalidateQueries({ queryKey: queryKeys.investmentsSummary() })
     await queryClient.invalidateQueries({ queryKey: ['investments'] })
   }
+
+  useEffect(() => {
+    const nextType = accountQuery.data?.type as AccountType | undefined
+    if (nextType) setSelectedType(nextType)
+  }, [accountQuery.data?.type])
 
   if (!validId) {
     return <NotFoundPage />
@@ -188,6 +210,34 @@ export default function AccountDetailPage() {
             <p className="text-sm text-muted-foreground mt-1">
               {accountTypeLabel(acct.type)} · {acct.currency}
             </p>
+            <div className="mt-3 inline-flex items-end gap-2">
+              <div className="space-y-1">
+                <Label htmlFor="account-type-select" className="text-xs text-muted-foreground">
+                  Account type
+                </Label>
+                <Select value={selectedType} onValueChange={(v) => setSelectedType(v as AccountType)}>
+                  <SelectTrigger id="account-type-select" className="h-8 w-[180px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ACCOUNT_TYPES.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {accountTypeLabel(t)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={patchTypeMutation.isPending || selectedType === acct.type}
+                onClick={() => patchTypeMutation.mutate(selectedType)}
+              >
+                Save type
+              </Button>
+            </div>
             <div className="flex flex-wrap gap-2 mt-3">
               <Badge variant={acct.is_linked ? 'default' : 'secondary'}>
                 {acct.is_linked ? 'Linked' : 'Manual only'}

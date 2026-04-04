@@ -23,6 +23,7 @@ from adapters.chase_adapter import ChaseCreditCardAdapter, ChaseCheckingAdapter
 from adapters.capital_one_adapter import CapitalOneAdapter
 from services.rule_service import apply_rules_to_transaction
 from services.account_service import ASSET_ACCOUNT_TYPES
+from services.zbb_service import recalc_activity_for_months
 
 
 # Adapter registry
@@ -100,6 +101,7 @@ def import_csv(
     num_imported = 0
     skipped = []
     imported_transaction_ids: List[int] = []
+    touched_months: set[tuple[int, int]] = set()
 
     for _, row in parsed.iterrows():
         try:
@@ -142,6 +144,7 @@ def import_csv(
             apply_rules_to_transaction(session, transaction)
             session.flush()
             imported_transaction_ids.append(transaction.id)
+            touched_months.add((int(transaction.date.year), int(transaction.date.month)))
             num_imported += 1
 
         except Exception as e:
@@ -158,6 +161,8 @@ def import_csv(
         account.reported_balance = float(reported)
         account.reported_balance_at = datetime.now(timezone.utc)
 
+    if touched_months:
+        recalc_activity_for_months(session, touched_months)
     session.commit()
 
     return ImportCsvOutcome(num_imported, skipped, imported_transaction_ids)

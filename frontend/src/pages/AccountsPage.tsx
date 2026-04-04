@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { ChevronRight, Landmark, Plus, Trash2 } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { createAccount, deleteAccount, getAccounts } from '../api/accounts'
+import { createAccount, deleteAccount, getAccounts, patchAccount } from '../api/accounts'
 import { queryKeys } from '../queryKeys'
 import { ACCOUNT_TYPES, accountTypeLabel } from '../features/accounts/accountViewKind'
 import type { Account } from '../api/accounts'
@@ -30,6 +30,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Switch } from '@/components/ui/switch'
 
 function linkLabel(isLinked: boolean | undefined) {
   if (isLinked) return 'Linked'
@@ -104,6 +105,10 @@ export default function AccountsPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => deleteAccount(id),
+  })
+  const patchMutation = useMutation({
+    mutationFn: (params: { id: number; is_budget_account: boolean }) =>
+      patchAccount(params.id, { is_budget_account: params.is_budget_account }),
   })
 
   async function handleCreateAccount() {
@@ -290,6 +295,19 @@ export default function AccountsPage() {
                                     Link this local account on Connections.
                                   </p>
                                 ) : null}
+                                <div
+                                  className="flex items-center justify-between gap-2 pt-1"
+                                  onClick={(e) => e.preventDefault()}
+                                >
+                                  <span className="text-[11px] text-muted-foreground">Budget account</span>
+                                  <Switch
+                                    checked={Boolean(a.is_budget_account)}
+                                    onCheckedChange={async (checked) => {
+                                      await patchMutation.mutateAsync({ id: a.id, is_budget_account: checked })
+                                      await invalidateAccountQueries(queryClient)
+                                    }}
+                                  />
+                                </div>
                               </CardContent>
                             </Link>
                             <Button

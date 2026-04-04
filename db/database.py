@@ -8,6 +8,7 @@ Handles:
 """
 
 import os
+from datetime import date
 from sqlalchemy import text
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
@@ -25,7 +26,7 @@ engine = create_engine(
 )
 
 # Bump this when schema changes require a rebuild.
-SCHEMA_VERSION = "2026-03-29-investment-portfolio"
+SCHEMA_VERSION = "2026-03-31-zbb-v2-decoupled"
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -114,6 +115,85 @@ def _migrate_accounts_columns(conn) -> None:
         conn.execute(text("ALTER TABLE accounts ADD COLUMN reported_balance_at DATETIME"))
     if "is_robinhood_crypto" not in cols:
         conn.execute(text("ALTER TABLE accounts ADD COLUMN is_robinhood_crypto INTEGER NOT NULL DEFAULT 0"))
+    if "is_budget_account" not in cols:
+        conn.execute(text("ALTER TABLE accounts ADD COLUMN is_budget_account INTEGER NOT NULL DEFAULT 0"))
+        conn.execute(
+            text(
+                "UPDATE accounts SET is_budget_account = 1 "
+                "WHERE lower(trim(type)) IN ('checking', 'savings', 'cash')"
+            )
+        )
+
+
+def _migrate_budget_settings_table(conn) -> None:
+    tables = {
+        row[0]
+        for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()
+    }
+    if "budget_settings" not in tables:
+        return
+    cols = {row[1] for row in conn.execute(text("PRAGMA table_info(budget_settings)")).fetchall()}
+    if "rollover_mode" not in cols:
+        conn.execute(text("ALTER TABLE budget_settings ADD COLUMN rollover_mode VARCHAR NOT NULL DEFAULT 'strict'"))
+    row = conn.execute(text("SELECT id FROM budget_settings ORDER BY id ASC LIMIT 1")).fetchone()
+    if row is None:
+        conn.execute(text("INSERT INTO budget_settings (id, rollover_mode) VALUES (1, 'strict')"))
+    conn.execute(text("UPDATE budget_settings SET rollover_mode = 'strict' WHERE rollover_mode NOT IN ('strict','flexible')"))
+    if "budget_start_year" not in cols:
+        conn.execute(text("ALTER TABLE budget_settings ADD COLUMN budget_start_year INTEGER"))
+    if "budget_start_month" not in cols:
+        conn.execute(text("ALTER TABLE budget_settings ADD COLUMN budget_start_month INTEGER"))
+
+
+def _seed_zbb_period_rows(conn) -> None:
+    tables = {
+        row[0]
+        for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()
+    }
+    required = {"budget_periods", "category_budgets", "categories", "budget_settings", "budget_categories"}
+    if not required.issubset(tables):
+        return
+
+    today = date.today()
+    months: list[tuple[int, int]] = [(today.year, today.month)]
+    if today.month == 12:
+        months.append((today.year + 1, 1))
+    else:
+        months.append((today.year, today.month + 1))
+
+    for year, month in months:
+        conn.execute(
+            text(
+                "INSERT OR IGNORE INTO budget_periods (year, month, rta_snapshot) "
+                "VALUES (:year, :month, 0)"
+            ),
+            {"year": year, "month": month},
+        )
+        period_row = conn.execute(
+            text("SELECT id FROM budget_periods WHERE year = :year AND month = :month LIMIT 1"),
+            {"year": year, "month": month},
+        ).fetchone()
+        if period_row is None:
+            continue
+        period_id = int(period_row[0])
+        conn.execute(
+            text(
+                "INSERT OR IGNORE INTO category_budgets (category_id, budget_category_id, budget_period_id, assigned, activity) "
+                "SELECT "
+                "COALESCE("
+                "  bc.txn_category_id, "
+                "  (SELECT id FROM categories WHERE name = 'Other' LIMIT 1), "
+                "  (SELECT id FROM categories ORDER BY id ASC LIMIT 1)"
+                "), "
+                "bc.id, :period_id, 0, 0 "
+                "FROM budget_categories bc"
+            ),
+            {"period_id": period_id},
+        )
+
+    row = conn.execute(text("SELECT id FROM budget_settings ORDER BY id ASC LIMIT 1")).fetchone()
+    if row is None:
+        conn.execute(text("INSERT INTO budget_settings (id, rollover_mode) VALUES (1, 'strict')"))
 
 
 def _migrate_recurring_series_columns(conn) -> None:
@@ -129,6 +209,111 @@ def _migrate_recurring_series_columns(conn) -> None:
         conn.execute(text("ALTER TABLE recurring_series ADD COLUMN category_id INTEGER"))
     if "subcategory_id" not in cols:
         conn.execute(text("ALTER TABLE recurring_series ADD COLUMN subcategory_id INTEGER"))
+
+
+def _migrate_budget_category_decoupling(conn) -> None:
+    tables = {
+        row[0]
+        for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()
+    }
+    if "category_budgets" not in tables:
+        return
+    cols = {row[1] for row in conn.execute(text("PRAGMA table_info(category_budgets)")).fetchall()}
+    if "budget_category_id" not in cols:
+        conn.execute(text("ALTER TABLE category_budgets ADD COLUMN budget_category_id INTEGER"))
+    # Backfill budget_categories from existing txn categories.
+    if "budget_categories" in tables:
+        conn.execute(
+            text(
+                "INSERT OR IGNORE INTO budget_categories (name, is_system, txn_category_id) "
+                "SELECT c.name, 0, c.id FROM categories c"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE category_budgets SET budget_category_id = ("
+                "  SELECT bc.id FROM budget_categories bc "
+                "  WHERE bc.txn_category_id = category_budgets.category_id "
+                "  ORDER BY bc.id ASC LIMIT 1"
+                ") "
+                "WHERE budget_category_id IS NULL"
+            )
+        )
+
+
+def _migrate_category_budgets_unique_constraint(conn) -> None:
+    """
+    Replace legacy unique(category_id, budget_period_id) with
+    unique(budget_category_id, budget_period_id) for decoupled budget categories.
+    """
+    tables = {
+        row[0]
+        for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()
+    }
+    if "category_budgets" not in tables:
+        return
+
+    # Detect whether legacy unique index/constraint still exists.
+    index_rows = conn.execute(text("PRAGMA index_list(category_budgets)")).fetchall()
+    has_legacy_unique = False
+    has_new_unique = False
+    for row in index_rows:
+        idx_name = str(row[1])
+        is_unique = int(row[2]) == 1
+        if not is_unique:
+            continue
+        cols = [str(c[2]) for c in conn.execute(text(f"PRAGMA index_info('{idx_name}')")).fetchall()]
+        if cols == ["category_id", "budget_period_id"]:
+            has_legacy_unique = True
+        if cols == ["budget_category_id", "budget_period_id"]:
+            has_new_unique = True
+
+    if not has_legacy_unique:
+        return
+
+    # Rebuild table to drop the legacy unique constraint.
+    conn.execute(text("PRAGMA foreign_keys=OFF"))
+    conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS category_budgets_new (
+              id INTEGER PRIMARY KEY,
+              category_id INTEGER REFERENCES categories(id),
+              budget_category_id INTEGER REFERENCES budget_categories(id),
+              budget_period_id INTEGER NOT NULL REFERENCES budget_periods(id),
+              assigned FLOAT NOT NULL DEFAULT 0,
+              activity FLOAT NOT NULL DEFAULT 0,
+              created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            INSERT INTO category_budgets_new
+              (id, category_id, budget_category_id, budget_period_id, assigned, activity, created_at, updated_at)
+            SELECT
+              id, category_id, budget_category_id, budget_period_id, assigned, activity, created_at, updated_at
+            FROM category_budgets
+            """
+        )
+    )
+    conn.execute(text("DROP TABLE category_budgets"))
+    conn.execute(text("ALTER TABLE category_budgets_new RENAME TO category_budgets"))
+    conn.execute(
+        text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_category_budgets_budget_cat_period "
+            "ON category_budgets (budget_category_id, budget_period_id)"
+        )
+    )
+    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_category_budgets_period ON category_budgets (budget_period_id)"))
+    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_category_budgets_category ON category_budgets (category_id)"))
+    conn.execute(
+        text("CREATE INDEX IF NOT EXISTS idx_category_budgets_budget_category ON category_budgets (budget_category_id)")
+    )
+    conn.execute(text("PRAGMA foreign_keys=ON"))
 
 
 def init_db():
@@ -197,6 +382,10 @@ def init_db():
         _migrate_accounts_columns(conn)
         _migrate_recurring_series_columns(conn)
         _migrate_remove_payments_subcategory(conn)
+        _migrate_budget_category_decoupling(conn)
+        _migrate_category_budgets_unique_constraint(conn)
+        _migrate_budget_settings_table(conn)
+        _seed_zbb_period_rows(conn)
 
         # Ensure external dedupe index exists for imports
         conn.execute(

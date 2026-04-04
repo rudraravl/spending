@@ -15,6 +15,8 @@ export interface AccountOut {
   balance: number
   /** Sub-account is Robinhood crypto (positions-only; no cash in totals). */
   is_robinhood_crypto?: boolean
+  /** Included in zero-based budgeting liquid pool. */
+  is_budget_account?: boolean
 }
 
 /** Response from GET /api/accounts/{id}/summary */

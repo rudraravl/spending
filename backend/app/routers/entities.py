@@ -17,7 +17,12 @@ from backend.app.schemas import (
     TagOut,
 )
 from db.models import Account, Category, Subcategory, Tag
-from services.account_service import account_display_balance, delete_account as delete_account_with_cleanup
+from services.account_service import (
+    ALLOWED_ACCOUNT_TYPES,
+    account_display_balance,
+    delete_account as delete_account_with_cleanup,
+    reconcile_account_type_change,
+)
 
 
 router = APIRouter(tags=["entities"])
@@ -44,6 +49,7 @@ def _account_to_out(session: Session, a: Account) -> AccountOut:
         reported_balance_at=a.reported_balance_at,
         balance=display,
         is_robinhood_crypto=bool(getattr(a, "is_robinhood_crypto", False)),
+        is_budget_account=bool(getattr(a, "is_budget_account", False)),
     )
 
 
@@ -103,6 +109,16 @@ def update_account(
     account = session.query(Account).filter(Account.id == account_id).first()
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+    old_type = str(account.type)
+    if payload.type is not None:
+        next_type = payload.type.strip().lower()
+        if next_type not in ALLOWED_ACCOUNT_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid account type: {payload.type}",
+            )
+        account.type = next_type
+        reconcile_account_type_change(session, account, old_type=old_type, new_type=next_type)
     if payload.is_robinhood_crypto is not None:
         if account.type != "investment":
             raise HTTPException(
@@ -110,6 +126,8 @@ def update_account(
                 detail="Robinhood crypto mode is only valid for investment accounts",
             )
         account.is_robinhood_crypto = bool(payload.is_robinhood_crypto)
+    if payload.is_budget_account is not None:
+        account.is_budget_account = bool(payload.is_budget_account)
     try:
         session.commit()
         session.refresh(account)

@@ -61,6 +61,8 @@ class Account(Base):
     reported_balance_at = Column(DateTime, nullable=True)
     # Robinhood (SimpleFIN) may expose crypto as a separate "Crypto (####)" account; treat as positions-only.
     is_robinhood_crypto = Column(Boolean, nullable=False, server_default="0", default=False)
+    # Budget accounts are included in the liquid pool for zero-based budgeting.
+    is_budget_account = Column(Boolean, nullable=False, server_default="0", default=False)
 
     # Relationships
     transactions = relationship('Transaction', back_populates='account', cascade='all, delete-orphan')
@@ -203,7 +205,7 @@ class TransactionSplit(Base):
 
     id = Column(Integer, primary_key=True)
     transaction_id = Column(Integer, ForeignKey("transactions.id"), nullable=False)
-    category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     subcategory_id = Column(Integer, ForeignKey("subcategories.id"), nullable=False)
     amount = Column(Float, nullable=False)
     notes = Column(Text, nullable=True)
@@ -313,19 +315,110 @@ class RecurringSeries(Base):
         )
 
 
-class BudgetMonth(Base):
-    """Represents a single calendar-month budget container (month_start = first of month)."""
+class BudgetPeriod(Base):
+    """Represents a zero-based budgeting period for a calendar month/year."""
 
-    __tablename__ = "budget_months"
+    __tablename__ = "budget_periods"
+    __table_args__ = (
+        UniqueConstraint("year", "month", name="uq_budget_periods_year_month"),
+    )
 
     id = Column(Integer, primary_key=True)
-    month_start = Column(Date, nullable=False, unique=True)
+    month = Column(Integer, nullable=False)  # 1..12
+    year = Column(Integer, nullable=False)
+    rta_snapshot = Column(Float, nullable=False, server_default="0")
     created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
+    updated_at = Column(
+        DateTime,
+        server_default=func.current_timestamp(),
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
 
-    limits = relationship(
-        "BudgetLimit",
-        back_populates="budget_month",
+    categories = relationship(
+        "CategoryBudget",
+        back_populates="budget_period",
         cascade="all, delete-orphan",
+    )
+
+
+class CategoryBudget(Base):
+    """Category assignment/activity cache for one budget period."""
+
+    __tablename__ = "category_budgets"
+    __table_args__ = (
+        UniqueConstraint("budget_category_id", "budget_period_id", name="uq_category_budgets_budget_cat_period"),
+        Index("idx_category_budgets_period", "budget_period_id"),
+        Index("idx_category_budgets_category", "category_id"),
+        Index("idx_category_budgets_budget_category", "budget_category_id"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    # Legacy link kept nullable for migration compatibility.
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
+    budget_category_id = Column(Integer, ForeignKey("budget_categories.id"), nullable=True)
+    budget_period_id = Column(Integer, ForeignKey("budget_periods.id"), nullable=False)
+    assigned = Column(Float, nullable=False, server_default="0")
+    activity = Column(Float, nullable=False, server_default="0")
+    created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
+    updated_at = Column(
+        DateTime,
+        server_default=func.current_timestamp(),
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    category = relationship("Category")
+    budget_category = relationship("BudgetCategory")
+    budget_period = relationship("BudgetPeriod", back_populates="categories")
+
+
+class BudgetCategory(Base):
+    """Independent budget envelope category; may optionally map to txn category/subcategory."""
+
+    __tablename__ = "budget_categories"
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_budget_categories_name"),
+        Index("idx_budget_categories_system", "is_system", "system_kind"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+    is_system = Column(Boolean, nullable=False, server_default="0", default=False)
+    # e.g. "cc_payment"
+    system_kind = Column(String, nullable=True)
+    linked_account_id = Column(Integer, ForeignKey("accounts.id"), nullable=True)
+    txn_category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
+    txn_subcategory_id = Column(Integer, ForeignKey("subcategories.id"), nullable=True)
+    created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
+    updated_at = Column(
+        DateTime,
+        server_default=func.current_timestamp(),
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    linked_account = relationship("Account")
+    txn_category = relationship("Category", foreign_keys=[txn_category_id])
+    txn_subcategory = relationship("Subcategory", foreign_keys=[txn_subcategory_id])
+
+
+class BudgetSetting(Base):
+    """Singleton settings row for zero-based budgeting behavior."""
+
+    __tablename__ = "budget_settings"
+
+    id = Column(Integer, primary_key=True)
+    rollover_mode = Column(String, nullable=False, server_default="strict")  # strict | flexible
+    # First calendar month that counts for ZBB: no rollover from earlier months; pre-start activity ignored.
+    budget_start_year = Column(Integer, nullable=True)
+    budget_start_month = Column(Integer, nullable=True)
+    created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
+    updated_at = Column(
+        DateTime,
+        server_default=func.current_timestamp(),
+        onupdate=datetime.utcnow,
+        nullable=False,
     )
 
 
@@ -482,42 +575,3 @@ class NetWorthSnapshot(Base):
 
     __table_args__ = (Index("idx_net_worth_captured_at", "captured_at"),)
 
-
-class BudgetLimit(Base):
-    """
-    Represents a budget limit for a category, optionally allocated to a subcategory.
-
-    - category-level cap: subcategory_id is NULL
-    - subcategory allocation: subcategory_id is set
-    """
-
-    __tablename__ = "budget_limits"
-
-    id = Column(Integer, primary_key=True)
-    budget_month_id = Column(Integer, ForeignKey("budget_months.id"), nullable=False)
-    category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
-    subcategory_id = Column(Integer, ForeignKey("subcategories.id"), nullable=True)
-    limit_amount = Column(Float, nullable=False)
-    created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
-    updated_at = Column(
-        DateTime,
-        server_default=func.current_timestamp(),
-        onupdate=datetime.utcnow,
-        nullable=False,
-    )
-
-    budget_month = relationship("BudgetMonth", back_populates="limits")
-    category = relationship("Category")
-    subcategory = relationship("Subcategory")
-
-    __table_args__ = (
-        UniqueConstraint(
-            "budget_month_id",
-            "category_id",
-            "subcategory_id",
-            name="uq_budget_limits_month_cat_subcat",
-        ),
-        Index("idx_budget_limits_month", "budget_month_id"),
-        Index("idx_budget_limits_cat", "category_id"),
-        Index("idx_budget_limits_subcat", "subcategory_id"),
-    )

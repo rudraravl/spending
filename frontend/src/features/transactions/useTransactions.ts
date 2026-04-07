@@ -198,6 +198,8 @@ export function useTransactions() {
 
   useEffect(() => {
     setPageIndex(0)
+    // Reset stale local edit markers when pagination/filter scope changes.
+    setDirtyIds(new Set())
   }, [recentRange.startDate, recentRange.endDate, fAccountId, serverCategoryId, tagIdsKey, pageSize])
 
   useEffect(() => {
@@ -293,6 +295,7 @@ export function useTransactions() {
     },
     onSuccess: () => {
       setError(null)
+      setDirtyIds(new Set())
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
       queryClient.invalidateQueries({ queryKey: ['splits'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })

@@ -392,6 +392,8 @@ export type TransactionsTableProps = {
   deletePending: boolean
   linkCardPaymentPending: boolean
   unlinkTransferPending: boolean
+  onPrevPage: () => void
+  canPrevPage: boolean
   onNextPage: () => void
   canNextPage: boolean
   nextPagePending: boolean
@@ -431,6 +433,8 @@ export default function TransactionsTable({
   deletePending,
   linkCardPaymentPending,
   unlinkTransferPending,
+  onPrevPage,
+  canPrevPage,
   onNextPage,
   canNextPage,
   nextPagePending,
@@ -799,6 +803,9 @@ export default function TransactionsTable({
               ))}
             </SelectContent>
           </Select>
+          <Button variant="outline" size="sm" onClick={onPrevPage} disabled={!canPrevPage || nextPagePending}>
+            {nextPagePending ? 'Loading…' : 'Previous page'}
+          </Button>
           <Button variant="outline" size="sm" onClick={onNextPage} disabled={!canNextPage || nextPagePending}>
             {nextPagePending ? 'Loading…' : 'Next page'}
           </Button>

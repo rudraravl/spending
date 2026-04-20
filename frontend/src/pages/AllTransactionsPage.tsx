@@ -65,6 +65,8 @@ export default function AllTransactionsPage() {
             deletePending={table.deletePending}
             linkCardPaymentPending={table.linkCardPaymentPending}
             unlinkTransferPending={table.unlinkTransferPending}
+            onPrevPage={table.prevPage}
+            canPrevPage={table.canPrevPage}
             onNextPage={table.nextPage}
             canNextPage={table.canNextPage}
             nextPagePending={table.nextPagePending}

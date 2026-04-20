@@ -456,6 +456,14 @@ export function useTransactions() {
     return newRow
   }
 
+  function prevPage() {
+    if (!metaReady) return
+    if (dirtyIds.size > 0) return
+    if (pageIndex <= 0) return
+    if (transactionsQuery.isFetching) return
+    setPageIndex((prev) => prev - 1)
+  }
+
   function nextPage() {
     if (!metaReady) return
     if (dirtyIds.size > 0) return
@@ -512,6 +520,13 @@ export function useTransactions() {
       linkCardPaymentPending: linkCardPaymentMutation.isPending,
       unlinkTransfer,
       unlinkTransferPending: unlinkTransferMutation.isPending,
+      prevPage,
+      canPrevPage:
+        metaReady &&
+        dirtyIds.size === 0 &&
+        pageIndex > 0 &&
+        !transactionsQuery.isFetching &&
+        !transactionsQuery.isPending,
       nextPage,
       canNextPage:
         metaReady &&

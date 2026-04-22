@@ -65,6 +65,8 @@ def _apply_filters_base(query, filters: Optional[TransactionFilter]):
 
     if filters.subcategory_id:
         query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
+    elif getattr(filters, "subcategory_ids", None):
+        query = query.filter(Transaction.subcategory_id.in_(filters.subcategory_ids))
 
     if filters.exclude_account_types:
         query = query.join(Account, Transaction.account_id == Account.id)
@@ -113,6 +115,8 @@ def _apply_filters_splits(query, filters: Optional[TransactionFilter]):
 
     if filters.subcategory_id:
         query = query.filter(TransactionSplit.subcategory_id == filters.subcategory_id)
+    elif getattr(filters, "subcategory_ids", None):
+        query = query.filter(TransactionSplit.subcategory_id.in_(filters.subcategory_ids))
 
     if filters.exclude_account_types:
         query = query.join(Account, Transaction.account_id == Account.id)
@@ -175,6 +179,8 @@ def calculate_total(
         # Filter by subcategory
         if filters.subcategory_id:
             query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
+        elif getattr(filters, "subcategory_ids", None):
+            query = query.filter(Transaction.subcategory_id.in_(filters.subcategory_ids))
     
     result = query.scalar()
     return float(result) if result else 0.0
@@ -416,6 +422,8 @@ def summarize_by_tag(
         # Filter by subcategory
         if filters.subcategory_id:
             query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
+        elif getattr(filters, "subcategory_ids", None):
+            query = query.filter(Transaction.subcategory_id.in_(filters.subcategory_ids))
 
         if filters.exclude_account_types:
             query = query.join(Account, Transaction.account_id == Account.id)

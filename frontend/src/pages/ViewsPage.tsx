@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import {
@@ -103,11 +103,7 @@ type PersistedViewState = {
   endDate: string
   accountId: number | null
   categoryId: number | null
-  subcategoryId: number | null
-  /** True when user chose “All subcategories” (API: no subcategory filter). */
-  subcategoryExplicitAll: boolean
-  /** True when user picked a specific subcategory (not auto-filled first). */
-  subcategoryUserPick: boolean
+  subcategoryIds: number[]
   selectedTagIds: number[]
   tagsMatchAny: boolean
   minAmount: number
@@ -169,9 +165,7 @@ export default function ViewsPage() {
 
   const [accountId, setAccountId] = useState<number | null>(null)
   const [categoryId, setCategoryId] = useState<number | null>(null)
-  const [subcategoryId, setSubcategoryId] = useState<number | null>(null)
-  const subcategoryAllExplicitRef = useRef(false)
-  const [subcategoryUserPick, setSubcategoryUserPick] = useState(false)
+  const [selectedSubcategoryIds, setSelectedSubcategoryIds] = useState<number[]>([])
 
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
   const [tagsMatchAny, setTagsMatchAny] = useState(false)
@@ -199,29 +193,29 @@ export default function ViewsPage() {
   useEffect(() => {
     if (!categoryId) {
       setSubcategories([])
-      setSubcategoryId(null)
-      subcategoryAllExplicitRef.current = false
-      setSubcategoryUserPick(false)
+      setSelectedSubcategoryIds([])
       return
     }
     if (!subcategoriesQuery.data) return
     setSubcategories(subcategoriesQuery.data)
-    if (subcategoryAllExplicitRef.current) return
-
-    const firstId = subcategoriesQuery.data[0]?.id ?? null
-    if (subcategoryId == null) {
-      setSubcategoryId(firstId)
-      return
-    }
-
-    if (!subcategoriesQuery.data.find((s) => s.id === subcategoryId)) {
-      setSubcategoryId(firstId)
-    }
-  }, [categoryId, subcategoriesQuery.data, subcategoryId])
+    setSelectedSubcategoryIds((prev) =>
+      prev.filter((id) => subcategoriesQuery.data.some((subcategory) => subcategory.id === id)),
+    )
+  }, [categoryId, subcategoriesQuery.data])
 
   useEffect(() => {
     setSelectedCategoryId(null)
-  }, [startDate, endDate, accountId, categoryId, subcategoryId, selectedTagIds, tagsMatchAny, minAmount, maxAmount])
+  }, [
+    startDate,
+    endDate,
+    accountId,
+    categoryId,
+    selectedSubcategoryIds,
+    selectedTagIds,
+    tagsMatchAny,
+    minAmount,
+    maxAmount,
+  ])
 
   const shouldMinMaxInclude = useMemo(() => {
     const min = minAmount > 0 ? minAmount : undefined
@@ -229,13 +223,17 @@ export default function ViewsPage() {
     return { min, max }
   }, [minAmount, maxAmount])
 
+  const normalizedSubcategoryIds = useMemo(
+    () => [...selectedSubcategoryIds].sort((a, b) => a - b),
+    [selectedSubcategoryIds],
+  )
   const normalizedTagIds = useMemo(() => [...selectedTagIds].sort((a, b) => a - b), [selectedTagIds])
   const viewsParamsKey = JSON.stringify({
     startDate,
     endDate,
     accountId,
     categoryId,
-    subcategoryId,
+    subcategoryIds: normalizedSubcategoryIds,
     tagIds: normalizedTagIds,
     tagsMatchAny,
     min: shouldMinMaxInclude.min ?? null,
@@ -251,7 +249,9 @@ export default function ViewsPage() {
       params.set('end_date', endDate)
       if (accountId) params.set('account_id', String(accountId))
       if (categoryId) params.set('category_id', String(categoryId))
-      if (subcategoryId) params.set('subcategory_id', String(subcategoryId))
+      if (normalizedSubcategoryIds.length) {
+        for (const id of normalizedSubcategoryIds) params.append('subcategory_ids', String(id))
+      }
 
       if (normalizedTagIds.length) {
         for (const id of normalizedTagIds) params.append('tag_ids', String(id))
@@ -353,7 +353,7 @@ export default function ViewsPage() {
     let n = 0
     if (accountId != null) n++
     if (categoryId != null) n++
-    if (subcategoryUserPick && subcategoryId != null) n++
+    if (selectedSubcategoryIds.length) n += selectedSubcategoryIds.length
     if (selectedTagIds.length) n += selectedTagIds.length
     if (tagsMatchAny && selectedTagIds.length > 1) n++
     if (shouldMinMaxInclude.min !== undefined) n++
@@ -362,8 +362,7 @@ export default function ViewsPage() {
   }, [
     accountId,
     categoryId,
-    subcategoryId,
-    subcategoryUserPick,
+    selectedSubcategoryIds.length,
     selectedTagIds.length,
     tagsMatchAny,
     shouldMinMaxInclude.min,
@@ -379,9 +378,7 @@ export default function ViewsPage() {
     setEndDate(r.end)
     setAccountId(null)
     setCategoryId(null)
-    setSubcategoryId(null)
-    subcategoryAllExplicitRef.current = false
-    setSubcategoryUserPick(false)
+    setSelectedSubcategoryIds([])
     setSelectedTagIds([])
     setTagsMatchAny(false)
     setMinAmount(0)
@@ -396,9 +393,7 @@ export default function ViewsPage() {
       endDate,
       accountId,
       categoryId,
-      subcategoryId,
-      subcategoryExplicitAll: subcategoryAllExplicitRef.current,
-      subcategoryUserPick,
+      subcategoryIds: [...selectedSubcategoryIds],
       selectedTagIds: [...selectedTagIds],
       tagsMatchAny,
       minAmount,
@@ -410,29 +405,27 @@ export default function ViewsPage() {
     endDate,
     accountId,
     categoryId,
-    subcategoryId,
-    subcategoryUserPick,
+    selectedSubcategoryIds,
     selectedTagIds,
     tagsMatchAny,
     minAmount,
     maxAmount,
   ])
 
-  const applyState = useCallback((s: PersistedViewState & { subcategoryAllExplicit?: boolean }) => {
+  const applyState = useCallback((s: PersistedViewState & { subcategoryId?: number | null }) => {
     setPreset(s.preset)
     setStartDate(s.startDate)
     setEndDate(s.endDate)
     setAccountId(s.accountId)
     setCategoryId(s.categoryId)
-    const explicitAll =
-      s.subcategoryExplicitAll ?? (s as { subcategoryAllExplicit?: boolean }).subcategoryAllExplicit ?? false
-    subcategoryAllExplicitRef.current = explicitAll
-    setSubcategoryId(s.subcategoryId)
-    const userPick =
-      'subcategoryUserPick' in s && typeof s.subcategoryUserPick === 'boolean'
-        ? s.subcategoryUserPick
-        : Boolean(s.subcategoryId != null && !explicitAll)
-    setSubcategoryUserPick(userPick)
+    if (Array.isArray(s.subcategoryIds)) {
+      setSelectedSubcategoryIds([...s.subcategoryIds])
+    } else if (s.subcategoryId != null) {
+      // Backward compatibility for old saved views with single subcategory.
+      setSelectedSubcategoryIds([s.subcategoryId])
+    } else {
+      setSelectedSubcategoryIds([])
+    }
     setSelectedTagIds([...s.selectedTagIds])
     setTagsMatchAny(s.tagsMatchAny)
     setMinAmount(s.minAmount)
@@ -494,9 +487,6 @@ export default function ViewsPage() {
 
   const accountName = accountId != null ? accounts.find((a) => a.id === accountId)?.name : null
   const categoryName = categoryId != null ? categories.find((c) => c.id === categoryId)?.name : null
-  const subcategoryName =
-    subcategoryId != null ? subcategories.find((s) => s.id === subcategoryId)?.name : null
-
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
@@ -659,10 +649,7 @@ export default function ViewsPage() {
                     <Label htmlFor="views-category">Category</Label>
                     <Select
                       value={categoryId != null ? String(categoryId) : '__all__'}
-                      onValueChange={(v) => {
-                        setCategoryId(v === '__all__' ? null : Number(v))
-                        setSubcategoryUserPick(false)
-                      }}
+                      onValueChange={(v) => setCategoryId(v === '__all__' ? null : Number(v))}
                     >
                       <SelectTrigger id="views-category" className="bg-background">
                         <SelectValue placeholder="All categories" />
@@ -678,31 +665,54 @@ export default function ViewsPage() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="views-subcategory" className={!categoryId ? 'text-muted-foreground' : undefined}>
+                    <Label className={!categoryId ? 'text-muted-foreground' : undefined}>
                       Subcategory
                     </Label>
-                    <Select
-                      value={subcategoryId != null ? String(subcategoryId) : '__all__'}
-                      onValueChange={(v) => {
-                        const next = v === '__all__' ? null : Number(v)
-                        subcategoryAllExplicitRef.current = next === null
-                        setSubcategoryUserPick(next !== null)
-                        setSubcategoryId(next)
-                      }}
-                      disabled={!categoryId}
-                    >
-                      <SelectTrigger id="views-subcategory" className="bg-background">
-                        <SelectValue placeholder={categoryId ? 'All subcategories' : 'Pick a category first'} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__all__">All subcategories</SelectItem>
-                        {subcategories.map((s) => (
-                          <SelectItem key={s.id} value={String(s.id)}>
-                            {s.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="rounded-md border border-border bg-background p-2 space-y-2">
+                      {!categoryId ? (
+                        <p className="text-xs text-muted-foreground px-2 py-2">Choose a category</p>
+                      ) : subcategories.length === 0 ? (
+                        <p className="text-xs text-muted-foreground px-2 py-2">No subcategories available</p>
+                      ) : (
+                        <>
+                          <div className="flex items-center justify-between px-1">
+                            <p className="text-xs text-muted-foreground">
+                              {selectedSubcategoryIds.length === 0
+                                ? 'All subcategories'
+                                : `${selectedSubcategoryIds.length} selected`}
+                            </p>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => setSelectedSubcategoryIds([])}
+                              disabled={selectedSubcategoryIds.length === 0}
+                            >
+                              Clear
+                            </Button>
+                          </div>
+                          <div className="max-h-[150px] overflow-y-auto space-y-1 pr-1">
+                            {subcategories.map((s) => (
+                              <label
+                                key={s.id}
+                                className="flex items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-muted/60 cursor-pointer"
+                              >
+                                <Checkbox
+                                  checked={selectedSubcategoryIds.includes(s.id)}
+                                  onCheckedChange={() =>
+                                    setSelectedSubcategoryIds((prev) =>
+                                      prev.includes(s.id) ? prev.filter((id) => id !== s.id) : [...prev, s.id],
+                                    )
+                                  }
+                                />
+                                <span className="text-sm">{s.name}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
               </section>
@@ -823,31 +833,31 @@ export default function ViewsPage() {
                   aria-label="Clear category"
                   onClick={() => {
                     setCategoryId(null)
-                    setSubcategoryId(null)
-                    subcategoryAllExplicitRef.current = false
+                    setSelectedSubcategoryIds([])
                   }}
                 >
                   <X className="h-3 w-3" />
                 </button>
               </Badge>
             ) : null}
-            {subcategoryUserPick && subcategoryId != null && subcategoryName ? (
-              <Badge variant="secondary" className="gap-1 font-normal">
-                Subcategory: {subcategoryName}
-                <button
-                  type="button"
-                  className="rounded-sm hover:bg-muted p-0.5"
-                  aria-label="Clear subcategory"
-                  onClick={() => {
-                    subcategoryAllExplicitRef.current = true
-                    setSubcategoryUserPick(false)
-                    setSubcategoryId(null)
-                  }}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </Badge>
-            ) : null}
+            {selectedSubcategoryIds.map((subcatId) => {
+              const subcatName = subcategories.find((s) => s.id === subcatId)?.name ?? `#${subcatId}`
+              return (
+                <Badge key={subcatId} variant="secondary" className="gap-1 font-normal">
+                  Subcategory: {subcatName}
+                  <button
+                    type="button"
+                    className="rounded-sm hover:bg-muted p-0.5"
+                    aria-label={`Remove subcategory ${subcatName}`}
+                    onClick={() =>
+                      setSelectedSubcategoryIds((prev) => prev.filter((id) => id !== subcatId))
+                    }
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              )
+            })}
             {selectedTagIds.map((tid) => {
               const tname = tags.find((t) => t.id === tid)?.name ?? `#${tid}`
               return (

@@ -304,6 +304,8 @@ def get_transactions(
         # Filter by subcategory
         if filters.subcategory_id:
             query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
+        elif getattr(filters, "subcategory_ids", None):
+            query = query.filter(Transaction.subcategory_id.in_(filters.subcategory_ids))
     
     # Apply ordering
     query = query.order_by(Transaction.date.desc(), Transaction.id.desc())
@@ -656,6 +658,8 @@ def count_transactions(
         # Filter by subcategory
         if filters.subcategory_id:
             query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
+        elif getattr(filters, "subcategory_ids", None):
+            query = query.filter(Transaction.subcategory_id.in_(filters.subcategory_ids))
     
     return query.count()
 

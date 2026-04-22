@@ -36,6 +36,7 @@ class TransactionFilter:
         account_id: Optional[int] = None,
         category_id: Optional[int] = None,
         subcategory_id: Optional[int] = None,
+        subcategory_ids: Optional[List[int]] = None,
         tag_ids: Optional[List[int]] = None,
         tags_match_any: bool = False,
         min_amount: Optional[float] = None,
@@ -51,6 +52,7 @@ class TransactionFilter:
             account_id: Account ID to filter by
             category_id: Category ID to filter by
             subcategory_id: Subcategory ID to filter by
+            subcategory_ids: Subcategory IDs to filter by (OR semantics)
             tag_ids: List of tag IDs to filter by
             tags_match_any: If False (default), transaction must have ALL tags (AND).
                 If True, transaction must have ANY of the tags (OR).
@@ -64,6 +66,7 @@ class TransactionFilter:
         self.account_id = account_id
         self.category_id = category_id
         self.subcategory_id = subcategory_id
+        self.subcategory_ids = subcategory_ids
         self.tag_ids = tag_ids
         self.tags_match_any = tags_match_any
         self.min_amount = min_amount
@@ -108,6 +111,9 @@ class TransactionFilter:
         account_id = self.account_id or other.account_id
         category_id = self.category_id or other.category_id
         subcategory_id = self.subcategory_id or other.subcategory_id
+        subcategory_ids = None
+        if self.subcategory_ids or other.subcategory_ids:
+            subcategory_ids = list(set((self.subcategory_ids or []) + (other.subcategory_ids or [])))
         
         # For tags: combine lists; use OR if either filter uses OR
         tag_ids = None
@@ -122,6 +128,7 @@ class TransactionFilter:
             account_id=account_id,
             category_id=category_id,
             subcategory_id=subcategory_id,
+            subcategory_ids=subcategory_ids,
             tag_ids=tag_ids,
             tags_match_any=tags_match_any,
             min_amount=min_amount,
@@ -141,6 +148,8 @@ class TransactionFilter:
             parts.append(f"category_id={self.category_id}")
         if self.subcategory_id:
             parts.append(f"subcategory_id={self.subcategory_id}")
+        if self.subcategory_ids:
+            parts.append(f"subcategory_ids={self.subcategory_ids}")
         if self.tag_ids:
             parts.append(f"tag_ids={self.tag_ids}")
         if self.tags_match_any:

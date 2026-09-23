@@ -6,6 +6,7 @@ inflow) and moves between asset accounts (e.g. checking ↔ investment).
 from __future__ import annotations
 
 import re
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Literal
@@ -53,18 +54,11 @@ class CardPaymentCandidatePair:
         self,
         session: Session,
     ) -> dict[str, Any]:
-        a = (
-            session.query(Transaction)
-            .options(joinedload(Transaction.account))
-            .filter(Transaction.id == self.asset_transaction_id)
-            .first()
-        )
-        c = (
-            session.query(Transaction)
-            .options(joinedload(Transaction.account))
-            .filter(Transaction.id == self.credit_transaction_id)
-            .first()
-        )
+        # Candidates were just loaded (with accounts) by find_transfer_match_candidates,
+        # so these resolve from the identity map instead of two queries per pair.
+        opts = [joinedload(Transaction.account)]
+        a = session.get(Transaction, self.asset_transaction_id, options=opts)
+        c = session.get(Transaction, self.credit_transaction_id, options=opts)
         if not a or not c:
             return {}
         return {
@@ -235,6 +229,36 @@ def _build_pair_objects(
     )
 
 
+def _pairs_by_amount_and_date(
+    outflows: list[Transaction],
+    inflows: list[Transaction],
+    *,
+    kind: TransferCandidateKind,
+    skip_same_account: bool,
+) -> list[CardPaymentCandidatePair]:
+    """
+    Every (outflow, inflow) with compatible magnitude and date. Inflows are sorted by
+    magnitude so each outflow only visits inflows within the amount tolerance,
+    instead of comparing every outflow against every inflow.
+    """
+    ordered = sorted(inflows, key=lambda t: abs(float(t.amount)))
+    mags = [abs(float(t.amount)) for t in ordered]
+    pairs: list[CardPaymentCandidatePair] = []
+    for o in outflows:
+        mag_o = abs(float(o.amount))
+        lo = bisect_left(mags, mag_o - CARD_PAYMENT_AMOUNT_TOLERANCE - 1e-9)
+        hi = bisect_right(mags, mag_o + CARD_PAYMENT_AMOUNT_TOLERANCE + 1e-9)
+        for i in ordered[lo:hi]:
+            if skip_same_account and o.account_id == i.account_id:
+                continue
+            if not _amounts_compatible(mag_o, abs(float(i.amount))):
+                continue
+            if not _dates_compatible(o.date, i.date):
+                continue
+            pairs.append(_build_pair_objects(o, i, kind=kind))
+    return pairs
+
+
 def find_card_payment_pair_candidates(
     session: Session,
     *,
@@ -302,16 +326,7 @@ def find_card_payment_pair_candidates(
         .filter(Transaction.date >= since)
         .all()
     )
-    raw_pairs: list[CardPaymentCandidatePair] = []
-    for a in asset_legs:
-        mag_a = abs(float(a.amount))
-        for c in credit_legs:
-            mag_c = abs(float(c.amount))
-            if not _amounts_compatible(mag_a, mag_c):
-                continue
-            if not _dates_compatible(a.date, c.date):
-                continue
-            raw_pairs.append(_build_pair_objects(a, c, kind="card_payment"))
+    raw_pairs = _pairs_by_amount_and_date(asset_legs, credit_legs, kind="card_payment", skip_same_account=False)
     raw_pairs.sort(key=lambda p: (p.date_delta_days, p.amount_delta))
     return _dedupe_pairs(raw_pairs)
 
@@ -338,18 +353,7 @@ def _find_asset_to_asset_pair_candidates_full_scan(
         .filter(Transaction.date >= since)
         .all()
     )
-    raw_pairs: list[CardPaymentCandidatePair] = []
-    for o in outflows:
-        mag_o = abs(float(o.amount))
-        for i in inflows:
-            if o.account_id == i.account_id:
-                continue
-            mag_i = abs(float(i.amount))
-            if not _amounts_compatible(mag_o, mag_i):
-                continue
-            if not _dates_compatible(o.date, i.date):
-                continue
-            raw_pairs.append(_build_pair_objects(o, i, kind="asset_transfer"))
+    raw_pairs = _pairs_by_amount_and_date(outflows, inflows, kind="asset_transfer", skip_same_account=True)
     raw_pairs.sort(key=lambda p: (p.date_delta_days, p.amount_delta))
     return _dedupe_pairs(raw_pairs)
 

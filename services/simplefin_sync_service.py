@@ -27,7 +27,9 @@ from services.import_service import ensure_category, ensure_subcategory
 from services.investment_snapshot_service import record_investment_snapshot
 from services.investment_txn_parser import classify_investment_transaction
 from services.net_worth_service import capture_net_worth_snapshot
-from services.rule_service import apply_rules_to_transaction
+from services.zbb_service import recalc_activity_for_months
+from utils.timestamps import local_date
+from services.rule_service import apply_rules_to_transaction, list_rules
 from services.simplefin_client import (
     SFINAccount,
     SFINAccountSet,
@@ -78,11 +80,20 @@ def _normalize_simplefin_amount(raw_amount: str) -> float:
     return float(raw_amount)
 
 
-def _to_utc_date(value: datetime) -> date:
-    # SQLite hands back naive datetimes; they are stored as UTC.
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc).date()
+def _posted_date(posted: int) -> date:
+    """
+    Local calendar date of a SimpleFIN `posted` timestamp.
+
+    Institutions that only know the posting date encode it as midnight or noon UTC
+    of that date; converting those to a US timezone would shift midnight back a day,
+    so they keep their UTC date. Real timestamps are converted to local time.
+    """
+    if not posted:
+        return date.today()
+    utc = datetime.fromtimestamp(posted, tz=timezone.utc)
+    if utc.minute == 0 and utc.second == 0 and utc.hour in (0, 12):
+        return utc.date()
+    return utc.astimezone().date()
 
 
 def _account_covered_through(session: Session, account: Account) -> date | None:
@@ -94,7 +105,7 @@ def _account_covered_through(session: Session, account: Account) -> date | None:
     """
     candidates: list[date] = []
     if account.sync_covered_through is not None:
-        candidates.append(_to_utc_date(account.sync_covered_through))
+        candidates.append(local_date(account.sync_covered_through))
     latest_local_txn_date = (
         session.query(Transaction.date)
         .filter(Transaction.account_id == account.id)
@@ -166,6 +177,37 @@ def _data_as_of(sfin_account: SFINAccount, now: datetime) -> datetime:
         refreshed = datetime.fromtimestamp(sfin_account.balance_date, tz=timezone.utc)
         return min(refreshed, now)
     return now
+
+
+def _existing_simplefin_external_ids(session: Session, external_ids: list[str]) -> set[str]:
+    found: set[str] = set()
+    # Chunked to stay under SQLite's bound-parameter limit.
+    for i in range(0, len(external_ids), 500):
+        chunk = external_ids[i : i + 500]
+        found.update(
+            ext_id
+            for (ext_id,) in session.query(Transaction.external_id).filter(
+                Transaction.source == TXN_SOURCE,
+                Transaction.external_id.in_(chunk),
+            )
+        )
+    return found
+
+
+def _existing_identity_keys(
+    session: Session, account_id: int, start: date, end: date
+) -> set[tuple[date, float, str]]:
+    """(date, amount, merchant) of the account's rows in [start, end], for legacy dedupe."""
+    return {
+        (d, float(amount), merchant)
+        for d, amount, merchant in session.query(
+            Transaction.date, Transaction.amount, Transaction.merchant
+        ).filter(
+            Transaction.account_id == account_id,
+            Transaction.date >= start,
+            Transaction.date <= end,
+        )
+    }
 
 
 def _get_singleton_connection_or_none(session: Session) -> SimpleFINConnection | None:
@@ -695,8 +737,10 @@ def sync_connection(
         auto_window = start_date is None
         if auto_window:
             start_date = plan.start_date
+        # Both bounds are local midnights, matching how transaction dates are stored.
+        # SimpleFIN's end-date is exclusive, so send the day after to include end_date.
         start_epoch = int(time.mktime(start_date.timetuple()))
-        end_epoch = int(time.mktime(end_date.timetuple())) if end_date else None
+        end_epoch = int(time.mktime((end_date + timedelta(days=1)).timetuple())) if end_date else None
 
         account_set, payload = get_accounts_with_payload(
             access_url,
@@ -730,6 +774,8 @@ def sync_connection(
 
         other_category = ensure_category(session, "Other")
         other_subcategory = ensure_subcategory(session, "Uncategorized", other_category.id)
+        rules = list_rules(session)
+        touched_months: set[tuple[int, int]] = set()
 
         full_history_by_external_id: dict[str, SFINAccountSet] = {}
 
@@ -772,39 +818,37 @@ def sync_connection(
             local_acct.reported_balance = float(account_for_import.balance)
             local_acct.reported_balance_at = datetime.now(timezone.utc)
 
-            for txn in account_for_import.transactions:
-                txn_ext_id = _make_txn_external_id(account_for_import.conn_id, account_for_import.id, txn.id)
-
-                existing = (
-                    session.query(Transaction)
-                    .filter(
-                        Transaction.source == TXN_SOURCE,
-                        Transaction.external_id == txn_ext_id,
-                    )
-                    .first()
+            # Dedupe lookups for the whole batch up front instead of two queries per row.
+            remote_txns = [
+                (
+                    txn,
+                    _make_txn_external_id(account_for_import.conn_id, account_for_import.id, txn.id),
+                    _posted_date(txn.posted),
                 )
-                if existing:
+                for txn in account_for_import.transactions
+            ]
+            seen_ext_ids = _existing_simplefin_external_ids(session, [ext for _, ext, _ in remote_txns])
+            seen_identities: set[tuple[date, float, str]] = set()
+            if remote_txns:
+                txn_dates = [d for _, _, d in remote_txns]
+                seen_identities = _existing_identity_keys(session, local_acct.id, min(txn_dates), max(txn_dates))
+
+            new_txns: list[Transaction] = []
+            for txn, txn_ext_id, txn_date in remote_txns:
+                if txn_ext_id in seen_ext_ids:
                     continue
 
-                txn_date = datetime.fromtimestamp(txn.posted, tz=timezone.utc).date() if txn.posted else date.today()
                 txn_amount = _normalize_simplefin_amount(txn.amount)
                 txn_merchant = txn.description
 
                 # Migration-safe fallback dedupe:
                 # when switching from CSV/manual imports, avoid inserting an
                 # additional row if the transaction already exists by identity.
-                existing_legacy = (
-                    session.query(Transaction)
-                    .filter(
-                        Transaction.date == txn_date,
-                        Transaction.amount == txn_amount,
-                        Transaction.merchant == txn_merchant,
-                        Transaction.account_id == local_acct.id,
-                    )
-                    .first()
-                )
-                if existing_legacy:
+                identity = (txn_date, txn_amount, txn_merchant)
+                if identity in seen_identities:
                     continue
+                seen_ext_ids.add(txn_ext_id)
+                seen_identities.add(identity)
 
                 new_txn = Transaction(
                     date=txn_date,
@@ -818,12 +862,16 @@ def sync_connection(
                     status="pending" if txn.pending else "cleared",
                 )
                 session.add(new_txn)
-                session.flush()
-                apply_rules_to_transaction(session, new_txn)
+                apply_rules_to_transaction(session, new_txn, rules)
                 if local_acct.type == "investment":
                     classify_investment_transaction(session, new_txn)
-                result.transactions_imported += 1
-                result.imported_transaction_ids.append(new_txn.id)
+                new_txns.append(new_txn)
+                touched_months.add((txn_date.year, txn_date.month))
+
+            if new_txns:
+                session.flush()
+            result.transactions_imported += len(new_txns)
+            result.imported_transaction_ids.extend(t.id for t in new_txns)
 
             holdings = list(account_for_import.holdings or [])
             if not holdings and sfin_acct.holdings:
@@ -870,6 +918,9 @@ def sync_connection(
             result.errors = error_messages
             run.error_message = "; ".join(error_messages)
 
+        if touched_months:
+            recalc_activity_for_months(session, touched_months)
+
         # Record one aggregate net-worth point per sync run so the dashboard can
         # plot trend history over time.
         capture_net_worth_snapshot(
@@ -881,7 +932,9 @@ def sync_connection(
         session.commit()
         return result
 
-    except (SimpleFINError, SimpleFINAuthError) as exc:
+    except SimpleFINError as exc:
+        # Provider errors happen before an account's rows are imported, so accounts
+        # already processed (and their coverage) are kept.
         now = datetime.now(timezone.utc)
         conn.last_error = str(exc)
         conn.status = "error"
@@ -892,12 +945,23 @@ def sync_connection(
         raise
 
     except Exception as exc:
+        # Possibly a failed flush, which leaves the session unusable: roll back
+        # before recording the failure (committing would raise and hide the error).
+        started_at = run.started_at
+        session.rollback()
         now = datetime.now(timezone.utc)
+        conn = get_connection(session, conn.id)
         conn.last_error = str(exc)
         conn.status = "error"
-        run.finished_at = now
-        run.status = "error"
-        run.error_message = str(exc)
+        session.add(
+            SimpleFINSyncRun(
+                connection_id=conn.id,
+                started_at=started_at,
+                finished_at=now,
+                status="error",
+                error_message=str(exc),
+            )
+        )
         session.commit()
         raise SimpleFINError(f"Unexpected sync error: {exc}") from exc
 

@@ -167,12 +167,6 @@
   }
 }
 
-/* Plotly fills parent */
-.js-plotly-plot,
-.plotly {
-  width: 100%;
-}
-
 @layer components {
   /* Solid brand top bar (uses --brand) */
   .app-shell-header {

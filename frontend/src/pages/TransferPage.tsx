@@ -2,17 +2,20 @@ import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { motion } from 'framer-motion'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiPostJson } from '../api/client'
 import { Link2, RefreshCw } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import {
+  createTransfer,
   getPaymentsHoldouts,
   getTransferMatchCandidates,
   linkExistingTransfer,
   transferMatchLegLabels,
+  type CreateTransferPayload,
   type TransferMatchCandidate,
 } from '../api/transfers'
-import { queryKeys } from '../queryKeys'
+import { invalidateTransactionData, queryKeys } from '../queryKeys'
+import { formatMoney } from '@/lib/format'
+import { todayIso } from '@/lib/dates'
 import { getAccounts } from '../api/accounts'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -31,18 +34,6 @@ import { Textarea } from '@/components/ui/textarea'
 import type { AccountOut } from '../types'
 import { CONFIDENCE_BADGE_VARIANT, CONFIDENCE_LABEL, DUPLICATE_TRANSFER_WARNING } from '@/features/transfers/transferMatchDisplay'
 
-function formatMoney(amount: number) {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(amount)
-}
-
-type TransferPayload = {
-  from_account_id: number
-  to_account_id: number
-  amount: number
-  date: string
-  notes: string | null
-}
-
 type TransferFormValues = {
   from_account_id: number | null
   to_account_id: number | null
@@ -56,11 +47,11 @@ export default function TransferPage({ embedded = false }: { embedded?: boolean 
   const [scanEnabled, setScanEnabled] = useState(false)
   const [reviewActionError, setReviewActionError] = useState<string | null>(null)
   const holdoutsQuery = useQuery({
-    queryKey: ['payments-holdouts'],
+    queryKey: queryKeys.paymentsHoldouts(),
     queryFn: () => getPaymentsHoldouts(),
   })
   const candidatesQuery = useQuery({
-    queryKey: ['transfer-match-candidates', 'full'],
+    queryKey: queryKeys.transferMatchCandidates('full'),
     queryFn: () => getTransferMatchCandidates({ lookbackDays: 365 }),
     enabled: scanEnabled,
   })
@@ -73,11 +64,7 @@ export default function TransferPage({ embedded = false }: { embedded?: boolean 
       }),
     onSuccess: () => {
       setReviewActionError(null)
-      queryClient.invalidateQueries({ queryKey: ['transfer-match-candidates'] })
-      queryClient.invalidateQueries({ queryKey: ['payments-holdouts'] })
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      void invalidateTransactionData(queryClient)
     },
     onError: (e: Error) => setReviewActionError(e.message),
   })
@@ -90,7 +77,7 @@ export default function TransferPage({ embedded = false }: { embedded?: boolean 
       from_account_id: null,
       to_account_id: null,
       amount: 0,
-      date: new Date().toISOString().slice(0, 10),
+      date: todayIso(),
       notes: '',
     },
   })
@@ -108,7 +95,7 @@ export default function TransferPage({ embedded = false }: { embedded?: boolean 
   }, [accounts, fromAccountId, toAccountId, setValue])
 
   const transferMutation = useMutation({
-    mutationFn: (payload: TransferPayload) => apiPostJson('/api/transfers', payload),
+    mutationFn: (payload: CreateTransferPayload) => createTransfer(payload),
     onSuccess: () => {
       setOk('Transfer recorded.')
       setError(null)
@@ -116,14 +103,10 @@ export default function TransferPage({ embedded = false }: { embedded?: boolean 
         from_account_id: fromAccountId,
         to_account_id: toAccountId,
         amount: 0,
-        date: new Date().toISOString().slice(0, 10),
+        date: todayIso(),
         notes: '',
       })
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard() })
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['splits'] })
-      queryClient.invalidateQueries({ queryKey: ['views'] })
-      queryClient.invalidateQueries({ queryKey: ['reports'] })
+      void invalidateTransactionData(queryClient)
     },
     onError: (e: unknown) => {
       const message = e instanceof Error ? e.message : 'Transfer failed'

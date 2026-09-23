@@ -4,22 +4,17 @@ import { SortableTableHead } from '@/components/sortable-table-head'
 import { cycleSort, sortBySelector, type ColumnSortState } from '@/lib/tableSort'
 import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
+import { formatMoney } from '@/lib/format'
 
 type Props = {
   rows: TransactionOut[]
   currency: string
   isLoading?: boolean
+  /** Max rows the caller fetched; when reached, older transactions were left out. */
+  limit?: number
 }
 
-function formatMoney(amount: number, currency: string) {
-  try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)
-  } catch {
-    return `${amount.toFixed(2)} ${currency}`
-  }
-}
-
-export default function AccountTxnsTable({ rows, currency, isLoading }: Props) {
+export default function AccountTxnsTable({ rows, currency, isLoading, limit }: Props) {
   const [sort, setSort] = useState<ColumnSortState | null>(null)
 
   const sortedRows = useMemo(
@@ -107,6 +102,12 @@ export default function AccountTxnsTable({ rows, currency, isLoading }: Props) {
           ))}
         </TableBody>
       </Table>
+      {limit != null && rows.length >= limit ? (
+        <p className="border-t px-4 py-2 text-xs text-muted-foreground">
+          Showing the {limit.toLocaleString('en-US')} most recent transactions. Use the Transactions page to see older
+          activity.
+        </p>
+      ) : null}
     </div>
   )
 }

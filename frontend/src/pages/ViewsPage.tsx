@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import {
@@ -11,7 +11,6 @@ import {
   YAxis,
 } from 'recharts'
 import { ChevronDown, ChevronRight, Info, Receipt, Tag, Trash2, X } from 'lucide-react'
-import { apiGet } from '../api/client'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card'
@@ -37,78 +36,42 @@ import {
 import { SortableTableHead } from '@/components/sortable-table-head'
 import { columnLooksNumeric, cycleSort, sortByColumn, type ColumnSortState } from '@/lib/tableSort'
 import { cn } from '@/lib/utils'
+import { daysAgoIso, fmtShortDate, toLocalIsoDate, todayIso } from '@/lib/dates'
+import { formatSignedUsd as formatMoney } from '@/lib/format'
+import { SpendPieCard } from '@/components/reports/SpendBreakdownCharts'
+import { BreakdownTable } from '@/components/reports/BreakdownTable'
 import {
   breakdownMotionContainer as container,
   breakdownMotionItem as item,
-  formatMoney,
   rawSlicesFromRows,
-  SpendPieCard,
-  type BreakdownRow,
+  subcategorySlices,
   withSignedShare,
-} from '@/components/reports/SpendBreakdownCharts'
+} from '@/components/reports/breakdown'
 import { queryKeys } from '../queryKeys'
 import { getAccounts } from '../api/accounts'
 import { getCategories, getSubcategories } from '../api/categories'
+import { getTags } from '../api/tags'
+import { getViews, type ViewsParams, type ViewsResponse } from '../api/views'
 import type { AccountOut, CategoryOut, SubcategoryOut, TagOut } from '../types'
 
 const VIEWS_SAVED_STORAGE_KEY = 'keep-views-saved-v1'
 
-function isoDate(d: Date) {
-  return d.toISOString().slice(0, 10)
-}
-
-function rangeLast30Days() {
-  const today = new Date()
-  return {
-    start: isoDate(new Date(today.getTime() - 30 * 24 * 3600 * 1000)),
-    end: isoDate(today),
-  }
-}
-
-function PercentCell({ row }: { row: BreakdownRow }) {
-  const inflow = Number(row.total) > 0
-  return (
-    <TableCell
-      className={cn('tabular-nums', inflow && 'text-income')}
-      title={inflow ? 'Share of net inflows (refunds/income) in this view' : 'Share of net spending in this view'}
-    >
-      {Number(row.percent).toFixed(1)}%
-    </TableCell>
-  )
-}
-
-function fmtShortDate(ymd: string) {
-  const [y, m, d] = ymd.split('-').map(Number)
-  if (!y || !m || !d) return ymd
-  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
-
-type ViewsResponse = {
-  start_date: string
-  end_date: string
-  total: number
-  transaction_count: number
-  spending_over_time: Array<{ date: string; amount: number }>
-  by_tag: BreakdownRow[]
-  by_category: BreakdownRow[]
-  by_subcategory: BreakdownRow[]
-  transactions: TxnRow[]
-}
-
-type TxnRow = {
-  id?: number
-  Date: string
-  Merchant: string
-  Amount: number
-  Category: string
-  Subcategory: string
-  Tags: string
-  Notes: string
-  Acct: string
-  is_transfer?: boolean
-}
+const EMPTY_TAGS: TagOut[] = []
+const EMPTY_SUBCATEGORIES: SubcategoryOut[] = []
 
 type Preset = 'Custom' | 'Last 7 days' | 'Last 30 days' | 'Year to date'
+
+const PRESETS: Preset[] = ['Custom', 'Last 7 days', 'Last 30 days', 'Year to date']
+
+/** Date window for a relative preset, computed from today's local date. */
+function presetRange(preset: Exclude<Preset, 'Custom'>): { start: string; end: string } {
+  const today = new Date()
+  if (preset === 'Last 7 days') return { start: daysAgoIso(7, today), end: toLocalIsoDate(today) }
+  if (preset === 'Year to date') {
+    return { start: toLocalIsoDate(new Date(today.getFullYear(), 0, 1)), end: toLocalIsoDate(today) }
+  }
+  return { start: daysAgoIso(30, today), end: toLocalIsoDate(today) }
+}
 
 type PersistedViewState = {
   preset: Preset
@@ -145,14 +108,17 @@ function loadSavedViews(): SavedNamedView[] {
 }
 
 function persistSavedViews(views: SavedNamedView[]) {
-  localStorage.setItem(VIEWS_SAVED_STORAGE_KEY, JSON.stringify(views))
+  try {
+    localStorage.setItem(VIEWS_SAVED_STORAGE_KEY, JSON.stringify(views))
+  } catch {
+    /* ignore quota / private mode */
+  }
 }
 
 export default function ViewsPage() {
-  const initialRange = useMemo(() => rangeLast30Days(), [])
   const [preset, setPreset] = useState<Preset>('Last 30 days')
-  const [startDate, setStartDate] = useState(initialRange.start)
-  const [endDate, setEndDate] = useState(initialRange.end)
+  const [startDate, setStartDate] = useState(() => presetRange('Last 30 days').start)
+  const [endDate, setEndDate] = useState(todayIso)
   const [filtersOpen, setFiltersOpen] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 1024 : true,
   )
@@ -167,18 +133,16 @@ export default function ViewsPage() {
   })
   const tagsQuery = useQuery<TagOut[], Error>({
     queryKey: queryKeys.tags(),
-    queryFn: () => apiGet<TagOut[]>('/api/tags'),
+    queryFn: getTags,
   })
 
   const accounts = accountsQuery.data ?? []
   const categories = categoriesQuery.data ?? []
-  const tags = tagsQuery.data ?? []
-
-  const [subcategories, setSubcategories] = useState<SubcategoryOut[]>([])
+  const tags = tagsQuery.data ?? EMPTY_TAGS
 
   const [accountId, setAccountId] = useState<number | null>(null)
-  const [categoryId, setCategoryId] = useState<number | null>(null)
-  const [selectedSubcategoryIds, setSelectedSubcategoryIds] = useState<number[]>([])
+  const [categoryId, setCategoryIdState] = useState<number | null>(null)
+  const [pickedSubcategoryIds, setSelectedSubcategoryIds] = useState<number[]>([])
 
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
   const [tagsMatchAny, setTagsMatchAny] = useState(false)
@@ -187,7 +151,6 @@ export default function ViewsPage() {
   const [tagSearch, setTagSearch] = useState('')
 
   const [breakdownTab, setBreakdownTab] = useState<'tag' | 'category' | 'subcategory'>('tag')
-  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null)
 
   const [viewsTagSort, setViewsTagSort] = useState<ColumnSortState | null>(null)
   const [viewsCategorySort, setViewsCategorySort] = useState<ColumnSortState | null>(null)
@@ -202,33 +165,20 @@ export default function ViewsPage() {
     queryFn: () => getSubcategories(categoryId!),
     enabled: categoryId != null,
   })
+  const subcategories = categoryId == null ? EMPTY_SUBCATEGORIES : (subcategoriesQuery.data ?? EMPTY_SUBCATEGORIES)
 
-  useEffect(() => {
-    if (!categoryId) {
-      setSubcategories([])
-      setSelectedSubcategoryIds([])
-      return
-    }
-    if (!subcategoriesQuery.data) return
-    setSubcategories(subcategoriesQuery.data)
-    setSelectedSubcategoryIds((prev) =>
-      prev.filter((id) => subcategoriesQuery.data.some((subcategory) => subcategory.id === id)),
-    )
-  }, [categoryId, subcategoriesQuery.data])
+  // Picks that don't belong to the chosen category (e.g. from an old saved view) are ignored.
+  const selectedSubcategoryIds = useMemo(() => {
+    if (categoryId == null) return []
+    if (!subcategoriesQuery.data) return pickedSubcategoryIds
+    const valid = new Set(subcategoriesQuery.data.map((s) => s.id))
+    return pickedSubcategoryIds.filter((id) => valid.has(id))
+  }, [categoryId, subcategoriesQuery.data, pickedSubcategoryIds])
 
-  useEffect(() => {
-    setSelectedCategoryId(null)
-  }, [
-    startDate,
-    endDate,
-    accountId,
-    categoryId,
-    selectedSubcategoryIds,
-    selectedTagIds,
-    tagsMatchAny,
-    minAmount,
-    maxAmount,
-  ])
+  const setCategoryId = (id: number | null) => {
+    setCategoryIdState(id)
+    setSelectedSubcategoryIds([])
+  }
 
   const shouldMinMaxInclude = useMemo(() => {
     const min = minAmount > 0 ? minAmount : undefined
@@ -236,131 +186,91 @@ export default function ViewsPage() {
     return { min, max }
   }, [minAmount, maxAmount])
 
-  const normalizedSubcategoryIds = useMemo(
-    () => [...selectedSubcategoryIds].sort((a, b) => a - b),
-    [selectedSubcategoryIds],
+  const viewsParams = useMemo<ViewsParams>(
+    () => ({
+      startDate,
+      endDate,
+      accountId,
+      categoryId,
+      subcategoryIds: [...selectedSubcategoryIds].sort((a, b) => a - b),
+      tagIds: [...selectedTagIds].sort((a, b) => a - b),
+      tagsMatchAny,
+      min: shouldMinMaxInclude.min ?? null,
+      max: shouldMinMaxInclude.max ?? null,
+    }),
+    [startDate, endDate, accountId, categoryId, selectedSubcategoryIds, selectedTagIds, tagsMatchAny, shouldMinMaxInclude],
   )
-  const normalizedTagIds = useMemo(() => [...selectedTagIds].sort((a, b) => a - b), [selectedTagIds])
-  const viewsParamsKey = JSON.stringify({
-    startDate,
-    endDate,
-    accountId,
-    categoryId,
-    subcategoryIds: normalizedSubcategoryIds,
-    tagIds: normalizedTagIds,
-    tagsMatchAny,
-    min: shouldMinMaxInclude.min ?? null,
-    max: shouldMinMaxInclude.max ?? null,
-  })
+  const viewsParamsKey = JSON.stringify(viewsParams)
 
   const viewsQuery = useQuery<ViewsResponse, Error>({
     queryKey: queryKeys.views(viewsParamsKey),
     enabled: Boolean(startDate && endDate),
-    queryFn: async () => {
-      const params = new URLSearchParams()
-      params.set('start_date', startDate)
-      params.set('end_date', endDate)
-      if (accountId) params.set('account_id', String(accountId))
-      if (categoryId) params.set('category_id', String(categoryId))
-      if (normalizedSubcategoryIds.length) {
-        for (const id of normalizedSubcategoryIds) params.append('subcategory_ids', String(id))
-      }
-
-      if (normalizedTagIds.length) {
-        for (const id of normalizedTagIds) params.append('tag_ids', String(id))
-      }
-      params.set('tags_match_any', tagsMatchAny ? 'true' : 'false')
-
-      if (shouldMinMaxInclude.min !== undefined) params.set('min_amount', String(shouldMinMaxInclude.min))
-      if (shouldMinMaxInclude.max !== undefined) params.set('max_amount', String(shouldMinMaxInclude.max))
-
-      return apiGet<ViewsResponse>(`/api/views?${params.toString()}`)
-    },
+    queryFn: () => getViews(viewsParams),
   })
+
+  // The pie-slice category focus only applies to the result set it was picked from.
+  const [categoryFocus, setCategoryFocus] = useState<{ paramsKey: string; id: number } | null>(null)
+  const selectedCategoryId = categoryFocus?.paramsKey === viewsParamsKey ? categoryFocus.id : null
+  const setSelectedCategoryId = useCallback(
+    (id: number | null) => setCategoryFocus(id == null ? null : { paramsKey: viewsParamsKey, id }),
+    [viewsParamsKey],
+  )
 
   const data = viewsQuery.data ?? null
   const error = viewsQuery.error?.message ?? null
   const loading = viewsQuery.isLoading
   const isFetching = viewsQuery.isFetching
 
-  const sortedViewsByTag = useMemo(() => {
-    if (!data?.by_tag?.length) return data?.by_tag ?? []
-    return sortByColumn(data.by_tag as Record<string, unknown>[], viewsTagSort, ['total', 'count', 'percent'])
-  }, [data?.by_tag, viewsTagSort])
-
-  const sortedViewsByCategory = useMemo(() => {
-    if (!data?.by_category?.length) return data?.by_category ?? []
-    return sortByColumn(data.by_category as Record<string, unknown>[], viewsCategorySort, [
-      'total',
-      'count',
-      'percent',
-    ])
-  }, [data?.by_category, viewsCategorySort])
-
   const subcategoryRowsFiltered = useMemo(() => {
     const rows = data?.by_subcategory ?? []
     if (selectedCategoryId == null) return rows
     return withSignedShare(rows.filter((r) => r.category_id === selectedCategoryId))
-  }, [data?.by_subcategory, selectedCategoryId])
-
-  const sortedViewsBySubcategory = useMemo(() => {
-    if (!subcategoryRowsFiltered.length) return subcategoryRowsFiltered
-    return sortByColumn(subcategoryRowsFiltered as Record<string, unknown>[], viewsSubcategorySort, [
-      'total',
-      'count',
-      'percent',
-    ])
-  }, [subcategoryRowsFiltered, viewsSubcategorySort])
+  }, [data, selectedCategoryId])
 
   const sortedViewsTransactions = useMemo(() => {
-    if (!data?.transactions?.length) return data?.transactions ?? []
-    const numeric =
-      viewsTxnSort && columnLooksNumeric(data.transactions as Record<string, unknown>[], viewsTxnSort.key)
-        ? [viewsTxnSort.key]
-        : []
-    return sortByColumn(data.transactions as Record<string, unknown>[], viewsTxnSort, numeric)
-  }, [data?.transactions, viewsTxnSort])
+    const txns = data?.transactions ?? []
+    if (!txns.length) return txns
+    const numeric = viewsTxnSort && columnLooksNumeric(txns, viewsTxnSort.key) ? [viewsTxnSort.key] : []
+    return sortByColumn(txns, viewsTxnSort, numeric)
+  }, [data, viewsTxnSort])
 
   const categoryRaw = useMemo(
     () => rawSlicesFromRows(data?.by_category ?? [], 'category', 'category_id'),
-    [data?.by_category],
+    [data],
   )
-  const tagRaw = useMemo(() => rawSlicesFromRows(data?.by_tag ?? [], 'tag'), [data?.by_tag])
-  const subcategoryRaw = useMemo(() => {
-    const rows = data?.by_subcategory ?? []
-    const filtered =
-      selectedCategoryId == null ? rows : rows.filter((r) => r.category_id === selectedCategoryId)
-    const mapped: BreakdownRow[] = filtered.map((r) => ({
-      ...r,
-      subcategory: r.category ? `${r.category} › ${r.subcategory ?? '—'}` : String(r.subcategory ?? ''),
-    }))
-    return rawSlicesFromRows(mapped, 'subcategory')
-  }, [data?.by_subcategory, selectedCategoryId])
+  const tagRaw = useMemo(() => rawSlicesFromRows(data?.by_tag ?? [], 'tag'), [data])
+  const subcategoryRaw = useMemo(
+    () => subcategorySlices(data?.by_subcategory ?? [], selectedCategoryId),
+    [data, selectedCategoryId],
+  )
 
   const selectedCategoryName =
     selectedCategoryId != null
       ? data?.by_category.find((c) => c.category_id === selectedCategoryId)?.category ?? ''
       : ''
 
-  const onCategorySliceClick = useCallback((id: number) => {
-    setSelectedCategoryId(id)
-    setBreakdownTab('subcategory')
-  }, [])
+  const onCategorySliceClick = useCallback(
+    (id: number) => {
+      setSelectedCategoryId(id)
+      setBreakdownTab('subcategory')
+    },
+    [setSelectedCategoryId],
+  )
 
   const barData = useMemo(() => {
     if (!data?.spending_over_time?.length) return []
     return data.spending_over_time.map((r) => ({
-      label: fmtShortDate(r.date.slice(0, 10)),
+      label: fmtShortDate(r.date),
       amount: Number(r.amount),
       iso: r.date.slice(0, 10),
     }))
-  }, [data?.spending_over_time])
+  }, [data])
 
   const avgAbsFromTxns = useMemo(() => {
     if (!data?.transactions?.length) return 0
     const sum = data.transactions.reduce((acc, r) => acc + Math.abs(Number(r.Amount)), 0)
     return sum / data.transactions.length
-  }, [data?.transactions])
+  }, [data])
 
   const activeFilterCount = useMemo(() => {
     let n = 0
@@ -384,53 +294,51 @@ export default function ViewsPage() {
 
   const filterSummaryLine = `${startDate} → ${endDate}${activeFilterCount ? ` · ${activeFilterCount} filter${activeFilterCount === 1 ? '' : 's'}` : ''}`
 
-  const resetToDefaults = useCallback(() => {
-    const r = rangeLast30Days()
-    setPreset('Last 30 days')
+  /** Switch the quick-range preset; relative presets recompute the window from today. */
+  const applyPreset = useCallback((next: Preset) => {
+    setPreset(next)
+    if (next === 'Custom') return
+    const r = presetRange(next)
     setStartDate(r.start)
     setEndDate(r.end)
+  }, [])
+
+  const resetToDefaults = useCallback(() => {
+    applyPreset('Last 30 days')
     setAccountId(null)
-    setCategoryId(null)
+    setCategoryIdState(null)
     setSelectedSubcategoryIds([])
     setSelectedTagIds([])
     setTagsMatchAny(false)
     setMinAmount(0)
     setMaxAmount(0)
     setTagSearch('')
-  }, [])
+  }, [applyPreset])
 
-  const captureState = useCallback((): PersistedViewState => {
-    return {
-      preset,
-      startDate,
-      endDate,
-      accountId,
-      categoryId,
-      subcategoryIds: [...selectedSubcategoryIds],
-      selectedTagIds: [...selectedTagIds],
-      tagsMatchAny,
-      minAmount,
-      maxAmount,
-    }
-  }, [
+  const captureState = (): PersistedViewState => ({
     preset,
     startDate,
     endDate,
     accountId,
     categoryId,
-    selectedSubcategoryIds,
-    selectedTagIds,
+    subcategoryIds: [...selectedSubcategoryIds],
+    selectedTagIds: [...selectedTagIds],
     tagsMatchAny,
     minAmount,
     maxAmount,
-  ])
+  })
 
-  const applyState = useCallback((s: PersistedViewState & { subcategoryId?: number | null }) => {
-    setPreset(s.preset)
-    setStartDate(s.startDate)
-    setEndDate(s.endDate)
+  const applyState = (s: PersistedViewState & { subcategoryId?: number | null }) => {
+    // Relative presets re-anchor to today; custom ranges use the saved dates.
+    if (s.preset === 'Custom') {
+      setPreset('Custom')
+      setStartDate(s.startDate)
+      setEndDate(s.endDate)
+    } else {
+      applyPreset(s.preset)
+    }
     setAccountId(s.accountId)
-    setCategoryId(s.categoryId)
+    setCategoryIdState(s.categoryId)
     if (Array.isArray(s.subcategoryIds)) {
       setSelectedSubcategoryIds([...s.subcategoryIds])
     } else if (s.subcategoryId != null) {
@@ -443,7 +351,7 @@ export default function ViewsPage() {
     setTagsMatchAny(s.tagsMatchAny)
     setMinAmount(s.minAmount)
     setMaxAmount(s.maxAmount)
-  }, [])
+  }
 
   const handleSaveView = () => {
     const name = saveName.trim()
@@ -474,25 +382,6 @@ export default function ViewsPage() {
   const toggleTag = (id: number) => {
     setSelectedTagIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
-
-  useEffect(() => {
-    const today = new Date()
-    const iso = (d: Date) => d.toISOString().slice(0, 10)
-    if (preset === 'Custom') return
-    if (preset === 'Last 7 days') {
-      const start = new Date(today.getTime() - 7 * 24 * 3600 * 1000)
-      setStartDate(iso(start))
-      setEndDate(iso(today))
-    } else if (preset === 'Last 30 days') {
-      const start = new Date(today.getTime() - 30 * 24 * 3600 * 1000)
-      setStartDate(iso(start))
-      setEndDate(iso(today))
-    } else if (preset === 'Year to date') {
-      const start = new Date(today.getFullYear(), 0, 1)
-      setStartDate(iso(start))
-      setEndDate(iso(today))
-    }
-  }, [preset])
 
   const hasNoData = data != null && data.transaction_count === 0
   const awaitingData = !data && !viewsQuery.error && (loading || isFetching)
@@ -589,12 +478,12 @@ export default function ViewsPage() {
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   <div className="space-y-2">
                     <Label htmlFor="views-preset">Quick range</Label>
-                    <Select value={preset} onValueChange={(v) => setPreset(v as Preset)}>
+                    <Select value={preset} onValueChange={(v) => applyPreset(v as Preset)}>
                       <SelectTrigger id="views-preset" className="w-full bg-background">
                         <SelectValue placeholder="Preset" />
                       </SelectTrigger>
                       <SelectContent>
-                        {(['Custom', 'Last 7 days', 'Last 30 days', 'Year to date'] as Preset[]).map((p) => (
+                        {PRESETS.map((p) => (
                           <SelectItem key={p} value={p}>
                             {p}
                           </SelectItem>
@@ -844,10 +733,7 @@ export default function ViewsPage() {
                   type="button"
                   className="rounded-sm hover:bg-muted p-0.5"
                   aria-label="Clear category"
-                  onClick={() => {
-                    setCategoryId(null)
-                    setSelectedSubcategoryIds([])
-                  }}
+                  onClick={() => setCategoryId(null)}
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -1095,54 +981,13 @@ export default function ViewsPage() {
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                       <div className="rounded-xl border bg-card p-6 shadow-card min-w-0">
                         <h2 className="text-sm font-semibold mb-4">Table</h2>
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <SortableTableHead
-                                label="Tag"
-                                columnKey="tag"
-                                sort={viewsTagSort}
-                                onSort={(k) => setViewsTagSort((p) => cycleSort(p, k))}
-                              />
-                              <SortableTableHead
-                                label="Total"
-                                columnKey="total"
-                                sort={viewsTagSort}
-                                onSort={(k) => setViewsTagSort((p) => cycleSort(p, k))}
-                              />
-                              <SortableTableHead
-                                label="Count"
-                                columnKey="count"
-                                sort={viewsTagSort}
-                                onSort={(k) => setViewsTagSort((p) => cycleSort(p, k))}
-                              />
-                              <SortableTableHead
-                                label="%"
-                                columnKey="percent"
-                                sort={viewsTagSort}
-                                onSort={(k) => setViewsTagSort((p) => cycleSort(p, k))}
-                              />
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {data.by_tag.length === 0 ? (
-                              <TableRow>
-                                <TableCell colSpan={4} className="text-muted-foreground">
-                                  No tags assigned.
-                                </TableCell>
-                              </TableRow>
-                            ) : (
-                              sortedViewsByTag.map((r, idx) => (
-                                <TableRow key={idx}>
-                                  <TableCell className="font-medium">{String(r.tag)}</TableCell>
-                                  <TableCell className="tabular-nums">{formatMoney(Number(r.total))}</TableCell>
-                                  <TableCell className="tabular-nums">{String(r.count ?? '')}</TableCell>
-                                  <PercentCell row={r as BreakdownRow} />
-                                </TableRow>
-                              ))
-                            )}
-                          </TableBody>
-                        </Table>
+                        <BreakdownTable
+                          rows={data.by_tag}
+                          labelColumns={[{ key: 'tag', label: 'Tag' }]}
+                          emptyMessage="No tags assigned."
+                          sort={viewsTagSort}
+                          onSortChange={setViewsTagSort}
+                        />
                       </div>
                       <SpendPieCard
                         title="Spend by tag"
@@ -1156,54 +1001,13 @@ export default function ViewsPage() {
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                       <div className="rounded-xl border bg-card p-6 shadow-card min-w-0">
                         <h2 className="text-sm font-semibold mb-4">Table</h2>
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <SortableTableHead
-                                label="Category"
-                                columnKey="category"
-                                sort={viewsCategorySort}
-                                onSort={(k) => setViewsCategorySort((p) => cycleSort(p, k))}
-                              />
-                              <SortableTableHead
-                                label="Total"
-                                columnKey="total"
-                                sort={viewsCategorySort}
-                                onSort={(k) => setViewsCategorySort((p) => cycleSort(p, k))}
-                              />
-                              <SortableTableHead
-                                label="Count"
-                                columnKey="count"
-                                sort={viewsCategorySort}
-                                onSort={(k) => setViewsCategorySort((p) => cycleSort(p, k))}
-                              />
-                              <SortableTableHead
-                                label="%"
-                                columnKey="percent"
-                                sort={viewsCategorySort}
-                                onSort={(k) => setViewsCategorySort((p) => cycleSort(p, k))}
-                              />
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {data.by_category.length === 0 ? (
-                              <TableRow>
-                                <TableCell colSpan={4} className="text-muted-foreground">
-                                  No categories.
-                                </TableCell>
-                              </TableRow>
-                            ) : (
-                              sortedViewsByCategory.map((r, idx) => (
-                                <TableRow key={idx}>
-                                  <TableCell className="font-medium">{String(r.category)}</TableCell>
-                                  <TableCell className="tabular-nums">{formatMoney(Number(r.total))}</TableCell>
-                                  <TableCell className="tabular-nums">{String(r.count ?? '')}</TableCell>
-                                  <PercentCell row={r as BreakdownRow} />
-                                </TableRow>
-                              ))
-                            )}
-                          </TableBody>
-                        </Table>
+                        <BreakdownTable
+                          rows={data.by_category}
+                          labelColumns={[{ key: 'category', label: 'Category' }]}
+                          emptyMessage="No categories."
+                          sort={viewsCategorySort}
+                          onSortChange={setViewsCategorySort}
+                        />
                       </div>
                       <SpendPieCard
                         title="Spend by category"
@@ -1233,63 +1037,20 @@ export default function ViewsPage() {
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                       <div className="rounded-xl border bg-card p-6 shadow-card min-w-0 overflow-x-auto">
                         <h2 className="text-sm font-semibold mb-4">Table</h2>
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <SortableTableHead
-                                label="Category"
-                                columnKey="category"
-                                sort={viewsSubcategorySort}
-                                onSort={(k) => setViewsSubcategorySort((p) => cycleSort(p, k))}
-                              />
-                              <SortableTableHead
-                                label="Subcategory"
-                                columnKey="subcategory"
-                                sort={viewsSubcategorySort}
-                                onSort={(k) => setViewsSubcategorySort((p) => cycleSort(p, k))}
-                              />
-                              <SortableTableHead
-                                label="Total"
-                                columnKey="total"
-                                sort={viewsSubcategorySort}
-                                onSort={(k) => setViewsSubcategorySort((p) => cycleSort(p, k))}
-                              />
-                              <SortableTableHead
-                                label="Count"
-                                columnKey="count"
-                                sort={viewsSubcategorySort}
-                                onSort={(k) => setViewsSubcategorySort((p) => cycleSort(p, k))}
-                              />
-                              <SortableTableHead
-                                label="%"
-                                columnKey="percent"
-                                sort={viewsSubcategorySort}
-                                onSort={(k) => setViewsSubcategorySort((p) => cycleSort(p, k))}
-                              />
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {subcategoryRowsFiltered.length === 0 ? (
-                              <TableRow>
-                                <TableCell colSpan={5} className="text-muted-foreground">
-                                  {selectedCategoryId != null
-                                    ? 'No subcategories for the selected category in this view.'
-                                    : 'No subcategories.'}
-                                </TableCell>
-                              </TableRow>
-                            ) : (
-                              sortedViewsBySubcategory.map((r, idx) => (
-                                <TableRow key={idx}>
-                                  <TableCell className="font-medium whitespace-nowrap">{String(r.category)}</TableCell>
-                                  <TableCell>{String(r.subcategory)}</TableCell>
-                                  <TableCell className="tabular-nums">{formatMoney(Number(r.total))}</TableCell>
-                                  <TableCell className="tabular-nums">{String(r.count ?? '')}</TableCell>
-                                  <PercentCell row={r as BreakdownRow} />
-                                </TableRow>
-                              ))
-                            )}
-                          </TableBody>
-                        </Table>
+                        <BreakdownTable
+                          rows={subcategoryRowsFiltered}
+                          labelColumns={[
+                            { key: 'category', label: 'Category', className: 'whitespace-nowrap' },
+                            { key: 'subcategory', label: 'Subcategory' },
+                          ]}
+                          emptyMessage={
+                            selectedCategoryId != null
+                              ? 'No subcategories for the selected category in this view.'
+                              : 'No subcategories.'
+                          }
+                          sort={viewsSubcategorySort}
+                          onSortChange={setViewsSubcategorySort}
+                        />
                       </div>
                       <SpendPieCard
                         title="Spend by subcategory"
@@ -1376,36 +1137,33 @@ export default function ViewsPage() {
                           </TableCell>
                         </TableRow>
                       ) : (
-                        sortedViewsTransactions.map((r, idx) => {
-                          const row = r as unknown as TxnRow
-                          return (
-                            <TableRow key={row.id ?? idx}>
-                              <TableCell className="whitespace-nowrap tabular-nums text-xs">{row.Date}</TableCell>
-                              <TableCell className="max-w-[140px] truncate" title={row.Merchant}>
-                                {row.Merchant}
-                              </TableCell>
-                              <TableCell className="text-right tabular-nums">
-                                {formatMoney(Number(row.Amount))}
-                              </TableCell>
-                              <TableCell>{row.Category}</TableCell>
-                              <TableCell>{row.Subcategory}</TableCell>
-                              <TableCell className="max-w-[120px] truncate" title={row.Tags}>
-                                {row.Tags}
-                              </TableCell>
-                              <TableCell className="max-w-[120px] truncate" title={row.Notes}>
-                                {row.Notes}
-                              </TableCell>
-                              <TableCell className="whitespace-nowrap">
-                                <span className="mr-1.5">{row.Acct}</span>
-                                {row.is_transfer ? (
-                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">
-                                    Transfer
-                                  </Badge>
-                                ) : null}
-                              </TableCell>
-                            </TableRow>
-                          )
-                        })
+                        sortedViewsTransactions.map((row, idx) => (
+                          <TableRow key={row.id ?? idx}>
+                            <TableCell className="whitespace-nowrap tabular-nums text-xs">{row.Date}</TableCell>
+                            <TableCell className="max-w-[140px] truncate" title={row.Merchant}>
+                              {row.Merchant}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {formatMoney(Number(row.Amount))}
+                            </TableCell>
+                            <TableCell>{row.Category}</TableCell>
+                            <TableCell>{row.Subcategory}</TableCell>
+                            <TableCell className="max-w-[120px] truncate" title={row.Tags}>
+                              {row.Tags}
+                            </TableCell>
+                            <TableCell className="max-w-[120px] truncate" title={row.Notes}>
+                              {row.Notes}
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap">
+                              <span className="mr-1.5">{row.Acct}</span>
+                              {row.is_transfer ? (
+                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">
+                                  Transfer
+                                </Badge>
+                              ) : null}
+                            </TableCell>
+                          </TableRow>
+                        ))
                       )}
                     </TableBody>
                   </Table>

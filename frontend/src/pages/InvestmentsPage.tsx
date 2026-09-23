@@ -3,8 +3,7 @@ import { motion } from 'framer-motion'
 import { Info, RefreshCw } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { getInvestmentsSummary, reclassifyInvestmentTxns } from '@/api/investments'
-import { listConnections, triggerSync } from '@/api/simplefin'
-import type { SyncResult } from '@/api/simplefin'
+import { listConnections } from '@/api/simplefin'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -20,18 +19,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { queryKeys } from '@/queryKeys'
+import { invalidateTransactionData, queryKeys } from '@/queryKeys'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { useTransferReview } from '@/features/transfers/transferReviewContext'
-
-function formatMoney(amount: number, currency = 'USD') {
-  try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)
-  } catch {
-    return `${amount.toFixed(2)} ${currency}`
-  }
-}
+import { formatMoney } from '@/lib/format'
+import { syncResultSummary, useSimplefinSync } from '@/features/simplefin/useSimplefinSync'
 
 const UNKNOWN = 'Unknown investment'
 const CASH = 'Cash'
@@ -47,8 +39,7 @@ export default function InvestmentsPage() {
     mutationFn: () => reclassifyInvestmentTxns({}),
     onSuccess: (r) => {
       toast.success(`Reclassified ${r.updated_count} transactions`)
-      void queryClient.invalidateQueries({ queryKey: queryKeys.investmentsSummary() })
-      void queryClient.invalidateQueries({ queryKey: ['investments'] })
+      void invalidateTransactionData(queryClient)
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -59,28 +50,9 @@ export default function InvestmentsPage() {
   })
   const simplefinConnection = simplefinConnections[0] ?? null
 
-  const reviewTransfers = useTransferReview()
-
-  const syncMutation = useMutation({
-    mutationFn: () => triggerSync({ connection_id: simplefinConnection?.id ?? null }),
-    onSuccess: (result: SyncResult) => {
-      reviewTransfers(result.transfer_candidates ?? [])
-      const base = `Synced ${result.accounts_synced} account(s), imported ${result.transactions_imported} new transaction(s).`
-      if (result.errors?.length) {
-        toast.success(`${base} ${result.errors.join('; ')}`)
-      } else {
-        toast.success(base)
-      }
-      void queryClient.invalidateQueries({ queryKey: queryKeys.simplefinConnections() })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
-      void queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      void queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      void queryClient.invalidateQueries({ queryKey: ['simplefin', 'daily-budget'] })
-      void queryClient.invalidateQueries({ queryKey: ['simplefin', 'cached-accounts'] })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.investmentsSummary() })
-      void queryClient.invalidateQueries({ queryKey: ['investments'] })
-    },
-    onError: (err: Error) => toast.error(err.message),
+  const syncMutation = useSimplefinSync(simplefinConnection?.id, {
+    onSuccess: (result) => toast.success(syncResultSummary(result)),
+    onError: (err) => toast.error(err.message),
   })
 
   const pageToolbar = (

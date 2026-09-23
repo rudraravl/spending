@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Info, Trash2 } from 'lucide-react'
@@ -9,7 +9,8 @@ import { getTransactions } from '../api/transactions'
 import AccountTxnsTable from '../features/accounts/AccountTxnsTable'
 import AccountPortfolioTab from '../features/investments/AccountPortfolioTab'
 import { ACCOUNT_TYPES, accountTypeLabel, accountViewKind, type AccountType } from '../features/accounts/accountViewKind'
-import { queryKeys } from '../queryKeys'
+import { invalidateTransactionData, queryKeys } from '../queryKeys'
+import { formatMoney } from '@/lib/format'
 import type { TransactionOut } from '../types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { Badge } from '@/components/ui/badge'
@@ -27,14 +28,6 @@ import {
 import NotFoundPage from './NotFoundPage'
 import { toast } from 'sonner'
 
-function formatMoney(amount: number, currency: string) {
-  try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)
-  } catch {
-    return `${amount.toFixed(2)} ${currency}`
-  }
-}
-
 function formatImportedAt(iso: string | null | undefined) {
   if (!iso) return null
   try {
@@ -43,6 +36,9 @@ function formatImportedAt(iso: string | null | undefined) {
     return iso
   }
 }
+
+// Newest-first cap on the account activity list, which renders every row it gets.
+const ACCOUNT_TXNS_LIMIT = 2000
 
 function isNotFoundError(err: unknown): boolean {
   const msg = String((err as Error)?.message ?? err).toLowerCase()
@@ -53,7 +49,8 @@ export default function AccountDetailPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [selectedType, setSelectedType] = useState<AccountType>('credit')
+  // Unsaved account-type choice, tied to the account it was made on.
+  const [typeDraft, setTypeDraft] = useState<{ id: number; type: AccountType } | null>(null)
   const { accountId: rawId } = useParams<{ accountId: string }>()
   const id = rawId ? Number.parseInt(rawId, 10) : NaN
   const validId = Number.isFinite(id)
@@ -87,12 +84,19 @@ export default function AccountDetailPage() {
       getTransactions<TransactionOut[]>({
         includeTransfers: true,
         accountId: id,
+        limit: ACCOUNT_TXNS_LIMIT,
       }),
     enabled: validId && view === 'credit_with_ledger',
   })
 
   const deleteAccountMutation = useMutation({
     mutationFn: (accountId: number) => deleteAccount(accountId),
+    onSuccess: () => {
+      navigate('/accounts')
+      // Deleting an account deletes its transactions (and unlinks transfer legs elsewhere).
+      void invalidateTransactionData(queryClient)
+    },
+    onError: (e: Error) => toast.error(e.message),
   })
 
   const patchRobinhoodCryptoMutation = useMutation({
@@ -109,36 +113,13 @@ export default function AccountDetailPage() {
   const patchTypeMutation = useMutation({
     mutationFn: (type: AccountType) => patchAccount(id, { type }),
     onSuccess: (data) => {
+      setTypeDraft(null)
       queryClient.setQueryData(queryKeys.accountDetail(id), data)
-      void queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.accountSummary(id) })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.investmentPortfolio(id) })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.investmentHistory(id, 365) })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.investmentsSummary() })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard() })
-      void queryClient.invalidateQueries({ queryKey: ['reports'] })
-      void queryClient.invalidateQueries({ queryKey: ['views'] })
+      // Account type drives how its transactions roll up (spend vs. transfers, budgets, investments).
+      void invalidateTransactionData(queryClient)
     },
     onError: (e: Error) => toast.error(e.message),
   })
-
-  async function afterAccountDeleted() {
-    await queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
-    await queryClient.invalidateQueries({ queryKey: queryKeys.settingsAll() })
-    await queryClient.invalidateQueries({ queryKey: ['transactions'] })
-    await queryClient.invalidateQueries({ queryKey: queryKeys.dashboard() })
-    await queryClient.invalidateQueries({ queryKey: ['views'] })
-    await queryClient.invalidateQueries({ queryKey: ['reports'] })
-    await queryClient.invalidateQueries({ queryKey: queryKeys.investmentsSummary() })
-    await queryClient.invalidateQueries({ queryKey: ['investments'] })
-    await queryClient.invalidateQueries({ queryKey: queryKeys.investmentsSummary() })
-    await queryClient.invalidateQueries({ queryKey: ['investments'] })
-  }
-
-  useEffect(() => {
-    const nextType = accountQuery.data?.type as AccountType | undefined
-    if (nextType) setSelectedType(nextType)
-  }, [accountQuery.data?.type])
 
   if (!validId) {
     return <NotFoundPage />
@@ -171,6 +152,7 @@ export default function AccountDetailPage() {
   }
 
   const acct = accountQuery.data
+  const selectedType = typeDraft?.id === acct.id ? typeDraft.type : (acct.type as AccountType)
   const balance = summaryQuery.data?.balance ?? null
   const summary = summaryQuery.data
   const ledgerDiffers =
@@ -189,11 +171,9 @@ export default function AccountDetailPage() {
         title="Delete account?"
         message={`Remove "${acct.name}" and ALL transactions on this account?\n\nIf any of those transactions were transfer-linked, the other account's leg is kept but converted to a normal (unlinked) transaction.`}
         onCancel={() => setConfirmOpen(false)}
-        onConfirm={async () => {
+        onConfirm={() => {
           setConfirmOpen(false)
-          await deleteAccountMutation.mutateAsync(acct.id)
-          await afterAccountDeleted()
-          navigate('/accounts')
+          deleteAccountMutation.mutate(acct.id)
         }}
       />
 
@@ -215,7 +195,7 @@ export default function AccountDetailPage() {
                 <Label htmlFor="account-type-select" className="text-xs text-muted-foreground">
                   Account type
                 </Label>
-                <Select value={selectedType} onValueChange={(v) => setSelectedType(v as AccountType)}>
+                <Select value={selectedType} onValueChange={(v) => setTypeDraft({ id: acct.id, type: v as AccountType })}>
                   <SelectTrigger id="account-type-select" className="h-8 w-[180px]">
                     <SelectValue />
                   </SelectTrigger>
@@ -409,6 +389,7 @@ export default function AccountDetailPage() {
                 rows={txnsQuery.data ?? []}
                 currency={acct.currency}
                 isLoading={txnsQuery.isPending}
+                limit={ACCOUNT_TXNS_LIMIT}
               />
             </TabsContent>
             <TabsContent value="portfolio">
@@ -422,6 +403,7 @@ export default function AccountDetailPage() {
               rows={txnsQuery.data ?? []}
               currency={acct.currency}
               isLoading={txnsQuery.isPending}
+              limit={ACCOUNT_TXNS_LIMIT}
             />
           </div>
         ) : (

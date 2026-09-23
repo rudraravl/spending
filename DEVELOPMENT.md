@@ -140,7 +140,7 @@ total = calculate_total(session, filters=filters)
 
 ```python
 from db.database import get_session, init_db
-from services.trasaction_service import create_transaction
+from services.transaction_service import create_transaction
 
 init_db()
 session = get_session()

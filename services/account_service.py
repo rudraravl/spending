@@ -11,7 +11,9 @@ from datetime import datetime, timezone
 
 from db.models import (
     Account,
+    BudgetCategory,
     Category,
+    CategoryBudget,
     InvestmentSyncSnapshot,
     InvestmentTxnClassification,
     Subcategory,
@@ -51,6 +53,22 @@ def account_display_balance(session: Session, account: Account) -> tuple[float, 
     if account.reported_balance is not None:
         return (float(account.reported_balance), ledger)
     return (ledger, ledger)
+
+
+def display_balances_by_account(session: Session) -> dict[int, float]:
+    """account_display_balance()'s display value for every account, in two queries."""
+    ledger = {
+        int(aid): float(total or 0.0)
+        for aid, total in session.query(Transaction.account_id, func.sum(Transaction.amount))
+        .group_by(Transaction.account_id)
+        .all()
+    }
+    return {
+        int(acct.id): (
+            float(acct.reported_balance) if acct.reported_balance is not None else ledger.get(int(acct.id), 0.0)
+        )
+        for acct in session.query(Account).all()
+    }
 
 
 def reconcile_account_type_change(
@@ -109,7 +127,8 @@ def reconcile_account_type_change(
             )
 
 
-def _get_other_uncategorized_ids(session: Session) -> tuple[int, int]:
+def get_other_uncategorized_ids(session: Session) -> tuple[int, int]:
+    """(category_id, subcategory_id) of Other / Uncategorized, the fallback for unlinked legs."""
     other = session.query(Category).filter(Category.name == "Other").first()
     if not other:
         raise ValueError("Required category 'Other' not found")
@@ -121,6 +140,24 @@ def _get_other_uncategorized_ids(session: Session) -> tuple[int, int]:
     if not uncategorized:
         raise ValueError("Required subcategory 'Uncategorized' not found under 'Other'")
     return int(other.id), int(uncategorized.id)
+
+
+def delete_empty_transfer_groups(session: Session, group_ids: set[int]) -> None:
+    """
+    Delete TransferGroups that no longer have any legs.
+
+    TransferGroup.transactions cascades deletes, and without a flush the
+    collection loads from the DB where legs unlinked in this session still point
+    at the group, so deleting it would also delete those legs. Flush the unlinks
+    first and reload the collection before deleting.
+    """
+    if not group_ids:
+        return
+    session.flush()
+    for group in session.query(TransferGroup).filter(TransferGroup.id.in_(group_ids)).all():
+        session.expire(group, ["transactions"])
+        if not group.transactions:
+            session.delete(group)
 
 
 def delete_account(session: Session, account_id: int) -> None:
@@ -135,7 +172,7 @@ def delete_account(session: Session, account_id: int) -> None:
     if not account:
         raise ValueError("Account not found")
 
-    other_cat_id, unc_sub_id = _get_other_uncategorized_ids(session)
+    other_cat_id, unc_sub_id = get_other_uncategorized_ids(session)
 
     transfer_txns = (
         session.query(Transaction)
@@ -164,10 +201,25 @@ def delete_account(session: Session, account_id: int) -> None:
                 if txn.subcategory_id is None:
                     txn.subcategory_id = unc_sub_id
 
-        for group_id in group_ids:
-            group = session.query(TransferGroup).filter(TransferGroup.id == group_id).first()
-            if group is not None:
-                session.delete(group)
+        delete_empty_transfer_groups(session, group_ids)
 
+    touched_months = {
+        (d.year, d.month)
+        for (d,) in session.query(Transaction.date).filter(Transaction.account_id == account_id).distinct()
+    }
+    # The account's credit-card payment envelope (and its monthly rows) goes with it.
+    envelope_ids = session.query(BudgetCategory.id).filter(BudgetCategory.linked_account_id == account_id)
+    session.query(CategoryBudget).filter(CategoryBudget.budget_category_id.in_(envelope_ids)).delete(
+        synchronize_session=False
+    )
+    session.query(BudgetCategory).filter(BudgetCategory.linked_account_id == account_id).delete(
+        synchronize_session=False
+    )
     session.delete(account)
+    if touched_months:
+        # Local import: zbb_service imports this module.
+        from services.zbb_service import recalc_activity_for_months
+
+        session.flush()
+        recalc_activity_for_months(session, touched_months)
     session.commit()

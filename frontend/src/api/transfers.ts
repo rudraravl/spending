@@ -93,3 +93,16 @@ export function unlinkExistingTransfer(payload: {
 }): Promise<{ transfer_group_id: number }> {
   return apiPostJson<{ transfer_group_id: number }>('/api/transfers/unlink-existing', payload)
 }
+
+export type CreateTransferPayload = {
+  from_account_id: number
+  to_account_id: number
+  amount: number
+  date: string
+  notes: string | null
+}
+
+/** Record a new transfer between two accounts (creates both legs). */
+export function createTransfer(payload: CreateTransferPayload): Promise<Record<string, unknown>> {
+  return apiPostJson<Record<string, unknown>>('/api/transfers', payload)
+}

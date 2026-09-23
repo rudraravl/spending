@@ -23,13 +23,25 @@ from services.account_service import (
     delete_account as delete_account_with_cleanup,
     reconcile_account_type_change,
 )
+from services import category_service
 
 
 router = APIRouter(tags=["entities"])
 
+# Categories the app looks up by name (Income totals; Other/Uncategorized is the
+# fallback for imports, unlinked transfers and deleted accounts). Deleting them
+# breaks those flows.
+
 
 def _integrity_error_to_http(detail: str) -> HTTPException:
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+
+
+def _require_name(raw: str, what: str) -> str:
+    name = raw.strip()
+    if not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{what} name is required")
+    return name
 
 
 def _account_to_out(session: Session, a: Account) -> AccountOut:
@@ -84,10 +96,16 @@ def create_account(
     payload: AccountCreate,
     session: Session = Depends(get_db_session),
 ) -> AccountOut:
+    account_type = payload.type.strip().lower()
+    if account_type not in ALLOWED_ACCOUNT_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid account type: {payload.type}",
+        )
     account = Account(
-        name=payload.name.strip(),
-        type=payload.type.strip(),
-        currency=(payload.currency or "USD").strip(),
+        name=_require_name(payload.name, "Account"),
+        type=account_type,
+        currency=(payload.currency or "USD").strip() or "USD",
     )
     try:
         session.add(account)
@@ -166,7 +184,7 @@ def create_category(
     payload: CategoryCreate,
     session: Session = Depends(get_db_session),
 ) -> CategoryOut:
-    category = Category(name=payload.name.strip())
+    category = Category(name=_require_name(payload.name, "Category"))
     try:
         session.add(category)
         session.commit()
@@ -185,8 +203,12 @@ def delete_category(
     category = session.query(Category).filter(Category.id == category_id).first()
     if not category:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
-    session.delete(category)
-    session.commit()
+    try:
+        category_service.delete_category(session, category)
+        session.commit()
+    except ValueError as e:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.get("/api/categories/{category_id}/subcategories", response_model=list[SubcategoryOut])
@@ -213,8 +235,11 @@ def create_subcategory(
     payload: SubcategoryCreate,
     session: Session = Depends(get_db_session),
 ) -> SubcategoryOut:
+    name = _require_name(payload.name, "Subcategory")
+    if session.get(Category, payload.category_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
     subcategory = Subcategory(
-        name=payload.name.strip(),
+        name=name,
         category_id=payload.category_id,
     )
     try:
@@ -240,8 +265,12 @@ def delete_subcategory(
     subcategory = session.query(Subcategory).filter(Subcategory.id == subcategory_id).first()
     if not subcategory:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Subcategory not found")
-    session.delete(subcategory)
-    session.commit()
+    try:
+        category_service.delete_subcategory(session, subcategory)
+        session.commit()
+    except ValueError as e:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.get("/api/tags", response_model=list[TagOut])
@@ -259,7 +288,7 @@ def create_tag(
     payload: TagCreate,
     session: Session = Depends(get_db_session),
 ) -> TagOut:
-    tag = Tag(name=payload.name.strip())
+    tag = Tag(name=_require_name(payload.name, "Tag"))
     try:
         session.add(tag)
         session.commit()

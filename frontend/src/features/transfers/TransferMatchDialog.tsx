@@ -19,8 +19,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { queryKeys } from '@/queryKeys'
+import { invalidateTransactionData } from '@/queryKeys'
 import { CONFIDENCE_BADGE_VARIANT, CONFIDENCE_LABEL, DUPLICATE_TRANSFER_WARNING } from './transferMatchDisplay'
+import { formatMoney } from '@/lib/format'
 
 export type TransferReviewSummary = { linked: number; skipped: number; remaining: number }
 
@@ -30,10 +31,6 @@ type TransferMatchDialogProps = {
   source: 'sync' | 'import'
   /** Called once when the dialog closes, whether finished or dismissed early. */
   onClose: (summary: TransferReviewSummary) => void
-}
-
-function formatMoney(amount: number) {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(amount)
 }
 
 function sharesLeg(a: TransferMatchCandidate, b: TransferMatchCandidate) {
@@ -84,12 +81,7 @@ export default function TransferMatchDialog({ candidates, source, onClose }: Tra
         transaction_id_b: current.credit_transaction_id,
         canonical_amount: current.canonical_amount,
       })
-      void queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      void queryClient.invalidateQueries({ queryKey: ['transfer-match-candidates'] })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
-      void queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      void queryClient.invalidateQueries({ queryKey: ['views'] })
-      void queryClient.invalidateQueries({ queryKey: ['reports'] })
+      void invalidateTransactionData(queryClient)
       // Later suggestions that reuse either leg are now impossible; drop them
       // instead of letting them fail with "already a transfer".
       const nextQueue = [

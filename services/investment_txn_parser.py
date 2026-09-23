@@ -7,14 +7,15 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, contains_eager, selectinload
 
 from db.models import Account, InvestmentTxnClassification, Transaction
 
 if TYPE_CHECKING:
     pass
 
-PARSER_VERSION = "1"
+# Bump when classification rules change; startup reclassifies rows from older versions.
+PARSER_VERSION = "2"
 
 # Uppercase tickers 1–5 chars, optional exchange suffix
 _TICKER_RE = re.compile(r"\b([A-Z]{1,5})(?:\.[A-Z]+)?\b")
@@ -44,20 +45,26 @@ def classify_investment_transaction(session: Session, txn: Transaction) -> Inves
     kind = "other"
     confidence = "low"
     parsed_symbol = _extract_symbol(txn.merchant or "")
+    is_ach = re.search(r"\bach\b", merchant) is not None
 
     if "dividend" in merchant or "div " in merchant:
         kind = "dividend"
         confidence = "high"
-    elif "interest" in merchant or "bond interest" in merchant:
-        kind = "interest"
-        confidence = "high"
-    elif "fee" in merchant or "adr" in merchant or "margin interest" in merchant:
+    # Margin interest is a charge; check it before generic (earned) interest.
+    elif "margin interest" in merchant:
         kind = "fee"
         confidence = "high"
-    elif "ach" in merchant and ("deposit" in merchant or "received" in merchant or amt > 0):
+    elif "interest" in merchant:
+        kind = "interest"
+        confidence = "high"
+    elif "fee" in merchant or "adr" in merchant:
+        kind = "fee"
+        confidence = "high"
+    # Whole word: "ach" also appears in "each" ("buy 0.3 shares of X for $190.89 each").
+    elif is_ach and ("deposit" in merchant or "received" in merchant or amt > 0):
         kind = "deposit"
         confidence = "low"
-    elif "ach" in merchant and ("withdraw" in merchant or "sent" in merchant or amt < 0):
+    elif is_ach and ("withdraw" in merchant or "sent" in merchant or amt < 0):
         kind = "withdrawal"
         confidence = "low"
     elif re.search(r"\bbought\b|\bbuy\b", merchant):
@@ -73,11 +80,9 @@ def classify_investment_transaction(session: Session, txn: Transaction) -> Inves
         kind = "sell"
         confidence = "low"
 
-    existing = (
-        session.query(InvestmentTxnClassification)
-        .filter(InvestmentTxnClassification.transaction_id == txn.id)
-        .first()
-    )
+    # Via the relationship (not a query by txn.id) so unflushed transactions work and a
+    # second call in the same session updates the pending row instead of duplicating it.
+    existing = txn.investment_classification
     if existing:
         existing.kind = kind
         existing.parsed_symbol = parsed_symbol
@@ -86,13 +91,12 @@ def classify_investment_transaction(session: Session, txn: Transaction) -> Inves
         return existing
 
     row = InvestmentTxnClassification(
-        transaction_id=txn.id,
         kind=kind,
         parsed_symbol=parsed_symbol,
         confidence=confidence,
         parser_version=PARSER_VERSION,
     )
-    session.add(row)
+    txn.investment_classification = row
     return row
 
 
@@ -105,6 +109,7 @@ def reclassify_investment_transactions(
     q = (
         session.query(Transaction)
         .join(Account, Transaction.account_id == Account.id)
+        .options(contains_eager(Transaction.account), selectinload(Transaction.investment_classification))
         .filter(Account.type == "investment", Transaction.is_transfer.is_(False))
     )
     if account_id is not None:
@@ -114,3 +119,24 @@ def reclassify_investment_transactions(
         classify_investment_transaction(session, txn)
         count += 1
     return count
+
+
+def reclassify_stale_investment_transactions(session: Session) -> int:
+    """
+    Reclassify when any investment transaction is unclassified or was classified by
+    an older parser version. Returns the number of rows reclassified (0 if current).
+    """
+    stale = (
+        session.query(Transaction.id)
+        .join(Account, Transaction.account_id == Account.id)
+        .outerjoin(InvestmentTxnClassification, InvestmentTxnClassification.transaction_id == Transaction.id)
+        .filter(Account.type == "investment", Transaction.is_transfer.is_(False))
+        .filter(
+            (InvestmentTxnClassification.id.is_(None))
+            | (InvestmentTxnClassification.parser_version != PARSER_VERSION)
+        )
+        .first()
+    )
+    if stale is None:
+        return 0
+    return reclassify_investment_transactions(session)

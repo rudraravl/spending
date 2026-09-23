@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.deps import get_db_session
 from backend.app.schemas import RuleCreate, RuleMeta, RuleOut, RuleUpdate
+from db.models import Rule
 from services.rule_service import (
     ALLOWED_FIELDS,
     ALLOWED_OPERATORS,
@@ -16,6 +17,11 @@ from services.rule_service import (
 
 
 router = APIRouter(tags=["rules"])
+
+
+def _ensure_rule_exists(session: Session, rule_id: int) -> None:
+    if session.get(Rule, rule_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
 
 
 @router.get("/api/rules/meta", response_model=RuleMeta)
@@ -78,6 +84,7 @@ def update_rule_endpoint(
     payload: RuleUpdate,
     session: Session = Depends(get_db_session),
 ) -> RuleOut:
+    _ensure_rule_exists(session, rule_id)
     update_data = payload.model_dump(exclude_unset=True)
     try:
         r = update_rule(session, rule_id, **update_data)
@@ -100,9 +107,6 @@ def delete_rule_endpoint(
     rule_id: int,
     session: Session = Depends(get_db_session),
 ) -> None:
-    try:
-        delete_rule(session, rule_id)
-    except Exception as e:
-        # Service raises ValueError when not found.
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    _ensure_rule_exists(session, rule_id)
+    delete_rule(session, rule_id)
 

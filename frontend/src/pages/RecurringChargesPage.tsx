@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { CheckCircle2, EyeOff, RefreshCw, Trash2 } from 'lucide-react'
 import {
@@ -26,13 +26,14 @@ import {
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { CategoryOut, SubcategoryOut } from '@/types'
+import { invalidateTransactionData, queryKeys } from '@/queryKeys'
 import type { RecurringOccurrenceOut, RecurringSeriesCardOut } from '@/types/recurring'
+import { formatMoney } from '@/lib/format'
 
-const queryKey = ['recurringSuggestions']
-
-function formatMoneyFromCents(cents: number) {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(cents / 100)
-}
+const queryKey = queryKeys.recurringSuggestions()
+const EMPTY_CATEGORIES: CategoryOut[] = []
+const EMPTY_SUBCATEGORIES: SubcategoryOut[] = []
+const EMPTY_OCCURRENCES: RecurringOccurrenceOut[] = []
 
 function statusBadgeVariant(status: string): 'default' | 'secondary' | 'outline' | 'destructive' {
   if (status === 'confirmed') return 'default'
@@ -52,8 +53,9 @@ export default function RecurringChargesPage() {
   const qc = useQueryClient()
   const [selectedSeries, setSelectedSeries] = useState<RecurringSeriesCardOut | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [categoryId, setCategoryId] = useState<string>('')
-  const [subcategoryId, setSubcategoryId] = useState<string>('')
+  // Explicit picks in the dialog ('' = none yet); defaults are derived below.
+  const [pickedCategoryId, setPickedCategoryId] = useState<string>('')
+  const [pickedSubcategoryId, setPickedSubcategoryId] = useState<string>('')
 
   const { data, error, isLoading, isFetching } = useQuery<RecurringSeriesCardOut[], Error>({
     queryKey,
@@ -82,12 +84,8 @@ export default function RecurringChargesPage() {
   })
   const bulkCategoryMut = useMutation({
     mutationFn: bulkUpdateRecurringSeriesCategory,
-    onSuccess: async () => {
-      await Promise.all([
-        qc.invalidateQueries({ queryKey }),
-        qc.invalidateQueries({ queryKey: ['transactions'] }),
-      ])
-    },
+    // Recategorizing every instance changes all spend rollups, not just the transaction list.
+    onSuccess: () => invalidateTransactionData(qc),
   })
 
   const pending =
@@ -97,19 +95,19 @@ export default function RecurringChargesPage() {
     bulkCategoryMut.isPending ||
     scanMut.isPending
 
-  const { data: categories = [] } = useQuery<CategoryOut[], Error>({
-    queryKey: ['categories'],
+  const { data: categories = EMPTY_CATEGORIES } = useQuery<CategoryOut[], Error>({
+    queryKey: queryKeys.categories(),
     queryFn: () => getCategories(),
   })
 
-  const { data: subcategories = [] } = useQuery<SubcategoryOut[], Error>({
-    queryKey: ['recurringPageSubcategories', categoryId],
-    queryFn: () => getSubcategories(Number(categoryId)),
-    enabled: dialogOpen && categoryId.length > 0,
-  })
-
-  const { data: occurrences = [], isFetching: isLoadingOccurrences } = useQuery<RecurringOccurrenceOut[], Error>({
-    queryKey: ['recurringSeriesOccurrences', selectedSeries?.merchant_norm, selectedSeries?.amount_anchor_cents],
+  const { data: occurrences = EMPTY_OCCURRENCES, isFetching: isLoadingOccurrences } = useQuery<
+    RecurringOccurrenceOut[],
+    Error
+  >({
+    queryKey: queryKeys.recurringOccurrences(
+      selectedSeries?.merchant_norm ?? null,
+      selectedSeries?.amount_anchor_cents ?? null,
+    ),
     queryFn: () =>
       getRecurringSeriesOccurrences({
         merchant_norm: selectedSeries?.merchant_norm ?? '',
@@ -118,37 +116,34 @@ export default function RecurringChargesPage() {
     enabled: dialogOpen && selectedSeries != null,
   })
 
-  useEffect(() => {
-    if (!dialogOpen) return
-    if (!categoryId && categories.length > 0) {
-      setCategoryId(String(categories[0].id))
-    }
-  }, [dialogOpen, categoryId, categories])
-
-  useEffect(() => {
-    if (!dialogOpen || !occurrences.length) return
-    const categorized = occurrences.filter((o) => o.category_id != null && o.subcategory_id != null)
-    if (categorized.length !== occurrences.length || categorized.length === 0) return
-    const first = categorized[0]
-    const same = categorized.every(
+  // When every instance already shares one category/subcategory, preselect it.
+  const occurrenceDefault = useMemo(() => {
+    if (!occurrences.length) return null
+    const first = occurrences[0]
+    if (first.category_id == null || first.subcategory_id == null) return null
+    const uniform = occurrences.every(
       (o) => o.category_id === first.category_id && o.subcategory_id === first.subcategory_id,
     )
-    if (!same || first.category_id == null || first.subcategory_id == null) return
-    setCategoryId(String(first.category_id))
-    setSubcategoryId(String(first.subcategory_id))
-  }, [dialogOpen, occurrences])
+    return uniform ? { categoryId: String(first.category_id), subcategoryId: String(first.subcategory_id) } : null
+  }, [occurrences])
 
-  useEffect(() => {
-    if (!dialogOpen || !categoryId) return
-    const first = subcategories[0]
-    if (!first) {
-      setSubcategoryId('')
-      return
+  const categoryId =
+    pickedCategoryId || occurrenceDefault?.categoryId || (categories.length ? String(categories[0].id) : '')
+
+  const { data: subcategories = EMPTY_SUBCATEGORIES } = useQuery<SubcategoryOut[], Error>({
+    queryKey: queryKeys.subcategories(categoryId ? Number(categoryId) : null),
+    queryFn: () => getSubcategories(Number(categoryId)),
+    enabled: dialogOpen && categoryId.length > 0,
+  })
+
+  const subcategoryId = (() => {
+    const has = (id: string | undefined) => id != null && subcategories.some((s) => String(s.id) === id)
+    if (has(pickedSubcategoryId)) return pickedSubcategoryId
+    if (occurrenceDefault?.categoryId === categoryId && has(occurrenceDefault.subcategoryId)) {
+      return occurrenceDefault.subcategoryId
     }
-    if (!subcategories.some((s) => String(s.id) === subcategoryId)) {
-      setSubcategoryId(String(first.id))
-    }
-  }, [dialogOpen, categoryId, subcategories, subcategoryId])
+    return subcategories[0] ? String(subcategories[0].id) : ''
+  })()
 
   const selectedCategoryName = useMemo(() => {
     const id = Number(categoryId)
@@ -233,6 +228,8 @@ export default function RecurringChargesPage() {
                 className="cursor-pointer transition-colors hover:bg-muted/20"
                 onClick={() => {
                   setSelectedSeries(row)
+                  setPickedCategoryId('')
+                  setPickedSubcategoryId('')
                   setDialogOpen(true)
                 }}
               >
@@ -241,7 +238,7 @@ export default function RecurringChargesPage() {
                     <div className="min-w-0">
                       <CardTitle className="text-base truncate">{title}</CardTitle>
                       <div className="mt-1 text-sm text-muted-foreground">
-                        {formatMoneyFromCents(row.amount_anchor_cents)}
+                        {formatMoney(row.amount_anchor_cents / 100)}
                         {last ? (
                           <span className="ml-2 text-xs text-muted-foreground/80">last: {last.date}</span>
                         ) : null}
@@ -266,7 +263,7 @@ export default function RecurringChargesPage() {
                         {occs.slice(0, 5).map((o) => (
                           <li key={o.transaction_id} className="flex items-center justify-between text-xs">
                             <span className="text-muted-foreground">{o.date}</span>
-                            <span className="font-medium">{formatMoneyFromCents(Math.round(o.amount * 100))}</span>
+                            <span className="font-medium">{formatMoney(o.amount)}</span>
                           </li>
                         ))}
                       </ul>
@@ -350,8 +347,8 @@ export default function RecurringChargesPage() {
                 <Select
                   value={categoryId}
                   onValueChange={(next) => {
-                    setCategoryId(next)
-                    setSubcategoryId('')
+                    setPickedCategoryId(next)
+                    setPickedSubcategoryId('')
                   }}
                 >
                   <SelectTrigger>
@@ -368,7 +365,7 @@ export default function RecurringChargesPage() {
               </div>
               <div className="space-y-2">
                 <Label>Subcategory</Label>
-                <Select value={subcategoryId} onValueChange={setSubcategoryId} disabled={!categoryId}>
+                <Select value={subcategoryId} onValueChange={setPickedSubcategoryId} disabled={!categoryId}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select subcategory" />
                   </SelectTrigger>
@@ -400,7 +397,7 @@ export default function RecurringChargesPage() {
                           <div className="font-medium">{o.merchant}</div>
                           <div className="text-xs text-muted-foreground">{o.date}</div>
                         </div>
-                        <div className="font-medium">{formatMoneyFromCents(Math.round(o.amount * 100))}</div>
+                        <div className="font-medium">{formatMoney(o.amount)}</div>
                       </li>
                     ))}
                   </ul>

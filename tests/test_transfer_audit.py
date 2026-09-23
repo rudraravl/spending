@@ -12,7 +12,7 @@ from backend.app.routers import simplefin as simplefin_router
 from services import simplefin_sync_service as sync_svc
 from services.simplefin_client import SFINAccount, SFINAccountSet, SFINTransaction
 from services.transfer_matching_service import find_transfer_match_candidates
-from services.trasaction_service import (
+from services.transaction_service import (
     create_transfer,
     link_transactions_as_transfer,
     unlink_transfer_pair,

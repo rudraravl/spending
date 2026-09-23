@@ -6,13 +6,12 @@ Responsibilities:
   * GET /accounts with optional query params
   * HTTPS-only enforcement and TLS verification
   * Structured parsing of the v2 Account Set response
-  * Error sanitization for UI display
+  * Errors raised as user-safe SimpleFINError messages
 """
 
 from __future__ import annotations
 
 import base64
-import html
 import hashlib
 import json
 import os
@@ -116,10 +115,6 @@ _VERSION_RE = re.compile(r"^\d+\.\d+(?:\.\d+)?$|^\d+$")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _sanitize(text: str) -> str:
-    return html.escape(text, quote=True)
-
 
 def _ensure_https(url: str) -> None:
     if not url.startswith("https://"):
@@ -342,12 +337,12 @@ def _parse_errors(raw: list[Any]) -> list[SFINError]:
         if isinstance(e, dict):
             out.append(SFINError(
                 code=str(e.get("code", "gen.")),
-                message=_sanitize(str(e.get("msg", e.get("message", "Unknown error")))),
+                message=str(e.get("msg", e.get("message", "Unknown error"))),
                 conn_id=e.get("conn_id"),
                 account_id=e.get("account_id"),
             ))
             continue
-        out.append(SFINError(code="gen.", message=_sanitize(str(e))))
+        out.append(SFINError(code="gen.", message=str(e)))
     return out
 
 
@@ -356,7 +351,7 @@ def _parse_connections(raw: list[dict[str, Any]]) -> list[SFINConnection]:
     for c in raw:
         out.append(SFINConnection(
             conn_id=str(c["conn_id"]),
-            name=_sanitize(str(c.get("name", ""))),
+            name=str(c.get("name", "")),
             org_id=str(c.get("org_id", "")),
             org_url=c.get("org_url"),
             sfin_url=c.get("sfin_url"),
@@ -371,7 +366,7 @@ def _parse_transactions(raw: list[dict[str, Any]]) -> list[SFINTransaction]:
             id=str(t["id"]),
             posted=int(t.get("posted", 0)),
             amount=str(t["amount"]),
-            description=_sanitize(str(t.get("description", ""))),
+            description=str(t.get("description", "")),
             transacted_at=int(t["transacted_at"]) if t.get("transacted_at") else None,
             pending=bool(t.get("pending", False)),
         ))
@@ -420,7 +415,7 @@ def _parse_holdings(raw: Any) -> list[SFINHolding]:
             SFINHolding(
                 id=str(hid),
                 currency=cur,
-                description=_sanitize(desc_raw),
+                description=desc_raw,
                 market_value=mv,
                 shares=sh,
                 symbol=sym_clean,
@@ -438,7 +433,7 @@ def _parse_accounts(raw: list[dict[str, Any]]) -> list[SFINAccount]:
         avail = _first_str(a, "available-balance", "available_balance", "AvailableBalance")
         out.append(SFINAccount(
             id=str(a["id"]),
-            name=_sanitize(str(a.get("name", ""))),
+            name=str(a.get("name", "")),
             conn_id=str(a.get("conn_id", "")),
             currency=str(a.get("currency", "USD")),
             balance=str(a["balance"]),
@@ -616,5 +611,8 @@ def get_accounts_with_payload(
     if resp.status_code != 200:
         raise SimpleFINError(f"SimpleFIN request failed with HTTP {resp.status_code}.")
 
-    data = resp.json()
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        raise SimpleFINError("SimpleFIN /accounts returned non-JSON data.") from exc
     return _parse_account_set(data), data

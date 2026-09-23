@@ -10,7 +10,7 @@ Defines the following entities:
 - TransactionTag: Many-to-many relationship between Transaction and Tag
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import (
     Column,
     Integer,
@@ -26,10 +26,14 @@ from sqlalchemy import (
     Boolean,
     func,
 )
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
+
+
+def _utcnow() -> datetime:
+    """Naive UTC now, matching SQLite CURRENT_TIMESTAMP (see utils/timestamps.py)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 # Association table for many-to-many relationship between Transaction and Tag
 transaction_tags = Table(
@@ -37,6 +41,8 @@ transaction_tags = Table(
     Base.metadata,
     Column('transaction_id', Integer, ForeignKey('transactions.id'), primary_key=True),
     Column('tag_id', Integer, ForeignKey('tags.id'), primary_key=True),
+    # PK covers transaction_id lookups; tag filters/rollups look up by tag_id.
+    Index('idx_transaction_tags_tag', 'tag_id'),
 )
 
 
@@ -166,7 +172,7 @@ class Transaction(Base):
     updated_at = Column(
         DateTime,
         server_default=func.current_timestamp(),
-        onupdate=datetime.utcnow,
+        onupdate=_utcnow,
         nullable=False,
     )
 
@@ -192,9 +198,13 @@ class Transaction(Base):
         cascade="all, delete-orphan",
     )
 
-    # Dedupe support for imports: (source, external_id)
     __table_args__ = (
+        # Dedupe support for imports: (source, external_id)
         Index("idx_external_source", "source", "external_id"),
+        # Nearly every listing/aggregate filters by date range and/or account.
+        Index("idx_transactions_date", "date"),
+        Index("idx_transactions_account_date", "account_id", "date"),
+        Index("idx_transactions_transfer_group", "transfer_group_id"),
     )
 
     def __repr__(self):
@@ -218,6 +228,9 @@ class TransactionSplit(Base):
     transaction = relationship("Transaction", back_populates="splits")
     category = relationship("Category")
     subcategory = relationship("Subcategory")
+
+    # Split-aware aggregates run `NOT EXISTS (splits for this transaction)` per row.
+    __table_args__ = (Index("idx_transaction_splits_txn", "transaction_id"),)
 
     def __repr__(self):
         return (
@@ -297,7 +310,7 @@ class RecurringSeries(Base):
     updated_at = Column(
         DateTime,
         server_default=func.current_timestamp(),
-        onupdate=datetime.utcnow,
+        onupdate=_utcnow,
         nullable=False,
     )
 
@@ -336,7 +349,7 @@ class BudgetPeriod(Base):
     updated_at = Column(
         DateTime,
         server_default=func.current_timestamp(),
-        onupdate=datetime.utcnow,
+        onupdate=_utcnow,
         nullable=False,
     )
 
@@ -369,7 +382,7 @@ class CategoryBudget(Base):
     updated_at = Column(
         DateTime,
         server_default=func.current_timestamp(),
-        onupdate=datetime.utcnow,
+        onupdate=_utcnow,
         nullable=False,
     )
 
@@ -399,7 +412,7 @@ class BudgetCategory(Base):
     updated_at = Column(
         DateTime,
         server_default=func.current_timestamp(),
-        onupdate=datetime.utcnow,
+        onupdate=_utcnow,
         nullable=False,
     )
 
@@ -422,7 +435,7 @@ class BudgetSetting(Base):
     updated_at = Column(
         DateTime,
         server_default=func.current_timestamp(),
-        onupdate=datetime.utcnow,
+        onupdate=_utcnow,
         nullable=False,
     )
 
@@ -441,7 +454,7 @@ class SimpleFINConnection(Base):
     updated_at = Column(
         DateTime,
         server_default=func.current_timestamp(),
-        onupdate=datetime.utcnow,
+        onupdate=_utcnow,
         nullable=False,
     )
 
@@ -580,3 +593,22 @@ class NetWorthSnapshot(Base):
 
     __table_args__ = (Index("idx_net_worth_captured_at", "captured_at"),)
 
+
+
+class NetWorthDaily(Base):
+    """
+    Net worth for one local calendar day, derived from balances and transactions.
+
+    A cache: `source_signature` fingerprints the data it was computed from, and rows
+    whose signature no longer matches are recomputed on read.
+    """
+
+    __tablename__ = "net_worth_daily"
+
+    day = Column(Date, primary_key=True)
+    total_value = Column(Float, nullable=False)
+    currency = Column(String, nullable=False, server_default="USD")
+    mixed_currencies = Column(Boolean, nullable=False, server_default="0", default=False)
+    accounts_count = Column(Integer, nullable=False, server_default="0")
+    source_signature = Column(String, nullable=False)
+    computed_at = Column(DateTime, nullable=False, default=_utcnow)

@@ -88,11 +88,8 @@ def _get_match_context(session: Session, txn: Transaction) -> RuleMatchContext:
     if getattr(txn_any, "account", None) is not None:
         account_name = str(getattr(getattr(txn_any, "account"), "name", "") or "")
     else:
-        acct = (
-            session.query(Account)
-            .filter(Account.id == cast(int, getattr(txn_any, "account_id")))
-            .first()
-        )
+        # session.get hits the identity map, so bulk imports don't query per row.
+        acct = session.get(Account, cast(int, getattr(txn_any, "account_id")))
         account_name = str(getattr(acct, "name", "") or "") if acct else ""
 
     return RuleMatchContext(
@@ -144,14 +141,22 @@ def match_rule(rule: Rule, ctx: RuleMatchContext) -> bool:
     return False
 
 
-def apply_rules_to_transaction(session: Session, txn: Transaction) -> Tuple[bool, Optional[int]]:
+def apply_rules_to_transaction(
+    session: Session,
+    txn: Transaction,
+    rules: Optional[list[Rule]] = None,
+) -> Tuple[bool, Optional[int]]:
     """
     Apply the first matching rule to txn (priority ASC, id ASC).
+
+    Bulk callers should pass ``rules`` (from list_rules) once instead of
+    reloading them for every transaction.
 
     Returns:
         (applied, rule_id)
     """
-    rules = list_rules(session)
+    if rules is None:
+        rules = list_rules(session)
     if not rules:
         return False, None
 

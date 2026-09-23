@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from db.models import Account, Base, Category, Subcategory, Transaction, TransactionSplit, TransferGroup
 from services.account_service import delete_account as delete_account_with_cleanup
 from services.transfer_matching_service import find_transfer_match_candidates
-from services.trasaction_service import (
+from services.transaction_service import (
     delete_transaction,
     link_transactions_as_transfer,
     unlink_transfer_pair,

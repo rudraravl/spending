@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.deps import get_db_session
 from db.models import Transaction
-from services.trasaction_service import get_transactions
+from services.transaction_service import get_transactions
 from services.summary_service import (
     average_transaction_abs_amount,
     calculate_net_spending_excluding_income,
@@ -31,7 +31,6 @@ from utils.filters import TransactionFilter
 from utils.semester import (
     get_calendar_month_range,
     get_current_month_range,
-    get_current_semester_range,
     get_current_year_range,
     get_last_month_range,
     shift_calendar_month,
@@ -163,55 +162,20 @@ def dashboard(
     )
     recent_transactions = [_transaction_table_row(t) for t in recent_txns]
 
+    net_worth_over_time = net_worth_history(session, start=start, end=end)
+    session.commit()
+
     return {
         "range": range_preset,
         "start_date": start.isoformat(),
         "end_date": end.isoformat(),
         "total_spending": total_spending,
         "total_income": total_income,
-        "net_worth_over_time": net_worth_history(session, start=start, end=end),
+        "net_worth_over_time": net_worth_over_time,
         "by_category": _df_to_records(by_category_df),
         "by_subcategory": _df_to_records(by_subcategory_df),
         "spending_over_time": spending_over_time,
         "recent_transactions": recent_transactions,
-    }
-
-
-@router.get("/api/summaries", status_code=status.HTTP_200_OK)
-def summaries(
-    range_type: str = Query(..., description="month|year|semester|custom"),
-    # custom range
-    start_date: date | None = Query(default=None),
-    end_date: date | None = Query(default=None),
-    session: Session = Depends(get_db_session),
-) -> dict[str, object]:
-    if range_type == "month":
-        start, end = get_current_month_range()
-    elif range_type == "year":
-        start, end = get_current_year_range()
-    elif range_type == "semester":
-        start, end = get_current_semester_range()
-    elif range_type == "custom":
-        if not start_date or not end_date:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="start_date and end_date are required for custom")
-        start, end = start_date, end_date
-    else:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid range_type")
-
-    filters = TransactionFilter(start_date=start, end_date=end)
-
-    total = calculate_total(session, filters)
-    by_tag_df = summarize_by_tag(session, filters)
-    by_category_df = summarize_by_category(session, filters)
-    by_subcategory_df = summarize_by_subcategory(session, filters)
-
-    return {
-        "start_date": start.isoformat(),
-        "end_date": end.isoformat(),
-        "total": total,
-        "by_tag": _df_to_records(by_tag_df),
-        "by_category": _df_to_records(by_category_df),
-        "by_subcategory": _df_to_records(by_subcategory_df),
     }
 
 
@@ -326,10 +290,12 @@ def net_worth_history_endpoint(
             detail="start_date must be on or before end_date",
         )
 
+    history = net_worth_history(session, start=start_date, end=end_date)
+    session.commit()
     return {
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
-        "net_worth_over_time": net_worth_history(session, start=start_date, end=end_date),
+        "net_worth_over_time": history,
     }
 
 

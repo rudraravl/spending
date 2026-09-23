@@ -15,6 +15,8 @@ Filters are combinable and used throughout the app.
 from datetime import date
 from typing import Optional, List, Tuple
 
+from db.models import Account, Tag, Transaction, TransactionSplit
+
 
 class TransactionFilter:
     """
@@ -162,3 +164,48 @@ class TransactionFilter:
             parts.append(f"exclude_account_types={self.exclude_account_types}")
         
         return f"TransactionFilter({', '.join(parts)})"
+
+
+def apply_transaction_filters(query, filters: Optional[TransactionFilter], *, split_level: bool = False):
+    """
+    Apply a TransactionFilter to a query that selects from (or joins) Transaction.
+
+    Date, account, amount, tag and account-type filters always apply to the parent
+    Transaction. Category/subcategory filters apply to Transaction, or to
+    TransactionSplit when ``split_level`` is True (split-aware rollups).
+    """
+    if not filters:
+        return query
+
+    if filters.exclude_account_types:
+        query = query.join(Account, Transaction.account_id == Account.id)
+        query = query.filter(~Account.type.in_(list(filters.exclude_account_types)))
+
+    if filters.start_date:
+        query = query.filter(Transaction.date >= filters.start_date)
+    if filters.end_date:
+        query = query.filter(Transaction.date <= filters.end_date)
+    if filters.account_id:
+        query = query.filter(Transaction.account_id == filters.account_id)
+    if filters.min_amount is not None:
+        query = query.filter(Transaction.amount >= filters.min_amount)
+    if filters.max_amount is not None:
+        query = query.filter(Transaction.amount <= filters.max_amount)
+
+    # Tags (AND: all tags required; OR: any tag matches)
+    if filters.tag_ids:
+        if filters.tags_match_any:
+            query = query.filter(Transaction.tags.any(Tag.id.in_(filters.tag_ids)))
+        else:
+            for tag_id in filters.tag_ids:
+                query = query.filter(Transaction.tags.any(Tag.id == tag_id))
+
+    category_model = TransactionSplit if split_level else Transaction
+    if filters.category_id:
+        query = query.filter(category_model.category_id == filters.category_id)
+    if filters.subcategory_id:
+        query = query.filter(category_model.subcategory_id == filters.subcategory_id)
+    elif filters.subcategory_ids:
+        query = query.filter(category_model.subcategory_id.in_(filters.subcategory_ids))
+
+    return query

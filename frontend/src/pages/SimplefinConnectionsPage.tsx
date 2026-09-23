@@ -11,11 +11,10 @@ import {
   getDailyBudget,
   linkAccount,
   listConnections,
-  triggerSync,
   unlinkAccount,
 } from '../api/simplefin'
 import type { Account } from '../api/accounts'
-import type { CachedDiscoveryResponse, DiscoveredAccount, SimpleFINDailyBudget, SyncResult } from '../api/simplefin'
+import type { DiscoveredAccount } from '../api/simplefin'
 import { queryKeys } from '../queryKeys'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -30,7 +29,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { useTransferReview } from '@/features/transfers/transferReviewContext'
+import { useSimplefinSync } from '@/features/simplefin/useSimplefinSync'
 
 function formatDate(iso: string | null | undefined) {
   if (!iso) return 'Never'
@@ -82,32 +81,19 @@ export default function SimplefinConnectionsPage({ embedded = false }: { embedde
       setClaimError(null)
       await discoverAccounts()
       queryClient.invalidateQueries({ queryKey: queryKeys.simplefinConnections() })
-      queryClient.invalidateQueries({ queryKey: ['simplefin', 'cached-accounts'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.simplefinCachedAccounts() })
       queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
     },
     onError: (err: Error) => setClaimError(err.message),
   })
 
-  const reviewTransfers = useTransferReview()
-
-  const syncMutation = useMutation({
-    mutationFn: () => triggerSync({ connection_id: connection?.id ?? null }),
-    onSuccess: (result: SyncResult) => {
-      reviewTransfers(result.transfer_candidates ?? [])
+  const syncMutation = useSimplefinSync(connection?.id, {
+    onSuccess: (result) =>
       setSyncFeedback(
         `Synced ${result.accounts_synced} account(s), imported ${result.transactions_imported} transaction(s).` +
           (result.errors?.length ? ` Warnings: ${result.errors.join('; ')}` : ''),
-      )
-      queryClient.invalidateQueries({ queryKey: queryKeys.simplefinConnections() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      queryClient.invalidateQueries({ queryKey: ['simplefin', 'daily-budget'] })
-      queryClient.invalidateQueries({ queryKey: ['simplefin', 'cached-accounts'] })
-      queryClient.invalidateQueries({ queryKey: queryKeys.investmentsSummary() })
-      queryClient.invalidateQueries({ queryKey: ['investments'] })
-    },
-    onError: (err: Error) => setSyncFeedback(`Sync failed: ${err.message}`),
+      ),
+    onError: (err) => setSyncFeedback(`Sync failed: ${err.message}`),
   })
 
   const linkMutation = useMutation({
@@ -119,7 +105,7 @@ export default function SimplefinConnectionsPage({ embedded = false }: { embedde
         institution_name: payload.remote.conn_name,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['simplefin', 'cached-accounts'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.simplefinCachedAccounts() })
       queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
     },
   })
@@ -127,13 +113,13 @@ export default function SimplefinConnectionsPage({ embedded = false }: { embedde
   const unlinkMutation = useMutation({
     mutationFn: (localAccountId: number) => unlinkAccount(localAccountId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['simplefin', 'cached-accounts'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.simplefinCachedAccounts() })
       queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
     },
   })
 
   const budgetQuery = useQuery({
-    queryKey: ['simplefin', 'daily-budget', connection?.id ?? 'none'],
+    queryKey: queryKeys.simplefinDailyBudget(connection?.id ?? null),
     queryFn: () => getDailyBudget(connection?.id ?? null),
     enabled: connection != null,
     // The budget refills on a rolling window; re-check while exhausted so Sync re-enables.
@@ -141,19 +127,19 @@ export default function SimplefinConnectionsPage({ embedded = false }: { embedde
   })
 
   const cachedAccountsQuery = useQuery({
-    queryKey: ['simplefin', 'cached-accounts'],
+    queryKey: queryKeys.simplefinCachedAccounts(),
     queryFn: getCachedAccounts,
   })
 
   const refreshAccountsMutation = useMutation({
     mutationFn: () => discoverAccounts(connection?.id ?? null),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['simplefin', 'cached-accounts'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.simplefinCachedAccounts() })
     },
   })
 
-  const dailyBudget = budgetQuery.data as SimpleFINDailyBudget | undefined
-  const cachedSnapshot = cachedAccountsQuery.data as CachedDiscoveryResponse | undefined
+  const dailyBudget = budgetQuery.data
+  const cachedSnapshot = cachedAccountsQuery.data
 
   const localAccountOptions = useMemo(
     () =>

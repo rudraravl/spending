@@ -2,9 +2,9 @@ import type { OnChangeFn, RowSelectionState, SortingState } from '@tanstack/reac
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useFieldArray, useForm } from 'react-hook-form'
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiGet } from '../../api/client'
 import { getAccounts } from '../../api/accounts'
 import { getCategories, getSubcategories } from '../../api/categories'
+import { getTags } from '../../api/tags'
 import { linkExistingTransfer, unlinkExistingTransfer } from '../../api/transfers'
 import {
   deleteTransaction,
@@ -17,7 +17,8 @@ import {
 } from '../../api/transactions'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { toast } from '@/components/ui/sonner'
-import { queryKeys } from '../../queryKeys'
+import { invalidateTransactionData, queryKeys } from '../../queryKeys'
+import { daysAgoIso, todayIso } from '@/lib/dates'
 import type { AccountOut, CategoryOut, SubcategoryOut, TagOut, TransactionOut, TransactionSplitOut } from '../../types'
 import type { SplitsFormValues, TransactionRow } from './types'
 
@@ -47,6 +48,10 @@ export const SORT_FIELD_BY_COLUMN: Record<string, TransactionSortField> = {
 }
 const DEFAULT_SORTING: SortingState = [{ id: 'Date', desc: true }]
 
+const EMPTY_ACCOUNTS: AccountOut[] = []
+const EMPTY_CATEGORIES: CategoryOut[] = []
+const EMPTY_TAGS: TagOut[] = []
+
 export type TransactionsPagination = {
   pageIndex: number
   /** Null until the row total has loaded. */
@@ -70,7 +75,8 @@ export type TransactionsPagination = {
 function toRow(t: TransactionOut): TransactionRow {
   return {
     id: t.id,
-    Date: new Date(t.date).toISOString().slice(0, 10),
+    // API dates are calendar days; re-parsing them through Date can shift the day by timezone.
+    Date: t.date.slice(0, 10),
     Merchant: t.merchant ?? '',
     Amount: Number(t.amount),
     Category: t.category_name ?? '',
@@ -129,42 +135,43 @@ export function useTransactions() {
   })
   const tagsQuery = useQuery<TagOut[], Error>({
     queryKey: queryKeys.tags(),
-    queryFn: () => apiGet<TagOut[]>('/api/tags'),
+    queryFn: getTags,
   })
 
-  const accounts = accountsQuery.data ?? []
-  const categories = categoriesQuery.data ?? []
-  const tags = tagsQuery.data ?? []
+  const accounts = accountsQuery.data ?? EMPTY_ACCOUNTS
+  const categories = categoriesQuery.data ?? EMPTY_CATEGORIES
+  const tags = tagsQuery.data ?? EMPTY_TAGS
 
-  const subcategoryQueries = useQueries({
+  // `combine` keeps the result referentially stable between renders, so the table's
+  // column definitions (which depend on it) are not rebuilt on every render.
+  const subcategories = useQueries({
     queries: categories.map((c) => ({
       queryKey: queryKeys.subcategories(c.id),
       queryFn: () => getSubcategories(c.id),
     })),
+    combine: (results) => {
+      const byCategory: Record<number, SubcategoryOut[]> = {}
+      results.forEach((q, i) => {
+        if (q.data) byCategory[categories[i].id] = q.data
+      })
+      return {
+        byCategory,
+        pending: results.some((q) => q.isPending),
+        error: results.find((q) => q.error)?.error?.message ?? null,
+      }
+    },
   })
-
-  const subcategoriesByCategory = useMemo(() => {
-    const subsMap: Record<number, SubcategoryOut[]> = {}
-    for (let i = 0; i < categories.length; i++) {
-      const c = categories[i]
-      const q = subcategoryQueries[i]
-      if (q?.data) subsMap[c.id] = q.data
-    }
-    return subsMap
-  }, [categories, subcategoryQueries])
+  const subcategoriesByCategory = subcategories.byCategory
 
   const metaLoading =
-    accountsQuery.isPending || categoriesQuery.isPending || tagsQuery.isPending || subcategoryQueries.some((q) => q.isPending)
+    accountsQuery.isPending || categoriesQuery.isPending || tagsQuery.isPending || subcategories.pending
 
-  const metaQueryError = useMemo(() => {
-    return (
-      accountsQuery.error?.message ||
-      categoriesQuery.error?.message ||
-      tagsQuery.error?.message ||
-      subcategoryQueries.find((q) => q.error)?.error?.message ||
-      null
-    )
-  }, [accountsQuery.error, categoriesQuery.error, tagsQuery.error, subcategoryQueries])
+  const metaQueryError =
+    accountsQuery.error?.message ||
+    categoriesQuery.error?.message ||
+    tagsQuery.error?.message ||
+    subcategories.error ||
+    null
 
   const metaReady = !metaLoading
 
@@ -174,10 +181,7 @@ export function useTransactions() {
 
   const recentRange = useMemo(() => {
     if (!showOnlyRecent) return { startDate: undefined as string | undefined, endDate: undefined as string | undefined }
-    const today = new Date()
-    const endDate = today.toISOString().slice(0, 10)
-    const startDate = new Date(today.getTime() - 90 * 24 * 3600 * 1000).toISOString().slice(0, 10)
-    return { startDate, endDate }
+    return { startDate: daysAgoIso(90), endDate: todayIso() }
   }, [showOnlyRecent])
 
   const serverCategoryId = useMemo(
@@ -379,12 +383,9 @@ export function useTransactions() {
     onSuccess: () => {
       setError(null)
       setEdits(new Map())
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: queryKeys.tags() })
-      queryClient.invalidateQueries({ queryKey: ['splits'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      queryClient.invalidateQueries({ queryKey: ['views'] })
-      queryClient.invalidateQueries({ queryKey: ['reports'] })
+      void invalidateTransactionData(queryClient)
+      // Tag recency changed.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tags() })
       toast.success('Changes saved', { duration: 1000 })
     },
     onError: (e: unknown) => {
@@ -417,11 +418,7 @@ export function useTransactions() {
     onSuccess: () => {
       setError(null)
       setRowSelection({})
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      queryClient.invalidateQueries({ queryKey: ['views'] })
-      queryClient.invalidateQueries({ queryKey: ['reports'] })
+      void invalidateTransactionData(queryClient)
     },
     onError: (e: unknown) => {
       setError(e instanceof Error ? e.message : 'Could not link as transfer')
@@ -452,11 +449,7 @@ export function useTransactions() {
     onSuccess: () => {
       setError(null)
       setRowSelection({})
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      queryClient.invalidateQueries({ queryKey: ['views'] })
-      queryClient.invalidateQueries({ queryKey: ['reports'] })
+      void invalidateTransactionData(queryClient)
     },
     onError: (e: unknown) => {
       setError(e instanceof Error ? e.message : 'Could not unlink transfer')
@@ -476,11 +469,7 @@ export function useTransactions() {
         for (const id of ids) next.delete(id)
         return next
       })
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['splits'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      queryClient.invalidateQueries({ queryKey: ['views'] })
-      queryClient.invalidateQueries({ queryKey: ['reports'] })
+      void invalidateTransactionData(queryClient)
     },
     onError: (e: unknown) => {
       setError(e instanceof Error ? e.message : 'Failed to delete transactions')
@@ -493,9 +482,7 @@ export function useTransactions() {
     },
     onSuccess: () => {
       setSplitError(null)
-      queryClient.invalidateQueries({ queryKey: queryKeys.splits(splitTxnId) })
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      void invalidateTransactionData(queryClient)
       toast.success('Splits saved', { duration: 1000 })
     },
     onError: (e: unknown) => {
@@ -535,10 +522,11 @@ export function useTransactions() {
     unlinkTransferMutation.mutate(getSelectedIds())
   }
 
-  function processRowUpdate(newRow: TransactionRow) {
+  // Stable identity: the table's column definitions depend on it.
+  const processRowUpdate = useCallback((newRow: TransactionRow) => {
     setEdits((prev) => new Map(prev).set(newRow.id, newRow))
     return newRow
-  }
+  }, [])
 
   function goToPage(index: number) {
     const last = pageCount != null ? pageCount - 1 : hasNextPage ? pageIndex + 1 : pageIndex

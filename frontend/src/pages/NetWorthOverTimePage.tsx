@@ -11,7 +11,10 @@ import {
   YAxis,
 } from 'recharts'
 import { Info } from 'lucide-react'
-import { apiGet } from '../api/client'
+import { getNetWorthHistory, type NetWorthHistoryResponse } from '../api/reports'
+import { daysAgoIso, fmtShortDate, toLocalIsoDate } from '@/lib/dates'
+import { formatSignedUsd as formatMoney, formatSignedUsdWhole as formatMoneyNoCents } from '@/lib/format'
+import type { NetWorthPoint } from '../api/dashboard'
 import { queryKeys } from '../queryKeys'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,47 +27,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-type NetWorthPoint = {
-  captured_at: string
-  total_value: number
-  currency: string
-  mixed_currencies: boolean
-  accounts_count: number
-}
-
-type NetWorthHistoryResponse = {
-  start_date: string
-  end_date: string
-  net_worth_over_time: NetWorthPoint[]
-}
-
-function isoDate(d: Date) {
-  return d.toISOString().slice(0, 10)
-}
-
-function fmtShortDate(ymd: string) {
-  const [y, m, d] = ymd.split('-').map(Number)
-  if (!y || !m || !d) return ymd
-  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
-
-function formatMoney(n: number) {
-  const sign = n < 0 ? '−' : ''
-  return `${sign}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
-
-function formatMoneyNoCents(n: number) {
-  const sign = n < 0 ? '−' : ''
-  return `${sign}$${Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 })}`
-}
-
 type Preset = 'last_30' | 'last_90' | 'ytd' | 'all' | 'custom'
 
 export default function NetWorthOverTimePage() {
-  const today = new Date()
-  const currentYear = today.getFullYear()
-  const todayISO = isoDate(today)
-  const last90StartISO = isoDate(new Date(today.getTime() - (90 - 1) * 24 * 3600 * 1000))
+  // Pinned for the life of the page so derived ranges (and query keys) stay stable across renders.
+  const [today] = useState(() => new Date())
+  const todayISO = toLocalIsoDate(today)
+  const last90StartISO = daysAgoIso(90 - 1, today)
 
   const [preset, setPreset] = useState<Preset>('last_90')
   const [customStart, setCustomStart] = useState<string>(last90StartISO)
@@ -81,22 +50,21 @@ export default function NetWorthOverTimePage() {
     }
 
     if (preset === 'ytd') {
-      const ytdStart = isoDate(new Date(currentYear, 0, 1))
+      const ytdStart = toLocalIsoDate(new Date(today.getFullYear(), 0, 1))
       return { startDate: ytdStart, endDate: todayISO }
     }
 
     const days = preset === 'last_30' ? 30 : 90
-    const start = new Date(today.getTime() - (days - 1) * 24 * 3600 * 1000)
-    return { startDate: isoDate(start), endDate: todayISO }
-  }, [customEnd, customStart, preset, todayISO, currentYear])
+    return { startDate: daysAgoIso(days - 1, today), endDate: todayISO }
+  }, [customEnd, customStart, preset, today, todayISO])
 
   const { data, error, isPending, isFetching } = useQuery<NetWorthHistoryResponse, Error>({
     queryKey: queryKeys.netWorthHistory(startDate, endDate),
-    queryFn: () => apiGet<NetWorthHistoryResponse>(`/api/reports/net-worth?start_date=${startDate}&end_date=${endDate}`),
+    queryFn: () => getNetWorthHistory(startDate, endDate),
     staleTime: 60 * 1000,
   })
 
-  const points = data?.net_worth_over_time ?? []
+  const points = useMemo<NetWorthPoint[]>(() => data?.net_worth_over_time ?? [], [data])
 
   const mixedAny = useMemo(() => points.some((p) => p.mixed_currencies), [points])
   const currencyAny = useMemo(() => {
@@ -106,8 +74,8 @@ export default function NetWorthOverTimePage() {
 
   const chartData = useMemo(() => {
     return points.map((p) => ({
-      time: fmtShortDate(p.captured_at.slice(0, 10)),
-      isoTime: p.captured_at.slice(0, 10),
+      time: fmtShortDate(p.date),
+      isoTime: p.date,
       value: Number(p.total_value),
       currency: p.currency,
       mixed: p.mixed_currencies,
@@ -123,12 +91,12 @@ export default function NetWorthOverTimePage() {
     <div className="p-6 lg:p-8 max-w-4xl mx-auto space-y-6">
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
         <p className="text-muted-foreground text-sm mb-2">
-          Net worth snapshots are captured on each sync. Use the date interval below to explore changes over time.
+          Net worth for each day, estimated from account balances and transactions. Use the date interval below to explore changes over time.
         </p>
         {mixedAny ? (
           <p className="text-xs text-muted-foreground flex items-center gap-2">
             <Info className="h-4 w-4" />
-            Mixed-currency snapshots detected; totals are summed without conversion.
+            Accounts use more than one currency; totals are summed without conversion.
           </p>
         ) : null}
       </motion.div>
@@ -211,7 +179,7 @@ export default function NetWorthOverTimePage() {
         ) : loadFailed ? (
           <p className="text-sm text-red-500 py-12 text-center">{error?.message ?? 'Failed to load'}</p>
         ) : hasNoData ? (
-          <p className="text-sm text-muted-foreground py-12 text-center">No net worth snapshots in this interval.</p>
+          <p className="text-sm text-muted-foreground py-12 text-center">No account activity in this interval.</p>
         ) : (
           <div className="h-[min(44vh,340px)] min-h-[220px] w-full">
             <ResponsiveContainer width="100%" height="100%">
@@ -233,7 +201,7 @@ export default function NetWorthOverTimePage() {
                   tickFormatter={(v) => formatMoneyNoCents(Number(v))}
                 />
                 <RechartsTooltip
-                  formatter={(value: number, _n, item: { payload?: any }) => {
+                  formatter={(value: number, _n, item: { payload?: (typeof chartData)[number] }) => {
                     const payload = item.payload
                     const currency = payload?.currency ?? currencyAny
                     const mixed = Boolean(payload?.mixed)
@@ -254,7 +222,7 @@ export default function NetWorthOverTimePage() {
                   dataKey="value"
                   stroke="hsl(var(--primary))"
                   strokeWidth={2.25}
-                  dot={{ r: 2.5, strokeWidth: 0, fill: 'hsl(var(--primary))' }}
+                  dot={false}
                   activeDot={{ r: 4 }}
                 />
               </LineChart>

@@ -11,6 +11,7 @@ Handles:
 from typing import List, Optional, NamedTuple
 import pandas as pd
 from datetime import datetime, timezone
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from db.models import Transaction, Account, Category, Subcategory, Tag
 from adapters.base_adapter import BaseAdapter
@@ -21,7 +22,7 @@ from adapters.discover_adapter import DiscoverAdapter
 from adapters.citi_adapter import CitiAdapter
 from adapters.chase_adapter import ChaseCreditCardAdapter, ChaseCheckingAdapter
 from adapters.capital_one_adapter import CapitalOneAdapter
-from services.rule_service import apply_rules_to_transaction
+from services.rule_service import apply_rules_to_transaction, list_rules
 from services.account_service import ASSET_ACCOUNT_TYPES
 from services.zbb_service import recalc_activity_for_months
 
@@ -103,7 +104,13 @@ def import_csv(
     imported_transaction_ids: List[int] = []
     touched_months: set[tuple[int, int]] = set()
 
+    # Default to "Other" / "Uncategorized"; rules may override per row.
+    other_category = ensure_category(session, "Other")
+    other_subcategory = ensure_subcategory(session, "Uncategorized", other_category.id)
+    rules = list_rules(session)
+
     for _, row in parsed.iterrows():
+        transaction = None
         try:
             # Source/external_id are optional and adapter-specific; default to simple
             # "csv" source with no external id when not provided.
@@ -120,12 +127,7 @@ def import_csv(
                     'reason': 'duplicate',
                 })
                 continue
-            
-            # Create transaction (requires category + subcategory)
-            # Default to "Other" category with "Uncategorized" subcategory if not specified
-            other_category = ensure_category(session, "Other")
-            other_subcategory = ensure_subcategory(session, "Uncategorized", other_category.id)
-            
+
             transaction = Transaction(
                 date=pd.to_datetime(row['date']).date()
                 if isinstance(row['date'], str)
@@ -141,13 +143,20 @@ def import_csv(
             )
             session.add(transaction)
             # Apply auto-categorization rules during import only.
-            apply_rules_to_transaction(session, transaction)
+            apply_rules_to_transaction(session, transaction, rules)
             session.flush()
             imported_transaction_ids.append(transaction.id)
             touched_months.add((int(transaction.date.year), int(transaction.date.month)))
             num_imported += 1
 
+        except SQLAlchemyError:
+            # A failed flush leaves the session unusable; abort the whole import
+            # rather than reporting every later row as skipped.
+            session.rollback()
+            raise
         except Exception as e:
+            if transaction is not None and transaction in session:
+                session.expunge(transaction)
             skipped.append({
                 'date': row.get('date'),
                 'amount': row.get('amount'),

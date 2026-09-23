@@ -31,6 +31,7 @@ load_dotenv(Path(_REPO_ROOT) / ".env", override=False)
 from db.database import get_session, close_session, init_db
 from db.models import SimpleFINConnection
 from services.simplefin_sync_service import sync_connection
+from utils.timestamps import as_utc
 
 
 def main() -> None:
@@ -59,7 +60,8 @@ def main() -> None:
             return
 
         cutoff = datetime.now(timezone.utc) - timedelta(hours=args.min_interval_hours)
-        due = [c for c in conns if c.last_synced_at is None or c.last_synced_at < cutoff]
+        # SQLite returns naive (UTC) datetimes; comparing them to the aware cutoff raises.
+        due = [c for c in conns if c.last_synced_at is None or as_utc(c.last_synced_at) < cutoff]
 
         if not due:
             print(f"All {len(conns)} connections synced within the last {args.min_interval_hours}h. Nothing to do.")
@@ -77,6 +79,8 @@ def main() -> None:
                     for err in result.errors:
                         print(f"  Warning: {err}")
             except Exception as exc:
+                # Reset the session so a failed sync doesn't poison the next connection.
+                session.rollback()
                 print(f"  ERROR: {exc}")
 
     finally:

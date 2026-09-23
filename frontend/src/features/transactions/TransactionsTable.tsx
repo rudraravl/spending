@@ -317,15 +317,17 @@ function TagsPickerCell({
   const [q, setQ] = useState('')
   const selected = useMemo(() => new Set(parseTagNames(row.Tags)), [row.Tags])
 
-  useEffect(() => {
-    if (!open) setQ('')
-  }, [open])
+  const onOpenChange = (next: boolean) => {
+    setOpen(next)
+    if (!next) setQ('')
+  }
 
-  const sortedTags = useMemo(() => sortTagsByRecentUse(tags), [tags])
-  const filtered = useMemo(
-    () => sortedTags.filter((t) => t.name.toLowerCase().includes(q.toLowerCase())),
-    [sortedTags, q],
-  )
+  // One cell per row: only sort/filter while this cell's picker is open.
+  const filtered = useMemo(() => {
+    if (!open) return []
+    const needle = q.toLowerCase()
+    return sortTagsByRecentUse(tags).filter((t) => t.name.toLowerCase().includes(needle))
+  }, [open, tags, q])
 
   const toggle = (name: string, checked: boolean) => {
     const next = new Set(selected)
@@ -337,7 +339,7 @@ function TagsPickerCell({
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <Button
           variant="ghost"

@@ -4,23 +4,25 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { Navigate } from 'react-router-dom'
 import AppLayout from '@/components/AppLayout'
 import TransferReviewProvider from '@/features/transfers/TransferReviewProvider'
-import { Toaster as Sonner } from '@/components/ui/sonner'
-import { Toaster } from '@/components/ui/toaster'
+import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { lazy } from 'react'
 import queryClient from './queryClient'
-import AccountDetailPage from './pages/AccountDetailPage'
-import AccountsPage from './pages/AccountsPage'
-import AllTransactionsPage from './pages/AllTransactionsPage'
-import DashboardPage from './pages/DashboardPage'
-import ImportCsvPage from './pages/ImportCsvPage'
-import InvestmentsPage from './pages/InvestmentsPage'
 import NotFoundPage from './pages/NotFoundPage'
-import BudgetsPage from '@/pages/BudgetsPage'
-import RecurringChargesPage from './pages/RecurringChargesPage'
-import SettingsPage from './pages/SettingsPage'
-import ReportsPage from './pages/ReportsPage'
-import NetWorthOverTimePage from './pages/NetWorthOverTimePage'
-import ViewsPage from './pages/ViewsPage'
+
+// Route-level code splitting: charts (recharts) and heavy tables load with the page that uses them.
+const AccountDetailPage = lazy(() => import('./pages/AccountDetailPage'))
+const AccountsPage = lazy(() => import('./pages/AccountsPage'))
+const AllTransactionsPage = lazy(() => import('./pages/AllTransactionsPage'))
+const BudgetsPage = lazy(() => import('./pages/BudgetsPage'))
+const DashboardPage = lazy(() => import('./pages/DashboardPage'))
+const ImportCsvPage = lazy(() => import('./pages/ImportCsvPage'))
+const InvestmentsPage = lazy(() => import('./pages/InvestmentsPage'))
+const NetWorthOverTimePage = lazy(() => import('./pages/NetWorthOverTimePage'))
+const RecurringChargesPage = lazy(() => import('./pages/RecurringChargesPage'))
+const ReportsPage = lazy(() => import('./pages/ReportsPage'))
+const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+const ViewsPage = lazy(() => import('./pages/ViewsPage'))
 
 export default function KeepApp() {
   return (
@@ -28,7 +30,6 @@ export default function KeepApp() {
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
         <TooltipProvider>
           <Toaster />
-          <Sonner />
           <BrowserRouter>
             <TransferReviewProvider>
             <Routes>

@@ -13,8 +13,8 @@ from typing import Dict, List, Optional, Set, Tuple
 import pandas as pd
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, union_all
-from db.models import Account, Transaction, Tag, Category, Subcategory, TransactionSplit
-from utils.filters import TransactionFilter
+from db.models import Transaction, Tag, Category, Subcategory, TransactionSplit
+from utils.filters import TransactionFilter, apply_transaction_filters
 
 
 # Dashboard income totals use this category only (split-aware); refunds stay in spend categories.
@@ -32,97 +32,13 @@ def _exclude_non_spend_transactions(query):
 
 
 def _apply_filters_base(query, filters: Optional[TransactionFilter]):
-    """Apply Transaction-based filters (dates, account, tags, category, subcategory, amount)."""
-    if not filters:
-        return query
-
-    if filters.start_date:
-        query = query.filter(Transaction.date >= filters.start_date)
-
-    if filters.end_date:
-        query = query.filter(Transaction.date <= filters.end_date)
-
-    if filters.account_id:
-        query = query.filter(Transaction.account_id == filters.account_id)
-
-    if filters.min_amount is not None:
-        query = query.filter(Transaction.amount >= filters.min_amount)
-
-    if filters.max_amount is not None:
-        query = query.filter(Transaction.amount <= filters.max_amount)
-
-    # Tag filters
-    if filters.tag_ids:
-        if getattr(filters, "tags_match_any", False):
-            query = query.filter(Transaction.tags.any(Tag.id.in_(filters.tag_ids)))
-        else:
-            for tag_id in filters.tag_ids:
-                query = query.filter(Transaction.tags.any(Tag.id == tag_id))
-
-    # Category / subcategory filters (for unsplit transactions)
-    if filters.category_id:
-        query = query.filter(Transaction.category_id == filters.category_id)
-
-    if filters.subcategory_id:
-        query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
-    elif getattr(filters, "subcategory_ids", None):
-        query = query.filter(Transaction.subcategory_id.in_(filters.subcategory_ids))
-
-    if filters.exclude_account_types:
-        query = query.join(Account, Transaction.account_id == Account.id)
-        query = query.filter(~Account.type.in_(list(filters.exclude_account_types)))
-
-    return query
+    """Apply filters with category/subcategory matched on the Transaction (unsplit rows)."""
+    return apply_transaction_filters(query, filters)
 
 
 def _apply_filters_splits(query, filters: Optional[TransactionFilter]):
-    """
-    Apply filters for split-based queries.
-
-    Date/account/amount/tag filters still apply at the Transaction level.
-    Category/subcategory filters apply at the split level.
-    """
-    if not filters:
-        return query
-
-    # Transaction-level dimensions
-    if filters.start_date:
-        query = query.filter(Transaction.date >= filters.start_date)
-
-    if filters.end_date:
-        query = query.filter(Transaction.date <= filters.end_date)
-
-    if filters.account_id:
-        query = query.filter(Transaction.account_id == filters.account_id)
-
-    if filters.min_amount is not None:
-        query = query.filter(Transaction.amount >= filters.min_amount)
-
-    if filters.max_amount is not None:
-        query = query.filter(Transaction.amount <= filters.max_amount)
-
-    # Tag filters on parent transaction
-    if filters.tag_ids:
-        if getattr(filters, "tags_match_any", False):
-            query = query.filter(Transaction.tags.any(Tag.id.in_(filters.tag_ids)))
-        else:
-            for tag_id in filters.tag_ids:
-                query = query.filter(Transaction.tags.any(Tag.id == tag_id))
-
-    # Category / subcategory filters on splits
-    if filters.category_id:
-        query = query.filter(TransactionSplit.category_id == filters.category_id)
-
-    if filters.subcategory_id:
-        query = query.filter(TransactionSplit.subcategory_id == filters.subcategory_id)
-    elif getattr(filters, "subcategory_ids", None):
-        query = query.filter(TransactionSplit.subcategory_id.in_(filters.subcategory_ids))
-
-    if filters.exclude_account_types:
-        query = query.join(Account, Transaction.account_id == Account.id)
-        query = query.filter(~Account.type.in_(list(filters.exclude_account_types)))
-
-    return query
+    """Apply filters with category/subcategory matched on the TransactionSplit row."""
+    return apply_transaction_filters(query, filters, split_level=True)
 
 
 def calculate_total(
@@ -147,41 +63,8 @@ def calculate_total(
     """
     query = session.query(func.sum(Transaction.amount))
     query = _exclude_non_spend_transactions(query)
-    
-    if filters:
-        if filters.start_date:
-            query = query.filter(Transaction.date >= filters.start_date)
-        
-        if filters.end_date:
-            query = query.filter(Transaction.date <= filters.end_date)
-        
-        if filters.account_id:
-            query = query.filter(Transaction.account_id == filters.account_id)
-        
-        if filters.min_amount is not None:
-            query = query.filter(Transaction.amount >= filters.min_amount)
-        
-        if filters.max_amount is not None:
-            query = query.filter(Transaction.amount <= filters.max_amount)
-        
-        # Filter by tag (AND: all tags required; OR: any tag matches)
-        if filters.tag_ids:
-            if getattr(filters, "tags_match_any", False):
-                query = query.filter(Transaction.tags.any(Tag.id.in_(filters.tag_ids)))
-            else:
-                for tag_id in filters.tag_ids:
-                    query = query.filter(Transaction.tags.any(Tag.id == tag_id))
-        
-        # Filter by category (direct category_id match only)
-        if filters.category_id:
-            query = query.filter(Transaction.category_id == filters.category_id)
-        
-        # Filter by subcategory
-        if filters.subcategory_id:
-            query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
-        elif getattr(filters, "subcategory_ids", None):
-            query = query.filter(Transaction.subcategory_id.in_(filters.subcategory_ids))
-    
+    query = _apply_filters_base(query, filters)
+
     result = query.scalar()
     return float(result) if result else 0.0
 
@@ -410,46 +293,8 @@ def summarize_by_tag(
         func.count(Transaction.id).label('count'),
     ).join(Transaction.tags).group_by(Tag.id, Tag.name)
     query = _exclude_non_spend_transactions(query)
-    
-    # Apply filters
-    if filters:
-        if filters.start_date:
-            query = query.filter(Transaction.date >= filters.start_date)
-        
-        if filters.end_date:
-            query = query.filter(Transaction.date <= filters.end_date)
-        
-        if filters.account_id:
-            query = query.filter(Transaction.account_id == filters.account_id)
-        
-        if filters.min_amount is not None:
-            query = query.filter(Transaction.amount >= filters.min_amount)
-        
-        if filters.max_amount is not None:
-            query = query.filter(Transaction.amount <= filters.max_amount)
-        
-        # Filter by tag (AND: all tags required; OR: any tag matches)
-        if filters.tag_ids:
-            if getattr(filters, "tags_match_any", False):
-                query = query.filter(Transaction.tags.any(Tag.id.in_(filters.tag_ids)))
-            else:
-                for tag_id in filters.tag_ids:
-                    query = query.filter(Transaction.tags.any(Tag.id == tag_id))
-        
-        # Filter by category (direct category_id match only)
-        if filters.category_id:
-            query = query.filter(Transaction.category_id == filters.category_id)
-        
-        # Filter by subcategory
-        if filters.subcategory_id:
-            query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
-        elif getattr(filters, "subcategory_ids", None):
-            query = query.filter(Transaction.subcategory_id.in_(filters.subcategory_ids))
+    query = _apply_filters_base(query, filters)
 
-        if filters.exclude_account_types:
-            query = query.join(Account, Transaction.account_id == Account.id)
-            query = query.filter(~Account.type.in_(list(filters.exclude_account_types)))
-    
     results = query.all()
     
     # Convert to list of dicts

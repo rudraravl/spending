@@ -3,10 +3,10 @@ import { Controller, useForm } from 'react-hook-form'
 import { motion } from 'framer-motion'
 import { Upload } from 'lucide-react'
 import FeedbackDialog from '../components/FeedbackDialog'
-import { apiGet, apiPostForm } from '../api/client'
 import type { TransferMatchCandidate } from '../api/transfers'
+import { getImportAdapters, importCsv, previewCsv, type CsvImportResult, type CsvPreview } from '../api/imports'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { queryKeys } from '../queryKeys'
+import { invalidateTransactionData, queryKeys } from '../queryKeys'
 import { getAccounts } from '../api/accounts'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -25,19 +25,6 @@ import { columnLooksNumeric, cycleSort, sortByColumn, type ColumnSortState } fro
 import TransferMatchDialog, { type TransferReviewSummary } from '@/features/transfers/TransferMatchDialog'
 import type { AccountOut } from '../types'
 
-type CsvPreview = {
-  rows_detected: number
-  raw_columns: string[]
-  preview_rows: Array<Record<string, object>>
-  inferred_date_range: { min_date: string; max_date: string } | null
-}
-
-type CsvImportResult = {
-  num_imported: number
-  skipped: Array<{ date?: string; amount?: number; merchant?: string; reason?: string }>
-  imported_transaction_ids: number[]
-  transfer_match_candidates: TransferMatchCandidate[]
-}
 
 type ImportCsvFormValues = {
   account_id: number | null
@@ -56,11 +43,11 @@ export default function ImportCsvPage() {
   })
   const adaptersQuery = useQuery<string[], Error>({
     queryKey: queryKeys.importAdapters(),
-    queryFn: () => apiGet<string[]>('/api/import/adapters'),
+    queryFn: getImportAdapters,
   })
 
-  const accounts = accountsQuery.data ?? []
-  const adapters = adaptersQuery.data ?? []
+  const accounts = useMemo(() => accountsQuery.data ?? [], [accountsQuery.data])
+  const adapters = useMemo(() => adaptersQuery.data ?? [], [adaptersQuery.data])
 
   const { control, watch, setValue } = useForm<ImportCsvFormValues>({
     defaultValues: {
@@ -83,7 +70,11 @@ export default function ImportCsvPage() {
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [feedbackTitle, setFeedbackTitle] = useState('')
   const [feedbackMessage, setFeedbackMessage] = useState('')
-  const [previewSort, setPreviewSort] = useState<ColumnSortState | null>(null)
+  // Column sort for the preview table; tied to the preview it was chosen on.
+  const [previewSortState, setPreviewSortState] = useState<{ signature: string; sort: ColumnSortState | null }>({
+    signature: '',
+    sort: null,
+  })
 
   const [matchBatch, setMatchBatch] = useState<{ id: number; candidates: TransferMatchCandidate[] } | null>(null)
   const [pendingImportSummary, setPendingImportSummary] = useState<{
@@ -121,7 +112,7 @@ export default function ImportCsvPage() {
         form.append('merchant_col', genericMerchantCol)
       }
 
-      return apiPostForm<CsvPreview>('/api/import/preview', form)
+      return previewCsv(form)
     },
     enabled: previewEnabled,
   })
@@ -132,17 +123,17 @@ export default function ImportCsvPage() {
   const genericColumns = useMemo(() => preview?.raw_columns ?? [], [preview])
   const previewKeys = useMemo(() => Object.keys(preview?.preview_rows[0] ?? {}), [preview])
 
+  const previewSort = previewSortState.signature === previewSignature ? previewSortState.sort : null
+  const setPreviewSort = (update: (prev: ColumnSortState | null) => ColumnSortState | null) =>
+    setPreviewSortState({ signature: previewSignature, sort: update(previewSort) })
+
   const sortedPreviewRows = useMemo(() => {
     if (!preview?.preview_rows?.length) return []
     const rows = preview.preview_rows as Record<string, unknown>[]
     const numeric =
       previewSort && columnLooksNumeric(rows, previewSort.key) ? [previewSort.key] : []
     return sortByColumn(rows, previewSort, numeric)
-  }, [preview?.preview_rows, previewSort])
-
-  useEffect(() => {
-    setPreviewSort(null)
-  }, [previewSignature])
+  }, [preview, previewSort])
 
   useEffect(() => {
     if (accountId != null) return
@@ -189,18 +180,10 @@ export default function ImportCsvPage() {
         form.append('merchant_col', genericMerchantCol)
       }
 
-      return apiPostForm<CsvImportResult>('/api/import/csv', form)
+      return importCsv(form)
     },
     onSuccess: (res) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
-      if (accountId != null) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.accountDetail(accountId) })
-        queryClient.invalidateQueries({ queryKey: queryKeys.accountSummary(accountId) })
-      }
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      queryClient.invalidateQueries({ queryKey: ['views'] })
-      queryClient.invalidateQueries({ queryKey: ['reports'] })
+      void invalidateTransactionData(queryClient)
 
       const candidates = res.transfer_match_candidates ?? []
       if (candidates.length > 0) {

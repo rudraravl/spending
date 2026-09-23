@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 import csv
 from typing import Any
@@ -72,12 +73,10 @@ def _rows_to_preview_records(df: pd.DataFrame, limit: int) -> list[dict[str, obj
     return records
 
 
-async def _save_upload_to_temp_csv(upload: UploadFile) -> str:
+def _save_upload_to_temp_csv(upload: UploadFile) -> str:
     fd, temp_path = tempfile.mkstemp(suffix=".csv")
-    os.close(fd)
-    contents = await upload.read()
-    with open(temp_path, "wb") as f:
-        f.write(contents)
+    with os.fdopen(fd, "wb") as f:
+        shutil.copyfileobj(upload.file, f)
     return temp_path
 
 
@@ -91,7 +90,7 @@ def list_adapters() -> list[str]:
     response_model=CsvPreviewResponse,
     status_code=status.HTTP_200_OK,
 )
-async def preview_import_csv(
+def preview_import_csv(
     file: UploadFile = File(...),
     adapter_name: str = Form(...),
     # Optional, only needed when the UI wants to validate mapping early.
@@ -106,7 +105,7 @@ async def preview_import_csv(
     inference runs directly on raw CSV columns.
     """
 
-    temp_path = await _save_upload_to_temp_csv(file)
+    temp_path = _save_upload_to_temp_csv(file)
     try:
         try:
             preview_df = _read_csv_for_preview(temp_path)
@@ -136,13 +135,18 @@ async def preview_import_csv(
         # Optional: validate Generic mapping existence early (doesn't affect response).
         # Validate Generic mapping only if all mapping fields were provided.
         if adapter_name == "Generic" and date_col and amount_col and merchant_col:
-            _ = preview_csv(
-                temp_path,
-                adapter_name,
-                date_col=date_col,
-                amount_col=amount_col,
-                merchant_col=merchant_col,
-            )
+            try:
+                preview_csv(
+                    temp_path,
+                    adapter_name,
+                    date_col=date_col,
+                    amount_col=amount_col,
+                    merchant_col=merchant_col,
+                )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, detail=f"Column mapping error: {e}"
+                ) from e
 
         return CsvPreviewResponse(
             rows_detected=total_entries,
@@ -162,7 +166,7 @@ async def preview_import_csv(
     response_model=CsvImportResult,
     status_code=status.HTTP_200_OK,
 )
-async def import_csv_endpoint(
+def import_csv_endpoint(
     file: UploadFile = File(...),
     account_id: int = Form(...),
     adapter_name: str = Form(...),
@@ -172,7 +176,7 @@ async def import_csv_endpoint(
     merchant_col: str | None = Form(default=None),
     session: Session = Depends(get_db_session),
 ) -> CsvImportResult:
-    temp_path = await _save_upload_to_temp_csv(file)
+    temp_path = _save_upload_to_temp_csv(file)
     try:
         kwargs: dict[str, Any] = {}
         if adapter_name == "Generic":

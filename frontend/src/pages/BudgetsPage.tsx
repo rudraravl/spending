@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getZbbCategories,
@@ -28,11 +28,9 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
+import { formatMoney as money } from '@/lib/format'
+import { queryKeys } from '@/queryKeys'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-
-function money(n: number) {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(n)
-}
 
 /** Integer cents for comparisons — avoids float noise at penny boundaries (e.g. last $0.01 of RTA). */
 function moneyCents(n: number): number {
@@ -53,17 +51,14 @@ function monthLabel(y: number, m: number) {
 
 export default function BudgetsPage() {
   const qc = useQueryClient()
-  const now = new Date()
-  const [year, setYear] = useState(now.getFullYear())
-  const [month, setMonth] = useState(now.getMonth() + 1)
-  const years = useMemo(() => {
-    const y = now.getFullYear()
-    return [y - 1, y, y + 1]
-  }, [now])
-  const genesisYearOptions = useMemo(() => {
-    const y = new Date().getFullYear()
-    return Array.from({ length: 10 }, (_, i) => y - 6 + i)
-  }, [])
+  const [currentYear] = useState(() => new Date().getFullYear())
+  const [year, setYear] = useState(currentYear)
+  const [month, setMonth] = useState(() => new Date().getMonth() + 1)
+  const years = useMemo(() => [currentYear - 1, currentYear, currentYear + 1], [currentYear])
+  const genesisYearOptions = useMemo(
+    () => Array.from({ length: 10 }, (_, i) => currentYear - 6 + i),
+    [currentYear],
+  )
   const [moveOpen, setMoveOpen] = useState(false)
   const [moveFrom, setMoveFrom] = useState<string>('')
   const [moveTo, setMoveTo] = useState<string>('')
@@ -74,38 +69,42 @@ export default function BudgetsPage() {
   const [budgetStartY, setBudgetStartY] = useState(() => new Date().getFullYear())
   const [budgetStartM, setBudgetStartM] = useState(() => new Date().getMonth() + 1)
   const [monthPanelOpen, setMonthPanelOpen] = useState(false)
+  const [syncedBudgetStart, setSyncedBudgetStart] = useState<string | null>(null)
+  const [syncedBeforeStart, setSyncedBeforeStart] = useState(false)
   const [rtaAssignInputWarn, setRtaAssignInputWarn] = useState(false)
   const [assignError, setAssignError] = useState<string | null>(null)
 
   const zbbQ = useQuery({
-    queryKey: ['zbbMonth', year, month],
+    queryKey: queryKeys.zbbMonth(year, month),
     queryFn: () => getZbbMonth({ year, month }),
   })
   const zbbCategoriesQ = useQuery({
-    queryKey: ['zbbCategories'],
+    queryKey: queryKeys.zbbCategories(),
     queryFn: () => getZbbCategories(),
   })
   const txnCategoriesQ = useQuery({
-    queryKey: ['categories'],
+    queryKey: queryKeys.categories(),
     queryFn: () => getCategories(),
     staleTime: 5 * 60 * 1000,
   })
+  // Only the category picked in "New category" needs its subcategories.
+  const newTxnCategoryNum = newTxnCategoryId !== 'none' ? Number(newTxnCategoryId) : null
   const txnSubcategoriesQ = useQuery({
-    queryKey: ['subcategoriesByCategory'],
-    queryFn: async () => {
-      const cats = await getCategories()
-      const entries = await Promise.all(cats.map(async (c) => [c.id, await getSubcategories(c.id)] as const))
-      return Object.fromEntries(entries) as Record<number, { id: number; name: string; category_id: number }[]>
-    },
+    queryKey: queryKeys.subcategories(newTxnCategoryNum),
+    queryFn: () => getSubcategories(newTxnCategoryNum!),
+    enabled: newTxnCategoryNum != null,
     staleTime: 5 * 60 * 1000,
   })
+
+  // Assignments and settings roll forward into later months, so refresh every cached month.
+  const invalidateMonths = () => qc.invalidateQueries({ queryKey: queryKeys.zbbMonths() })
 
   const assignMut = useMutation({
     mutationFn: (payload: { category_id: number; assigned: number }) =>
       patchZbbAssign({ year, month, body: payload }),
     onSuccess: async () => {
       setAssignError(null)
-      await qc.invalidateQueries({ queryKey: ['zbbMonth', year, month] })
+      await invalidateMonths()
     },
     onError: (err) => {
       setAssignError(err instanceof Error ? err.message : 'Assignment failed')
@@ -116,7 +115,7 @@ export default function BudgetsPage() {
     mutationFn: (payload: { from_category_id: number; to_category_id: number; amount: number }) =>
       postZbbMoveMoney({ year, month, body: payload }),
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['zbbMonth', year, month] })
+      await invalidateMonths()
       setMoveOpen(false)
       setMoveAmount('')
     },
@@ -152,45 +151,51 @@ export default function BudgetsPage() {
   const modeMut = useMutation({
     mutationFn: (rollover_mode: 'strict' | 'flexible') => patchZbbSettings({ rollover_mode }),
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['zbbMonth', year, month] })
+      await invalidateMonths()
     },
   })
 
   const budgetStartMut = useMutation({
     mutationFn: () => patchZbbSettings({ budget_start_year: budgetStartY, budget_start_month: budgetStartM }),
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['zbbMonth', year, month] })
+      await invalidateMonths()
     },
   })
 
   const clearBudgetStartMut = useMutation({
     mutationFn: () => patchZbbSettings({ clear_budget_start: true }),
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['zbbMonth', year, month] })
+      await invalidateMonths()
     },
   })
 
-  useEffect(() => {
-    const y = zbbQ.data?.budget_start_year
-    const m = zbbQ.data?.budget_start_month
-    if (y != null && m != null) {
-      setBudgetStartY(y)
-      setBudgetStartM(m)
-    }
-  }, [zbbQ.data?.budget_start_year, zbbQ.data?.budget_start_month])
+  const serverStartYear = zbbQ.data?.budget_start_year
+  const serverStartMonth = zbbQ.data?.budget_start_month
+  const isBeforeBudgetStart = Boolean(zbbQ.data?.is_before_budget_start)
 
-  useEffect(() => {
-    if (zbbQ.data?.is_before_budget_start) setMonthPanelOpen(true)
-  }, [zbbQ.data?.is_before_budget_start])
+  // Adjust state while rendering when server values change (no effect → no extra commit):
+  // mirror the saved budget start into the editor, and open the panel for pre-start months.
+  const serverStartKey = serverStartYear != null && serverStartMonth != null ? `${serverStartYear}-${serverStartMonth}` : null
+  if (serverStartKey !== syncedBudgetStart) {
+    setSyncedBudgetStart(serverStartKey)
+    if (serverStartYear != null && serverStartMonth != null) {
+      setBudgetStartY(serverStartYear)
+      setBudgetStartM(serverStartMonth)
+    }
+  }
+  if (isBeforeBudgetStart !== syncedBeforeStart) {
+    setSyncedBeforeStart(isBeforeBudgetStart)
+    if (isBeforeBudgetStart) setMonthPanelOpen(true)
+  }
 
   const monthPanelSummary = useMemo(() => {
     const viewing = `Viewing ${monthLabel(year, month)}`
     const start =
-      zbbQ.data?.budget_start_year != null && zbbQ.data?.budget_start_month != null
-        ? `Budget starts ${monthLabel(zbbQ.data.budget_start_year, zbbQ.data.budget_start_month)}`
+      serverStartYear != null && serverStartMonth != null
+        ? `Budget starts ${monthLabel(serverStartYear, serverStartMonth)}`
         : 'No budget start (full history)'
     return `${viewing} · ${start}`
-  }, [year, month, zbbQ.data?.budget_start_year, zbbQ.data?.budget_start_month])
+  }, [year, month, serverStartYear, serverStartMonth])
   const createCategoryMut = useMutation({
     mutationFn: (body: { name: string; txn_category_id?: number | null; txn_subcategory_id?: number | null }) =>
       postZbbCategory(body),
@@ -199,8 +204,8 @@ export default function BudgetsPage() {
       setNewTxnCategoryId('none')
       setNewTxnSubcategoryId('none')
       await Promise.all([
-        qc.invalidateQueries({ queryKey: ['zbbCategories'] }),
-        qc.invalidateQueries({ queryKey: ['zbbMonth', year, month] }),
+        qc.invalidateQueries({ queryKey: queryKeys.zbbCategories() }),
+        invalidateMonths(),
       ])
     },
   })
@@ -601,7 +606,14 @@ export default function BudgetsPage() {
               </div>
               <div className="md:col-span-1">
                 <Label>Txn category (optional)</Label>
-                <Select value={newTxnCategoryId} onValueChange={setNewTxnCategoryId}>
+                <Select
+                  value={newTxnCategoryId}
+                  onValueChange={(v) => {
+                    setNewTxnCategoryId(v)
+                    // A subcategory from the previous category would be a mismatched pair.
+                    setNewTxnSubcategoryId('none')
+                  }}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -624,7 +636,7 @@ export default function BudgetsPage() {
                   <SelectContent>
                     <SelectItem value="none">None</SelectItem>
                     {(newTxnCategoryId !== 'none'
-                      ? (txnSubcategoriesQ.data?.[Number(newTxnCategoryId)] ?? [])
+                      ? (txnSubcategoriesQ.data ?? [])
                       : []
                     ).map((s) => (
                       <SelectItem key={s.id} value={String(s.id)}>

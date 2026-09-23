@@ -4,7 +4,9 @@ import { motion } from 'framer-motion'
 import { ChevronRight, Landmark, Plus, Trash2 } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { createAccount, deleteAccount, getAccounts, patchAccount } from '../api/accounts'
-import { queryKeys } from '../queryKeys'
+import { invalidateTransactionData, queryKeys } from '../queryKeys'
+import { formatMoney } from '@/lib/format'
+import { toast } from 'sonner'
 import { ACCOUNT_TYPES, accountTypeLabel } from '../features/accounts/accountViewKind'
 import type { Account } from '../api/accounts'
 import SimplefinConnectionsPage from './SimplefinConnectionsPage'
@@ -48,10 +50,6 @@ function formatSyncTime(iso: string | null | undefined) {
   }
 }
 
-function formatMoney(amount: number, currency: string) {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)
-}
-
 const TYPE_ORDER = new Map(ACCOUNT_TYPES.map((t, i) => [t, i]))
 
 function groupAccountsByType(accounts: Account[]): { type: string; items: Account[] }[] {
@@ -76,11 +74,6 @@ function groupAccountsByType(accounts: Account[]): { type: string; items: Accoun
   return types.map((type) => ({ type, items: byType.get(type)! }))
 }
 
-async function invalidateAccountQueries(queryClient: ReturnType<typeof useQueryClient>) {
-  await queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
-  await queryClient.invalidateQueries({ queryKey: queryKeys.settingsAll() })
-}
-
 export default function AccountsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab = searchParams.get('tab') === 'connections' ? 'connections' : 'accounts'
@@ -91,7 +84,7 @@ export default function AccountsPage() {
   const [confirmState, setConfirmState] = useState<{
     title: string
     message: string
-    action: () => Promise<void>
+    action: () => void
   } | null>(null)
 
   const { data: accounts = [], isLoading, error } = useQuery({
@@ -101,23 +94,35 @@ export default function AccountsPage() {
 
   const createMutation = useMutation({
     mutationFn: (payload: { name: string; type: string; currency: string }) => createAccount(payload),
+    onSuccess: () => {
+      setNewName('')
+      setCreateOpen(false)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
+    },
+    onError: (e: Error) => toast.error(e.message),
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => deleteAccount(id),
+    // Deleting an account deletes its transactions, so every rollup changes.
+    onSuccess: () => invalidateTransactionData(queryClient),
+    onError: (e: Error) => toast.error(e.message),
   })
   const patchMutation = useMutation({
     mutationFn: (params: { id: number; is_budget_account: boolean }) =>
       patchAccount(params.id, { is_budget_account: params.is_budget_account }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
+      // Budget accounts fund the ZBB liquid pool / Ready to Assign.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.budgets() })
+    },
+    onError: (e: Error) => toast.error(e.message),
   })
 
-  async function handleCreateAccount() {
+  function handleCreateAccount() {
     const name = newName.trim()
     if (!name) return
-    await createMutation.mutateAsync({ name, type: newType, currency: 'USD' })
-    setNewName('')
-    setCreateOpen(false)
-    await invalidateAccountQueries(queryClient)
+    createMutation.mutate({ name, type: newType, currency: 'USD' })
   }
 
   if (error) {
@@ -137,11 +142,11 @@ export default function AccountsPage() {
         title={confirmState?.title ?? ''}
         message={confirmState?.message ?? ''}
         onCancel={() => setConfirmState(null)}
-        onConfirm={async () => {
+        onConfirm={() => {
           if (!confirmState) return
           const fn = confirmState.action
           setConfirmState(null)
-          await fn()
+          fn()
         }}
       />
 
@@ -302,10 +307,9 @@ export default function AccountsPage() {
                                   <span className="text-[11px] text-muted-foreground">Budget account</span>
                                   <Switch
                                     checked={Boolean(a.is_budget_account)}
-                                    onCheckedChange={async (checked) => {
-                                      await patchMutation.mutateAsync({ id: a.id, is_budget_account: checked })
-                                      await invalidateAccountQueries(queryClient)
-                                    }}
+                                    onCheckedChange={(checked) =>
+                                      patchMutation.mutate({ id: a.id, is_budget_account: checked })
+                                    }
                                   />
                                 </div>
                               </CardContent>
@@ -320,10 +324,7 @@ export default function AccountsPage() {
                                 setConfirmState({
                                   title: 'Delete account?',
                                   message: `Remove "${a.name}"? This cannot be undone.`,
-                                  action: async () => {
-                                    await deleteMutation.mutateAsync(a.id)
-                                    await invalidateAccountQueries(queryClient)
-                                  },
+                                  action: () => deleteMutation.mutate(a.id),
                                 })
                               }
                             >

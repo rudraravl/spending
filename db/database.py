@@ -7,10 +7,12 @@ Handles:
 - Database initialization
 """
 
+import html
 import os
+import sqlite3
 from datetime import date
-from sqlalchemy import text
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, Session
 from db.models import Base, Category, Subcategory
 
@@ -27,6 +29,15 @@ engine = create_engine(
 
 # Bump this when schema changes require a rebuild.
 SCHEMA_VERSION = "2026-03-31-zbb-v2-decoupled"
+
+@event.listens_for(Engine, "connect")
+def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
+    """SQLite ignores FOREIGN KEY constraints unless enabled on every connection."""
+    if isinstance(dbapi_connection, sqlite3.Connection):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -346,6 +357,44 @@ def _migrate_category_budgets_unique_constraint(conn) -> None:
     conn.execute(text("PRAGMA foreign_keys=ON"))
 
 
+def _ensure_model_indexes(conn) -> None:
+    """
+    create_all() only builds indexes for tables it creates, so indexes added to
+    models later never reach existing databases. Create any that are missing.
+    """
+    for table in Base.metadata.sorted_tables:
+        for index in table.indexes:
+            index.create(bind=conn, checkfirst=True)
+
+
+def _migrate_unescape_simplefin_text(conn) -> None:
+    """
+    The SimpleFIN client used to HTML-escape descriptions before they were stored
+    (e.g. "Trader Joe&#x27;s"). The UI escapes on render, so undo it in stored rows.
+    """
+    tables = {
+        row[0]
+        for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()
+    }
+    targets = [
+        ("transactions", "merchant", "source = 'simplefin'"),
+        ("investment_holding_snapshots", "description", "1 = 1"),
+    ]
+    for table, column, scope in targets:
+        if table not in tables:
+            continue
+        rows = conn.execute(
+            text(f"SELECT id, {column} FROM {table} WHERE {scope} AND {column} LIKE '%&%;%'")
+        ).fetchall()
+        for row_id, value in rows:
+            fixed = html.unescape(value)
+            if fixed != value:
+                conn.execute(
+                    text(f"UPDATE {table} SET {column} = :v WHERE id = :id"),
+                    {"v": fixed, "id": row_id},
+                )
+
+
 def init_db():
     """
     Initialize the database by creating all tables and seeding required data.
@@ -405,9 +454,9 @@ def init_db():
             needs_rebuild = True
 
         if needs_rebuild:
-            Base.metadata.drop_all(bind=engine)
+            Base.metadata.drop_all(bind=conn)
 
-        Base.metadata.create_all(bind=engine)
+        Base.metadata.create_all(bind=conn)
 
         _migrate_accounts_columns(conn)
         _migrate_tags_columns(conn)
@@ -417,14 +466,8 @@ def init_db():
         _migrate_category_budgets_unique_constraint(conn)
         _migrate_budget_settings_table(conn)
         _seed_zbb_period_rows(conn)
-
-        # Ensure external dedupe index exists for imports
-        conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS idx_external_source "
-                "ON transactions (source, external_id)"
-            )
-        )
+        _migrate_unescape_simplefin_text(conn)
+        _ensure_model_indexes(conn)
 
     # Seed required categories/subcategories (idempotent).
     session = get_session()

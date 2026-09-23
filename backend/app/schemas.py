@@ -6,6 +6,12 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, model_validator
 
+from services.recurring_service import (
+    RecurringOccurrenceOut,
+    RecurringSeriesActionIn,
+    RecurringSeriesCardOut,
+    RecurringSeriesFingerprint,
+)
 from utils.timestamps import as_utc
 
 # Stored timestamps are UTC but come back from SQLite naive; serialize with an
@@ -278,42 +284,9 @@ class RuleMeta(BaseModel):
     allowed_operators: list[str]
 
 
-class RecurringSeriesFingerprint(BaseModel):
-    merchant_norm: str
-    amount_anchor_cents: int
-
-
-class RecurringSeriesActionIn(RecurringSeriesFingerprint):
-    pass
-
-
 class RecurringSeriesBulkCategoryUpdateIn(RecurringSeriesFingerprint):
     category_id: int
     subcategory_id: int
-
-
-class RecurringOccurrenceOut(BaseModel):
-    transaction_id: int
-    date: Date
-    amount: float
-    merchant: str
-    category_id: int | None = None
-    category_name: str | None = None
-    subcategory_id: int | None = None
-    subcategory_name: str | None = None
-
-
-class RecurringSeriesCardOut(BaseModel):
-    merchant_norm: str
-    display_name: str | None = None
-    amount_anchor_cents: int
-    amount_anchor: float
-    status: str
-    cadence_type: str | None = None
-    cadence_days: int | None = None
-    category_id: int | None = None
-    subcategory_id: int | None = None
-    occurrences: list[RecurringOccurrenceOut] = []
 
 
 class RecurringSeriesDetailOut(RecurringSeriesCardOut):

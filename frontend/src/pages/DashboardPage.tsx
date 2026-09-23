@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { ArrowRight, Info, RefreshCw, Scale, TrendingDown, TrendingUp, Wallet } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
@@ -19,15 +19,17 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { apiGet, apiPostJson } from '../api/client'
 import { getAccounts } from '../api/accounts'
-import { listConnections, triggerSync } from '../api/simplefin'
-import type { SyncResult } from '../api/simplefin'
+import { forceBackupToday } from '../api/backups'
+import { getDashboard, type DashboardRange, type DashboardResponse } from '../api/dashboard'
+import { listConnections } from '../api/simplefin'
 import { queryKeys } from '../queryKeys'
 import { toast } from 'sonner'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import { SortableTableHead } from '@/components/sortable-table-head'
-import { withSignedShare } from '@/components/reports/SpendBreakdownCharts'
+import { withSignedShare } from '@/components/reports/breakdown'
+import { fmtShortDate, todayIso } from '@/lib/dates'
+import { formatMoney } from '@/lib/format'
 import { cycleSort, sortBySelector, type ColumnSortState } from '@/lib/tableSort'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -46,56 +48,9 @@ import {
 } from '@/components/ui/tooltip'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
-import { useTransferReview } from '@/features/transfers/transferReviewContext'
+import { syncResultSummary, useSimplefinSync } from '@/features/simplefin/useSimplefinSync'
 
-type RangeKey = 'this_month' | 'last_month' | 'year' | 'custom'
-
-type CategoryRow = {
-  category_id: number
-  category: string
-  total: number
-  count: number
-  percent: number
-}
-
-type SubcategoryRow = {
-  category_id: number
-  category: string
-  subcategory: string
-  total: number
-  count: number
-  percent: number
-}
-
-type TrendPoint = { date: string; spending: number; credits: number }
-type NetWorthPoint = {
-  captured_at: string
-  total_value: number
-  currency: string
-  mixed_currencies: boolean
-  accounts_count: number
-}
-
-type RecentRow = {
-  id: number
-  Date: string
-  Merchant: string
-  Amount: number
-  Category: string
-}
-
-type DashboardResponse = {
-  range: string
-  start_date: string
-  end_date: string
-  total_spending: number
-  total_income: number
-  by_category: CategoryRow[]
-  by_subcategory: SubcategoryRow[]
-  spending_over_time: TrendPoint[]
-  net_worth_over_time: NetWorthPoint[]
-  recent_transactions: RecentRow[]
-}
+type RangeKey = DashboardRange
 
 const PRESETS: { key: RangeKey; label: string }[] = [
   { key: 'this_month', label: 'This Month' },
@@ -128,16 +83,6 @@ const item = {
   },
 }
 
-function buildDashboardUrl(preset: RangeKey, customStart: string, customEnd: string): string {
-  const p = new URLSearchParams()
-  p.set('range', preset)
-  if (preset === 'custom') {
-    p.set('start_date', customStart)
-    p.set('end_date', customEnd)
-  }
-  return `/api/dashboard?${p.toString()}`
-}
-
 const DASHBOARD_SHOW_NET_WORTH_KEY = 'dashboard-show-net-worth'
 
 function readShowNetWorthPreference(): boolean {
@@ -150,21 +95,7 @@ function readShowNetWorthPreference(): boolean {
   }
 }
 
-function formatMoney(amount: number, currency: string) {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)
-}
-
-function fmtShortDate(iso: string) {
-  try {
-    const d = new Date(iso + (iso.length <= 10 ? 'T12:00:00' : ''))
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-  } catch {
-    return iso
-  }
-}
-
 export default function DashboardPage() {
-  const queryClient = useQueryClient()
   const [preset, setPreset] = useState<RangeKey>('this_month')
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
@@ -194,34 +125,15 @@ export default function DashboardPage() {
   })
   const simplefinConnection = simplefinConnections[0] ?? null
 
-  const reviewTransfers = useTransferReview()
-
-  const syncMutation = useMutation({
-    mutationFn: () => triggerSync({ connection_id: simplefinConnection?.id ?? null }),
-    onSuccess: (result: SyncResult) => {
-      reviewTransfers(result.transfer_candidates ?? [])
-      const base = `Synced ${result.accounts_synced} account(s), imported ${result.transactions_imported} new transaction(s).`
-      if (result.errors?.length) {
-        toast.success(`${base} ${result.errors.join('; ')}`)
-      } else {
-        toast.success(base)
-      }
-      void queryClient.invalidateQueries({ queryKey: queryKeys.simplefinConnections() })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.accounts() })
-      void queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      void queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      void queryClient.invalidateQueries({ queryKey: ['simplefin', 'daily-budget'] })
-      void queryClient.invalidateQueries({ queryKey: ['simplefin', 'cached-accounts'] })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.investmentsSummary() })
-      void queryClient.invalidateQueries({ queryKey: ['investments'] })
-    },
-    onError: (err: Error) => toast.error(err.message),
+  const syncMutation = useSimplefinSync(simplefinConnection?.id, {
+    onSuccess: (result) => toast.success(syncResultSummary(result)),
+    onError: (err) => toast.error(err.message),
   })
 
   const forceBackupMutation = useMutation({
-    mutationFn: () => apiPostJson('/api/backups/force-today', {}),
-    onSuccess: (result: { overwritten: boolean; backup_path?: string }) => {
-      const suffix = result?.overwritten ? 'overwritten' : 'created'
+    mutationFn: forceBackupToday,
+    onSuccess: (result) => {
+      const suffix = result.overwritten ? 'overwritten' : 'created'
       toast.success(`DB backup ${suffix}.`)
       setForceBackupOpen(false)
     },
@@ -241,8 +153,12 @@ export default function DashboardPage() {
   }, [accounts])
 
   const { data, error, isLoading } = useQuery<DashboardResponse, Error>({
-    queryKey: ['dashboard', preset, preset === 'custom' ? customStart : '', preset === 'custom' ? customEnd : ''],
-    queryFn: () => apiGet<DashboardResponse>(buildDashboardUrl(preset, customStart, customEnd)),
+    queryKey: queryKeys.dashboardRange(
+      preset,
+      preset === 'custom' ? customStart : '',
+      preset === 'custom' ? customEnd : '',
+    ),
+    queryFn: () => getDashboard(preset, customStart, customEnd),
     enabled: customReady,
   })
 
@@ -289,12 +205,12 @@ export default function DashboardPage() {
   const netWorthSeries = useMemo(() => {
     if (!data?.net_worth_over_time?.length) return []
     return data.net_worth_over_time.map((point) => ({
-      time: fmtShortDate(point.captured_at.slice(0, 10)),
+      time: fmtShortDate(point.date),
       value: Number(point.total_value),
       currency: point.currency,
       mixed: point.mixed_currencies,
     }))
-  }, [data?.net_worth_over_time])
+  }, [data])
 
   const selectedCategoryName =
     data?.by_category.find((c) => c.category_id === selectedCategoryId)?.category ?? ''
@@ -309,17 +225,14 @@ export default function DashboardPage() {
       Amount: (r) => r.Amount,
       Category: (r) => r.Category,
     })
-  }, [data?.recent_transactions, recentSort])
+  }, [data, recentSort])
 
   function onSelectPreset(next: RangeKey) {
     setPreset(next)
     if (next === 'custom' && !customStart) {
-      const t = new Date()
-      const y = t.getFullYear()
-      const m = String(t.getMonth() + 1).padStart(2, '0')
-      const day = String(t.getDate()).padStart(2, '0')
-      setCustomStart(`${y}-${m}-01`)
-      setCustomEnd(`${y}-${m}-${day}`)
+      const today = todayIso()
+      setCustomStart(`${today.slice(0, 8)}01`)
+      setCustomEnd(today)
     }
   }
 
@@ -398,10 +311,8 @@ export default function DashboardPage() {
           message="This will overwrite the most recent backup with the current DB state (today)."
           confirmLabel={forceBackupMutation.isPending ? 'Backing up…' : 'Confirm'}
           onCancel={() => setForceBackupOpen(false)}
-          onConfirm={async () => {
-            if (forceBackupMutation.isPending) return
-            await forceBackupMutation.mutateAsync()
-            // handled in onSuccess
+          onConfirm={() => {
+            if (!forceBackupMutation.isPending) forceBackupMutation.mutate()
           }}
         />
 
@@ -566,11 +477,11 @@ export default function DashboardPage() {
                 <motion.div variants={item} className="rounded-xl border bg-card p-6 shadow-card mb-6">
                   <h2 className="text-sm font-semibold mb-1">Net worth trend</h2>
                   <p className="text-xs text-muted-foreground mb-4">
-                    Snapshot captured on each sync.
+                    Daily, estimated from account balances and transactions.
                   </p>
                   {netWorthSeries.length === 0 ? (
                     <p className="text-sm text-muted-foreground py-12 text-center">
-                      No snapshots yet. Run sync to start building net worth history.
+                      No account activity in this range yet.
                     </p>
                   ) : (
                     <div className="h-[min(38vh,320px)] min-h-[220px] w-full">
@@ -612,7 +523,7 @@ export default function DashboardPage() {
                             dataKey="value"
                             stroke="hsl(var(--primary))"
                             strokeWidth={2.25}
-                            dot={{ r: 2.5, strokeWidth: 0, fill: 'hsl(var(--primary))' }}
+                            dot={false}
                             activeDot={{ r: 4 }}
                           />
                         </LineChart>

@@ -30,7 +30,10 @@ def _resolve_key() -> bytes:
 
     key = Fernet.generate_key()
     _KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _KEY_FILE.write_bytes(key)
+    # Owner-only: this key decrypts the stored bank Access URL.
+    fd = os.open(_KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(key)
     return key
 
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { motion } from 'framer-motion'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -13,9 +13,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { apiDelete, apiGet, apiPatchJson, apiPostJson } from '../api/client'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { queryKeys } from '../queryKeys'
+import { invalidateTransactionData, queryKeys } from '../queryKeys'
+import { createTag, deleteTag, getTags } from '../api/tags'
+import { createRule, deleteRule, getRuleMeta, getRules, updateRule, type Rule, type RuleIn } from '../api/rules'
+import { toast } from 'sonner'
 import {
   createCategory,
   createSubcategory,
@@ -26,19 +28,13 @@ import {
 } from '../api/categories'
 
 import type { CategoryOut, SubcategoryOut, TagOut } from '../types'
+
+const EMPTY_CATEGORIES: CategoryOut[] = []
+const EMPTY_TAGS: TagOut[] = []
+const EMPTY_RULES: Rule[] = []
 import { Separator } from '@/components/ui/separator'
 import { Link } from 'react-router-dom'
 
-type RuleMeta = { allowed_fields: string[]; allowed_operators: string[] }
-type Rule = {
-  id: number
-  priority: number
-  field: string
-  operator: string
-  value: string
-  category_id: number
-  subcategory_id: number
-}
 type RuleFormValues = {
   priority: number
   field: string
@@ -65,7 +61,7 @@ export default function SettingsPage() {
   const [confirmState, setConfirmState] = useState<{
     title: string
     message: string
-    action: () => Promise<void>
+    action: () => void
   } | null>(null)
 
   const [categoryName, setCategoryName] = useState('')
@@ -89,29 +85,23 @@ export default function SettingsPage() {
   const ruleCategoryId = watchRule('category_id')
   const ruleSubcategoryId = watchRule('subcategory_id')
 
-  const settingsAllQuery = useQuery({
-    queryKey: queryKeys.settingsAll(),
-    queryFn: async () => {
-      const [cat, tag, ruleResp, ruleMetaResp] = await Promise.all([
-        getCategories(),
-        apiGet<TagOut[]>('/api/tags'),
-        apiGet<Rule[]>('/api/rules'),
-        apiGet<RuleMeta>('/api/rules/meta'),
-      ])
-      return { cat, tag, ruleResp, ruleMetaResp }
-    },
-  })
+  const categoriesQuery = useQuery({ queryKey: queryKeys.categories(), queryFn: getCategories })
+  const tagsQuery = useQuery({ queryKey: queryKeys.tags(), queryFn: getTags })
+  const rulesQuery = useQuery({ queryKey: queryKeys.rules(), queryFn: getRules })
+  const ruleMetaQuery = useQuery({ queryKey: queryKeys.rulesMeta(), queryFn: getRuleMeta })
 
+  /** After any taxonomy / rule change: refresh the lists here and everything that shows category names. */
   async function reloadAll() {
-    queryClient.invalidateQueries({ queryKey: queryKeys.categories() })
-    queryClient.invalidateQueries({ queryKey: queryKeys.tags() })
-    queryClient.invalidateQueries({ queryKey: ['subcategories'] })
-    queryClient.invalidateQueries({ queryKey: ['transactions'] })
-    queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-    queryClient.invalidateQueries({ queryKey: ['views'] })
-    queryClient.invalidateQueries({ queryKey: ['reports'] })
-    await queryClient.refetchQueries({ queryKey: queryKeys.settingsAll() })
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.categories() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.tags() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.subcategoriesAll() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.rules() }),
+      invalidateTransactionData(queryClient),
+    ])
   }
+
+  const onMutationError = (e: Error) => toast.error(e.message)
 
   const ruleSubsQuery = useQuery<SubcategoryOut[], Error>({
     queryKey: queryKeys.subcategories(ruleCategoryId),
@@ -119,41 +109,33 @@ export default function SettingsPage() {
     enabled: ruleCategoryId != null,
   })
 
-  const categories = settingsAllQuery.data?.cat ?? []
-  const tags = settingsAllQuery.data?.tag ?? []
-  const rules = settingsAllQuery.data?.ruleResp ?? []
-  const meta = settingsAllQuery.data?.ruleMetaResp ?? null
+  const categories = categoriesQuery.data ?? EMPTY_CATEGORIES
+  const tags = tagsQuery.data ?? EMPTY_TAGS
+  const rules = rulesQuery.data ?? EMPTY_RULES
+  const meta = ruleMetaQuery.data ?? null
 
   const subcategoriesForRule = ruleCategoryId == null ? [] : (ruleSubsQuery.data ?? [])
 
-  const categoryIds = useMemo(() => categories.map((c) => c.id), [categories])
-  const allSubcategoriesQueries = useQueries({
-    queries: categoryIds.map((categoryId) => ({
-      queryKey: queryKeys.subcategories(categoryId),
-      queryFn: () => getSubcategories(categoryId),
-      enabled: categoryIds.length > 0,
+  const subcategoryNameById = useQueries({
+    queries: categories.map((c) => ({
+      queryKey: queryKeys.subcategories(c.id),
+      queryFn: () => getSubcategories(c.id),
     })),
+    combine: (results) => {
+      const map = new Map<number, string>()
+      for (const q of results) {
+        for (const s of q.data ?? []) map.set(s.id, s.name)
+      }
+      return map
+    },
   })
-  const subcategoryNameById = useMemo(() => {
-    const map = new Map<number, string>()
-    for (const q of allSubcategoriesQueries) {
-      for (const s of q.data ?? []) map.set(s.id, s.name)
-    }
-    return map
-  }, [
-    allSubcategoriesQueries
-      .flatMap((q) => q.data ?? [])
-      .map((s) => `${s.id}:${s.name}`)
-      .sort()
-      .join('|'),
-  ])
 
   useEffect(() => {
-    const cat = settingsAllQuery.data?.cat
+    const cat = categoriesQuery.data
     if (!cat?.length) return
     setSubcategoryParentCategoryId((prev) => prev ?? cat[0].id)
     if (ruleCategoryId == null) setRuleValueForm('category_id', cat[0].id)
-  }, [settingsAllQuery.data, ruleCategoryId, setRuleValueForm])
+  }, [categoriesQuery.data, ruleCategoryId, setRuleValueForm])
 
   useEffect(() => {
     if (ruleCategoryId == null) return
@@ -166,36 +148,45 @@ export default function SettingsPage() {
 
   const createCategoryMutation = useMutation({
     mutationFn: (payload: { name: string }) => createCategory(payload),
+    onSuccess: reloadAll,
+    onError: onMutationError,
   })
 
   const deleteCategoryMutation = useMutation({
     mutationFn: (id: number) => deleteCategory(id),
+    onSuccess: reloadAll,
+    onError: onMutationError,
   })
 
   const createSubcategoryMutation = useMutation({
     mutationFn: (payload: { category_id: number; name: string }) => createSubcategory(payload),
+    onSuccess: reloadAll,
+    onError: onMutationError,
   })
 
   const createTagMutation = useMutation({
-    mutationFn: (payload: { name: string }) => apiPostJson('/api/tags', payload),
+    mutationFn: (payload: { name: string }) => createTag(payload),
+    onSuccess: reloadAll,
+    onError: onMutationError,
   })
 
   const deleteTagMutation = useMutation({
-    mutationFn: (id: number) => apiDelete(`/api/tags/${id}`),
+    mutationFn: (id: number) => deleteTag(id),
+    onSuccess: reloadAll,
+    onError: onMutationError,
   })
 
   const upsertRuleMutation = useMutation({
-    mutationFn: async (args: { editingRuleId: number | null; base: Omit<Rule, 'id'> }) => {
-      if (args.editingRuleId) {
-        await apiPatchJson(`/api/rules/${args.editingRuleId}`, args.base)
-        return
-      }
-      await apiPostJson('/api/rules', args.base)
-    },
+    mutationFn: (args: { editingRuleId: number | null; base: RuleIn }) =>
+      args.editingRuleId ? updateRule(args.editingRuleId, args.base) : createRule(args.base),
+    onSuccess: reloadAll,
+    onError: onMutationError,
   })
 
   const deleteRuleMutation = useMutation({
-    mutationFn: (id: number) => apiDelete(`/api/rules/${id}`),
+    mutationFn: (id: number) => deleteRule(id),
+    onSuccess: reloadAll,
+    onError: onMutationError,
   })
 
   function loadRuleIntoEditor(r: Rule) {
@@ -208,7 +199,8 @@ export default function SettingsPage() {
     setRuleValueForm('subcategory_id', r.subcategory_id)
   }
 
-  const isLoading = settingsAllQuery.isLoading
+  const isLoading =
+    categoriesQuery.isLoading || tagsQuery.isLoading || rulesQuery.isLoading || ruleMetaQuery.isLoading
 
   return (
     <div className="p-6 lg:p-8 max-w-6xl mx-auto">
@@ -246,11 +238,11 @@ export default function SettingsPage() {
             title={confirmState?.title ?? ''}
             message={confirmState?.message ?? ''}
             onCancel={() => setConfirmState(null)}
-            onConfirm={async () => {
+            onConfirm={() => {
               if (!confirmState) return
               const fn = confirmState.action
               setConfirmState(null)
-              await fn()
+              fn()
             }}
           />
 
@@ -275,11 +267,9 @@ export default function SettingsPage() {
                 </div>
                 <Button
                   className="w-full sm:w-auto"
-                  onClick={async () => {
-                    await createCategoryMutation.mutateAsync({ name: categoryName })
-                    setCategoryName('')
-                    await reloadAll()
-                  }}
+                  onClick={() =>
+                    createCategoryMutation.mutate({ name: categoryName }, { onSuccess: () => setCategoryName('') })
+                  }
                 >
                   Add category
                 </Button>
@@ -301,10 +291,7 @@ export default function SettingsPage() {
                             setConfirmState({
                               title: 'Delete category?',
                               message: `Remove "${c.name}" and its subcategory links? This cannot be undone.`,
-                              action: async () => {
-                                await deleteCategoryMutation.mutateAsync(c.id)
-                                await reloadAll()
-                              },
+                              action: () => deleteCategoryMutation.mutate(c.id),
                             })
                           }
                         >
@@ -362,14 +349,12 @@ export default function SettingsPage() {
                 </div>
               </div>
               <Button
-                onClick={async () => {
+                onClick={() => {
                   if (!subcategoryParentCategoryId) return
-                  await createSubcategoryMutation.mutateAsync({
-                    category_id: subcategoryParentCategoryId,
-                    name: subcategoryName,
-                  })
-                  setSubcategoryName('')
-                  await reloadAll()
+                  createSubcategoryMutation.mutate(
+                    { category_id: subcategoryParentCategoryId, name: subcategoryName },
+                    { onSuccess: () => setSubcategoryName('') },
+                  )
                 }}
               >
                 Add subcategory
@@ -395,11 +380,7 @@ export default function SettingsPage() {
                 </div>
                 <Button
                   className="w-full sm:w-auto"
-                  onClick={async () => {
-                    await createTagMutation.mutateAsync({ name: tagName })
-                    setTagName('')
-                    await reloadAll()
-                  }}
+                  onClick={() => createTagMutation.mutate({ name: tagName }, { onSuccess: () => setTagName('') })}
                 >
                   Add tag
                 </Button>
@@ -422,10 +403,7 @@ export default function SettingsPage() {
                           setConfirmState({
                             title: 'Delete tag?',
                             message: `Remove tag "${t.name}"?`,
-                            action: async () => {
-                              await deleteTagMutation.mutateAsync(t.id)
-                              await reloadAll()
-                            },
+                            action: () => deleteTagMutation.mutate(t.id),
                           })
                         }
                       >
@@ -578,7 +556,7 @@ export default function SettingsPage() {
 
                     <div className="flex flex-wrap gap-2 pt-2">
                       <Button
-                        onClick={handleRuleSubmit(async (values) => {
+                        onClick={handleRuleSubmit((values) => {
                           if (!values.category_id || !values.subcategory_id) return
                           const base = {
                             priority: values.priority,
@@ -588,10 +566,15 @@ export default function SettingsPage() {
                             category_id: values.category_id,
                             subcategory_id: values.subcategory_id,
                           }
-                          await upsertRuleMutation.mutateAsync({ editingRuleId, base })
-                          setEditingRuleId(null)
-                          setRuleValueForm('value', '')
-                          await reloadAll()
+                          upsertRuleMutation.mutate(
+                            { editingRuleId, base },
+                            {
+                              onSuccess: () => {
+                                setEditingRuleId(null)
+                                setRuleValueForm('value', '')
+                              },
+                            },
+                          )
                         })}
                       >
                         {editingRuleId ? 'Save changes' : 'Create rule'}
@@ -638,10 +621,7 @@ export default function SettingsPage() {
                               setConfirmState({
                                 title: 'Delete rule?',
                                 message: 'Remove this categorization rule?',
-                                action: async () => {
-                                  await deleteRuleMutation.mutateAsync(r.id)
-                                  await reloadAll()
-                                },
+                                action: () => deleteRuleMutation.mutate(r.id),
                               })
                             }
                           >
@@ -674,7 +654,7 @@ function SubcategoriesList({
   const [confirmState, setConfirmState] = useState<{
     title: string
     message: string
-    action: () => Promise<void>
+    action: () => void
   } | null>(null)
 
   const { data: subs = [] } = useQuery<SubcategoryOut[], Error>({
@@ -684,6 +664,8 @@ function SubcategoriesList({
 
   const deleteSubcategoryMutation = useMutation({
     mutationFn: (id: number) => deleteSubcategory(id),
+    onSuccess: onReload,
+    onError: (e: Error) => toast.error(e.message),
   })
 
   return (
@@ -693,11 +675,11 @@ function SubcategoriesList({
         title={confirmState?.title ?? ''}
         message={confirmState?.message ?? ''}
         onCancel={() => setConfirmState(null)}
-        onConfirm={async () => {
+        onConfirm={() => {
           if (!confirmState) return
           const fn = confirmState.action
           setConfirmState(null)
-          await fn()
+          fn()
         }}
       />
       {subs.length === 0 ? (
@@ -715,10 +697,7 @@ function SubcategoriesList({
                   setConfirmState({
                     title: 'Delete subcategory?',
                     message: `Remove "${s.name}"?`,
-                    action: async () => {
-                      await deleteSubcategoryMutation.mutateAsync(s.id)
-                      await onReload()
-                    },
+                    action: () => deleteSubcategoryMutation.mutate(s.id),
                   })
                 }
               >

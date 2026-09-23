@@ -12,11 +12,12 @@ Provides:
 from datetime import date, datetime, timezone
 from typing import Iterable, List, Literal, Optional, cast
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Query, Session, aliased
+from sqlalchemy.orm import Query, Session, aliased, joinedload, selectinload
 from db.models import Transaction, Tag, Account, Category, Subcategory, TransferGroup, TransactionSplit
+from services.account_service import delete_empty_transfer_groups, get_other_uncategorized_ids
 from services.transfer_matching_service import CARD_PAYMENT_AMOUNT_TOLERANCE
 from services.zbb_service import recalc_activity_for_months
-from utils.filters import TransactionFilter
+from utils.filters import TransactionFilter, apply_transaction_filters
 
 
 SPLIT_TOLERANCE = .01
@@ -304,44 +305,7 @@ def _filtered_transactions_query(
     query = session.query(Transaction)
     if not include_transfers:
         query = query.filter(Transaction.is_transfer.is_(False))
-    
-    if filters:
-        if filters.exclude_account_types:
-            query = query.join(Account, Transaction.account_id == Account.id)
-            query = query.filter(~Account.type.in_(list(filters.exclude_account_types)))
-        # Apply filters
-        if filters.start_date:
-            query = query.filter(Transaction.date >= filters.start_date)
-        
-        if filters.end_date:
-            query = query.filter(Transaction.date <= filters.end_date)
-        
-        if filters.account_id:
-            query = query.filter(Transaction.account_id == filters.account_id)
-        
-        if filters.min_amount is not None:
-            query = query.filter(Transaction.amount >= filters.min_amount)
-        
-        if filters.max_amount is not None:
-            query = query.filter(Transaction.amount <= filters.max_amount)
-        
-        # Filter by tag (AND: all tags required; OR: any tag matches)
-        if filters.tag_ids:
-            if getattr(filters, "tags_match_any", False):
-                query = query.filter(Transaction.tags.any(Tag.id.in_(filters.tag_ids)))
-            else:
-                for tag_id in filters.tag_ids:
-                    query = query.filter(Transaction.tags.any(Tag.id == tag_id))
-        
-        # Filter by category (direct category_id match only)
-        if filters.category_id:
-            query = query.filter(Transaction.category_id == filters.category_id)
-        
-        # Filter by subcategory
-        if filters.subcategory_id:
-            query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
-        elif getattr(filters, "subcategory_ids", None):
-            query = query.filter(Transaction.subcategory_id.in_(filters.subcategory_ids))
+    query = apply_transaction_filters(query, filters)
 
     needle = (search or "").strip()
     if needle:
@@ -410,7 +374,16 @@ def get_transactions(
     """
     query = _filtered_transactions_query(session, filters, include_transfers, search)
     query = _apply_transaction_sort(query, sort_by, sort_desc)
-    
+    # Callers serialize account/category/subcategory names, tags and has-splits for
+    # every row; load them up front instead of lazily per row.
+    query = query.options(
+        joinedload(Transaction.account),
+        joinedload(Transaction.category),
+        joinedload(Transaction.subcategory),
+        selectinload(Transaction.tags),
+        selectinload(Transaction.splits),
+    )
+
     # Apply limit and offset
     if limit:
         query = query.limit(limit)
@@ -470,7 +443,8 @@ def delete_transaction(
 
     group_id = transaction.transfer_group_id
     if group_id is not None:
-        other_cat_id, unc_sub_id = _get_other_uncategorized_ids(session)
+        month_keys = [month]
+        other_cat_id, unc_sub_id = get_other_uncategorized_ids(session)
         peers = (
             session.query(Transaction)
             .filter(Transaction.transfer_group_id == group_id, Transaction.id != transaction_id)
@@ -481,12 +455,12 @@ def delete_transaction(
             peer.transfer_group_id = None
             peer.category_id = other_cat_id
             peer.subcategory_id = unc_sub_id
+            peer.notes = _remove_link_note(peer.notes)
+            month_keys.append(_month_key(peer.date))
 
-        group = session.query(TransferGroup).filter(TransferGroup.id == group_id).first()
         session.delete(transaction)
-        if group is not None:
-            session.delete(group)
-        _recalc_zbb_months(session, [month])
+        delete_empty_transfer_groups(session, {int(group_id)})
+        _recalc_zbb_months(session, month_keys)
         session.commit()
         return True
 
@@ -657,20 +631,6 @@ def link_transactions_as_transfer(
     return group
 
 
-def _get_other_uncategorized_ids(session: Session) -> tuple[int, int]:
-    other = session.query(Category).filter(Category.name == "Other").first()
-    if not other:
-        raise ValueError("Required category 'Other' not found")
-    uncategorized = (
-        session.query(Subcategory)
-        .filter(Subcategory.category_id == other.id, Subcategory.name == "Uncategorized")
-        .first()
-    )
-    if not uncategorized:
-        raise ValueError("Required subcategory 'Uncategorized' not found under 'Other'")
-    return int(other.id), int(uncategorized.id)
-
-
 def unlink_transfer_pair(
     session: Session,
     transaction_id_a: int,
@@ -701,7 +661,7 @@ def unlink_transfer_pair(
         raise ValueError("Selected transactions are not linked to the same transfer group")
 
     group_id = int(t_a.transfer_group_id)
-    other_cat_id, unc_sub_id = _get_other_uncategorized_ids(session)
+    other_cat_id, unc_sub_id = get_other_uncategorized_ids(session)
 
     for t in (t_a, t_b):
         t.is_transfer = False
@@ -712,9 +672,7 @@ def unlink_transfer_pair(
         if t.subcategory_id is None:
             t.subcategory_id = unc_sub_id
 
-    group = session.query(TransferGroup).filter(TransferGroup.id == group_id).first()
-    if group and len(group.transactions) == 0:
-        session.delete(group)
+    delete_empty_transfer_groups(session, {group_id})
 
     _recalc_zbb_months(session, [_month_key(t_a.date), _month_key(t_b.date)])
     session.commit()

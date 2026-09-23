@@ -8,7 +8,7 @@ offset. Label them as UTC before they leave the backend.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 
 def as_utc(value: datetime | None) -> datetime | None:
@@ -19,3 +19,8 @@ def as_utc(value: datetime | None) -> datetime | None:
 
 def utc_isoformat(value: datetime | None) -> str | None:
     return as_utc(value).isoformat() if value is not None else None
+
+
+def local_date(value: datetime) -> date:
+    """Calendar date of a stored (UTC) timestamp in this machine's timezone, which transaction dates use."""
+    return as_utc(value).astimezone().date()

@@ -24,7 +24,7 @@ from backend.app.schemas import (
 )
 from backend.app.transfer_helpers import transfer_pair_to_candidate_out
 from db.models import Subcategory, Transaction
-from services.trasaction_service import (
+from services.transaction_service import (
     create_transaction,
     count_transactions,
     create_transfer,
@@ -125,12 +125,16 @@ def _list_scope(
     )
 
 
+# Upper bound on one list response; callers page with offset beyond this.
+MAX_LIST_LIMIT = 5000
+
+
 @router.get("/api/transactions", response_model=list[TransactionOut])
 def list_transactions(
     scope: _ListScope = Depends(_list_scope),
     sort_by: TransactionSortField = Query(default="date"),
     sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
-    limit: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=MAX_LIST_LIMIT, ge=1, le=MAX_LIST_LIMIT),
     offset: int = Query(default=0, ge=0),
     session: Session = Depends(get_db_session),
 ) -> list[TransactionOut]:
@@ -208,6 +212,9 @@ def update_transaction_endpoint(
     payload: TransactionUpdate,
     session: Session = Depends(get_db_session),
 ) -> TransactionOut:
+    if session.get(Transaction, transaction_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+
     update_data = payload.model_dump(exclude_unset=True)
     service_kwargs: dict[str, object] = {}
     if "date" in update_data:

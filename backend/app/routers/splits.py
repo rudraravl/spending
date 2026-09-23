@@ -6,10 +6,29 @@ from sqlalchemy.orm import Session
 from backend.app.deps import get_db_session
 from backend.app.schemas import TransactionSplitIn, TransactionSplitOut
 from db.models import Transaction, TransactionSplit
-from services.trasaction_service import get_transaction_by_id, set_transaction_splits
+from services.transaction_service import get_transaction_by_id, set_transaction_splits
 
 
 router = APIRouter(tags=["splits"])
+
+
+def _get_txn_or_404(session: Session, transaction_id: int) -> Transaction:
+    txn = get_transaction_by_id(session, transaction_id)
+    if not txn:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+    return txn
+
+
+def _split_to_out(s: TransactionSplit) -> TransactionSplitOut:
+    return TransactionSplitOut(
+        id=s.id,
+        category_id=s.category_id,
+        category_name=s.category.name if s.category else None,
+        subcategory_id=s.subcategory_id,
+        subcategory_name=s.subcategory.name if s.subcategory else None,
+        amount=float(s.amount),
+        notes=s.notes,
+    )
 
 
 @router.get(
@@ -20,30 +39,13 @@ def get_splits(
     transaction_id: int,
     session: Session = Depends(get_db_session),
 ) -> list[TransactionSplitOut]:
-    txn = get_transaction_by_id(session, transaction_id)
-    if not txn:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
-
-    result: list[TransactionSplitOut] = []
-    for s in list(txn.splits or []):
-        result.append(
-            TransactionSplitOut(
-                id=s.id,
-                category_id=s.category_id,
-                category_name=getattr(s.category, "name", None) if getattr(s, "category", None) else None,
-                subcategory_id=s.subcategory_id,
-                subcategory_name=getattr(s.subcategory, "name", None)
-                if getattr(s, "subcategory", None)
-                else None,
-                amount=float(s.amount),
-                notes=s.notes,
-            )
-        )
-    return result
+    txn = _get_txn_or_404(session, transaction_id)
+    return [_split_to_out(s) for s in txn.splits or []]
 
 
 @router.put(
     "/api/transactions/{transaction_id}/splits",
+    response_model=list[TransactionSplitOut],
     status_code=status.HTTP_200_OK,
 )
 def replace_splits(
@@ -54,6 +56,7 @@ def replace_splits(
     """
     Replace all splits for a transaction (including clearing them by sending an empty list).
     """
+    _get_txn_or_404(session, transaction_id)
 
     payload = [
         {
@@ -70,27 +73,7 @@ def replace_splits(
     except ValueError as e:
         # Surface validation errors to the user.
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    except Exception as e:  # pragma: no cover
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
     # Return updated splits
-    updated = get_transaction_by_id(session, transaction_id)
-    assert updated is not None  # existence checked earlier in service or via DB constraints
-
-    result: list[TransactionSplitOut] = []
-    for s in list(updated.splits or []):
-        result.append(
-            TransactionSplitOut(
-                id=s.id,
-                category_id=s.category_id,
-                category_name=getattr(s.category, "name", None) if getattr(s, "category", None) else None,
-                subcategory_id=s.subcategory_id,
-                subcategory_name=getattr(s.subcategory, "name", None)
-                if getattr(s, "subcategory", None)
-                else None,
-                amount=float(s.amount),
-                notes=s.notes,
-            )
-        )
-    return result
-
+    updated = _get_txn_or_404(session, transaction_id)
+    return [_split_to_out(s) for s in updated.splits or []]

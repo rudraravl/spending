@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import {
@@ -12,7 +12,7 @@ import {
   YAxis,
 } from 'recharts'
 import { Info, PiggyBank, Receipt, TrendingDown, TrendingUp } from 'lucide-react'
-import { apiGet } from '../api/client'
+import { getMonthlyReport, type ReportsMonthlyResponse } from '../api/reports'
 import { queryKeys } from '../queryKeys'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
@@ -28,34 +28,14 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { SpendPieCard } from '@/components/reports/SpendBreakdownCharts'
 import {
   breakdownMotionContainer as container,
   breakdownMotionItem as item,
-  formatMoney,
   rawSlicesFromRows,
-  SpendPieCard,
-  type BreakdownRow,
-} from '@/components/reports/SpendBreakdownCharts'
-
-type CumPoint = { day_of_month: number; this_month: number | null; last_month: number | null }
-
-type ReportsMonthlyResponse = {
-  year: number
-  month: number
-  start_date: string
-  end_date: string
-  prev_month_year: number
-  prev_month: number
-  total_spending: number
-  total_income: number
-  avg_transaction_amount: number
-  transaction_count: number
-  savings_rate_pct: number | null
-  cumulative_comparison: CumPoint[]
-  by_tag: BreakdownRow[]
-  by_category: BreakdownRow[]
-  by_subcategory: BreakdownRow[]
-}
+  subcategorySlices,
+} from '@/components/reports/breakdown'
+import { formatSignedUsd as formatMoney } from '@/lib/format'
 
 function monthYearLabel(year: number, month: number) {
   return new Date(year, month - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' })
@@ -77,21 +57,29 @@ const MONTH_NAMES = [
 ]
 
 export default function ReportsPage() {
-  const today = new Date()
-  const [year, setYear] = useState(today.getFullYear())
-  const [month, setMonth] = useState(today.getMonth() + 1)
+  const [currentYear] = useState(() => new Date().getFullYear())
+  const [year, setYearState] = useState(currentYear)
+  const [month, setMonthState] = useState(() => new Date().getMonth() + 1)
+  // A category focus is per month; clear it whenever the month changes.
+  const setYear = (y: number) => {
+    setYearState(y)
+    setSelectedCategoryId(null)
+  }
+  const setMonth = (m: number) => {
+    setMonthState(m)
+    setSelectedCategoryId(null)
+  }
 
   const yearOptions = useMemo(() => {
-    const cy = today.getFullYear()
-    const start = Math.min(cy - 10, 2018)
+    const start = Math.min(currentYear - 10, 2018)
     const out: number[] = []
-    for (let y = start; y <= cy + 1; y++) out.push(y)
+    for (let y = start; y <= currentYear + 1; y++) out.push(y)
     return out
-  }, [today])
+  }, [currentYear])
 
   const { data, error, isPending, isFetching } = useQuery<ReportsMonthlyResponse, Error>({
     queryKey: queryKeys.reportsMonthly(year, month),
-    queryFn: () => apiGet<ReportsMonthlyResponse>(`/api/reports/monthly?year=${year}&month=${month}`),
+    queryFn: () => getMonthlyReport(year, month),
     staleTime: 60 * 1000,
   })
 
@@ -111,38 +99,24 @@ export default function ReportsPage() {
       [thisLabel]: row.this_month,
       [prevLabel]: row.last_month,
     }))
-  }, [data?.cumulative_comparison, thisLabel, prevLabel])
+  }, [data, thisLabel, prevLabel])
 
   const categoryRaw = useMemo(
     () => rawSlicesFromRows(data?.by_category ?? [], 'category', 'category_id'),
-    [data?.by_category],
+    [data],
   )
 
-  const tagRaw = useMemo(() => rawSlicesFromRows(data?.by_tag ?? [], 'tag'), [data?.by_tag])
+  const tagRaw = useMemo(() => rawSlicesFromRows(data?.by_tag ?? [], 'tag'), [data])
 
-  const subcategoryRaw = useMemo(() => {
-    const rows = data?.by_subcategory ?? []
-    const filtered =
-      selectedCategoryId == null ? rows : rows.filter((r) => r.category_id === selectedCategoryId)
-    const mapped: BreakdownRow[] = filtered.map((r) => ({
-      ...r,
-      subcategory: r.category ? `${r.category} › ${r.subcategory ?? '—'}` : String(r.subcategory ?? ''),
-    }))
-    return rawSlicesFromRows(mapped, 'subcategory')
-  }, [data?.by_subcategory, selectedCategoryId])
+  const subcategoryRaw = useMemo(
+    () => subcategorySlices(data?.by_subcategory ?? [], selectedCategoryId),
+    [data, selectedCategoryId],
+  )
 
   const selectedCategoryName =
     selectedCategoryId != null
       ? data?.by_category.find((c) => c.category_id === selectedCategoryId)?.category ?? ''
       : ''
-
-  const onCategorySliceClick = useCallback((id: number) => {
-    setSelectedCategoryId(id)
-  }, [])
-
-  useEffect(() => {
-    setSelectedCategoryId(null)
-  }, [year, month])
 
   const spending = data ? Number(data.total_spending) : 0
   const income = data ? Number(data.total_income) : 0
@@ -419,7 +393,7 @@ export default function ReportsPage() {
                 emptyHint="No categorized spending this month."
                 interactiveCategory
                 selectedCategoryId={selectedCategoryId}
-                onCategorySliceClick={onCategorySliceClick}
+                onCategorySliceClick={setSelectedCategoryId}
                 twoThirdsPieLayout
               />
             </motion.div>

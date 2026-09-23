@@ -1,5 +1,6 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
+import { Suspense } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 
 const pageMeta: Record<string, { title: string; description: string }> = {
@@ -47,7 +48,10 @@ export default function AppLayout() {
             </div>
           </header>
           <main className="min-h-0 flex-1 overflow-auto bg-background">
-            <Outlet />
+            {/* Pages are lazy-loaded; keep the shell mounted while a page chunk loads. */}
+            <Suspense fallback={null}>
+              <Outlet />
+            </Suspense>
           </main>
           <footer className="shrink-0 border-t border-border/70 bg-muted/25 px-4 py-2.5 text-center text-[11px] text-muted-foreground">
             Made by Rudra Raval

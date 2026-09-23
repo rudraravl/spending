@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from db.models import Account, Base, Category, Transaction
-from services.trasaction_service import count_transactions, get_transactions
+from services.transaction_service import count_transactions, get_transactions
 from utils.filters import TransactionFilter
 
 

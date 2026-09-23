@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
 from backend.app.deps import get_db_session
@@ -106,7 +106,13 @@ class SyncIn(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     include_pending: bool = False
-    lookback_days: int = 7
+    lookback_days: int = Field(default=7, ge=1, le=3650)
+
+    @model_validator(mode="after")
+    def _check_range(self) -> SyncIn:
+        if self.start_date and self.end_date and self.start_date > self.end_date:
+            raise ValueError("start_date must be on or before end_date")
+        return self
 
 
 class SyncResultOut(BaseModel):
@@ -155,24 +161,48 @@ class CachedDiscoveryResponse(BaseModel):
     errors: list[dict]
 
 
+def _connection_out(c) -> ConnectionOut:
+    # Never include access_url_encrypted: the access URL embeds the bank credentials.
+    return ConnectionOut(
+        id=c.id,
+        label=c.label,
+        status=c.status,
+        last_synced_at=c.last_synced_at,
+        last_error=c.last_error,
+        created_at=c.created_at,
+    )
+
+
+def _discovered_account_out(a) -> DiscoveredAccountOut:
+    return DiscoveredAccountOut(
+        conn_id=a.conn_id,
+        conn_name=a.conn_name,
+        account_id=a.account_id,
+        name=a.name,
+        currency=a.currency,
+        balance=a.balance,
+        balance_date=a.balance_date,
+        local_account_id=a.local_account_id,
+    )
+
+
+def _discovered_connection_out(c) -> DiscoveredConnectionOut:
+    return DiscoveredConnectionOut(
+        conn_id=c.conn_id,
+        name=c.name,
+        org_id=c.org_id,
+        org_url=c.org_url,
+        sfin_url=c.sfin_url,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Connection CRUD
 # ---------------------------------------------------------------------------
 
 @router.get("/api/simplefin/connections", response_model=list[ConnectionOut])
 def api_list_connections(session: Session = Depends(get_db_session)):
-    conns = list_connections(session)
-    return [
-        ConnectionOut(
-            id=c.id,
-            label=c.label,
-            status=c.status,
-            last_synced_at=c.last_synced_at,
-            last_error=c.last_error,
-            created_at=c.created_at,
-        )
-        for c in conns
-    ]
+    return [_connection_out(c) for c in list_connections(session)]
 
 
 @router.post(
@@ -193,14 +223,7 @@ def api_claim_connection(
     except SimpleFINError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    return ConnectionOut(
-        id=conn.id,
-        label=conn.label,
-        status=conn.status,
-        last_synced_at=conn.last_synced_at,
-        last_error=conn.last_error,
-        created_at=conn.created_at,
-    )
+    return _connection_out(conn)
 
 
 @router.patch("/api/simplefin/connections/{connection_id}", response_model=ConnectionOut)
@@ -219,14 +242,7 @@ def api_update_connection(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    return ConnectionOut(
-        id=conn.id,
-        label=conn.label,
-        status=conn.status,
-        last_synced_at=conn.last_synced_at,
-        last_error=conn.last_error,
-        created_at=conn.created_at,
-    )
+    return _connection_out(conn)
 
 
 @router.delete(
@@ -260,29 +276,8 @@ def api_discover(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     return DiscoveryResponse(
-        accounts=[
-            DiscoveredAccountOut(
-                conn_id=a.conn_id,
-                conn_name=a.conn_name,
-                account_id=a.account_id,
-                name=a.name,
-                currency=a.currency,
-                balance=a.balance,
-                balance_date=a.balance_date,
-                local_account_id=a.local_account_id,
-            )
-            for a in accounts
-        ],
-        connections=[
-            DiscoveredConnectionOut(
-                conn_id=c.conn_id,
-                name=c.name,
-                org_id=c.org_id,
-                org_url=c.org_url,
-                sfin_url=c.sfin_url,
-            )
-            for c in connections
-        ],
+        accounts=[_discovered_account_out(a) for a in accounts],
+        connections=[_discovered_connection_out(c) for c in connections],
         errors=errors,
     )
 
@@ -361,6 +356,9 @@ def api_sync(
         )
     except (SimpleFINError, SimpleFINAuthError) as exc:
         return SyncResultOut(accounts_synced=0, transactions_imported=0, errors=[str(exc)])
+    except ValueError as exc:
+        # Unknown connection_id, or no connection configured yet.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     errors = list(result.errors or [])
     candidates: list[TransferMatchCandidateOut] = []
@@ -415,10 +413,10 @@ def api_daily_budget(
     session: Session = Depends(get_db_session),
 ):
     try:
-        usage = get_connection_daily_budget(session, connection_id)
+        conn = get_connection(session, connection_id) if connection_id is not None else get_singleton_connection(session)
+        usage = get_connection_daily_budget(session, conn.id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    conn = get_connection(session, connection_id) if connection_id is not None else get_singleton_connection(session)
     return DailyBudgetOut(
         connection_id=conn.id,
         used=usage.used,
@@ -432,29 +430,8 @@ def api_cached_accounts(session: Session = Depends(get_db_session)):
     accounts, connections, errors, captured_at = get_cached_accounts_snapshot(session)
     return CachedDiscoveryResponse(
         captured_at=captured_at,
-        accounts=[
-            DiscoveredAccountOut(
-                conn_id=a.conn_id,
-                conn_name=a.conn_name,
-                account_id=a.account_id,
-                name=a.name,
-                currency=a.currency,
-                balance=a.balance,
-                balance_date=a.balance_date,
-                local_account_id=a.local_account_id,
-            )
-            for a in accounts
-        ],
-        connections=[
-            DiscoveredConnectionOut(
-                conn_id=c.conn_id,
-                name=c.name,
-                org_id=c.org_id,
-                org_url=c.org_url,
-                sfin_url=c.sfin_url,
-            )
-            for c in connections
-        ],
+        accounts=[_discovered_account_out(a) for a in accounts],
+        connections=[_discovered_connection_out(c) for c in connections],
         errors=errors,
     )
 

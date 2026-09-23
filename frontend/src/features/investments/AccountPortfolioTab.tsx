@@ -35,14 +35,8 @@ import {
 import { queryKeys } from '@/queryKeys'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-
-function formatMoney(amount: number, currency: string) {
-  try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)
-  } catch {
-    return `${amount.toFixed(2)} ${currency}`
-  }
-}
+import { formatMoney } from '@/lib/format'
+import { todayIso } from '@/lib/dates'
 
 function formatPct(x: number | null | undefined) {
   if (x == null || Number.isNaN(x)) return '—'
@@ -59,7 +53,7 @@ export default function AccountPortfolioTab({ accountId, currency }: Props) {
   const [sym, setSym] = useState('')
   const [qty, setQty] = useState('')
   const [cost, setCost] = useState('')
-  const [asOf, setAsOf] = useState(() => new Date().toISOString().slice(0, 10))
+  const [asOf, setAsOf] = useState(todayIso)
   const [notes, setNotes] = useState('')
 
   const portfolioQ = useQuery({

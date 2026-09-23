@@ -1,18 +1,53 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
+from datetime import date as Date
 from typing import Any, Iterable, cast
 
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from backend.app.schemas import RecurringSeriesActionIn, RecurringSeriesCardOut, RecurringOccurrenceOut
 from db.models import Account, Category, RecurringSeries, Subcategory, Transaction
+from services.zbb_service import recalc_activity_for_months
 
 
 AMOUNT_TOLERANCE_CENTS_DEFAULT = 3
 DAY_OF_MONTH_TOLERANCE_DEFAULT = 2
 ANY_MERCHANT_FINGERPRINT = "__any__"
+
+
+class RecurringSeriesFingerprint(BaseModel):
+    merchant_norm: str
+    amount_anchor_cents: int
+
+
+class RecurringSeriesActionIn(RecurringSeriesFingerprint):
+    pass
+
+
+class RecurringOccurrenceOut(BaseModel):
+    transaction_id: int
+    date: Date
+    amount: float
+    merchant: str
+    category_id: int | None = None
+    category_name: str | None = None
+    subcategory_id: int | None = None
+    subcategory_name: str | None = None
+
+
+class RecurringSeriesCardOut(BaseModel):
+    merchant_norm: str
+    display_name: str | None = None
+    amount_anchor_cents: int
+    amount_anchor: float
+    status: str
+    cadence_type: str | None = None
+    cadence_days: int | None = None
+    category_id: int | None = None
+    subcategory_id: int | None = None
+    occurrences: list[RecurringOccurrenceOut] = []
 
 
 def _merchant_norm(merchant: str) -> str:
@@ -55,7 +90,7 @@ def _add_month_clamped(d: date) -> date:
         next_first = date(year + 1, 1, 1)
     else:
         next_first = date(year, month + 1, 1)
-    last_day = (next_first - __import__("datetime").timedelta(days=1)).day
+    last_day = (next_first - timedelta(days=1)).day
     return date(year, month, min(d.day, last_day))
 
 
@@ -513,6 +548,9 @@ def bulk_update_series_category(
         txn_any.category_id = int(category_id)
         txn_any.subcategory_id = int(subcategory_id)
         updated += 1
+    # Budget activity is cached per month by category; refresh the affected months.
+    session.flush()
+    recalc_activity_for_months(session, {(t.date.year, t.date.month) for t in txns})
 
     merchant_norm = _merchant_norm(payload.merchant_norm) or ANY_MERCHANT_FINGERPRINT
     amount_anchor_cents = int(payload.amount_anchor_cents)

@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { motion } from 'framer-motion'
 import FeedbackDialog from '../components/FeedbackDialog'
-import { apiGet } from '../api/client'
+import { getTags } from '../api/tags'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { queryKeys } from '../queryKeys'
+import { invalidateTransactionData, queryKeys } from '../queryKeys'
 import { getAccounts } from '../api/accounts'
 import { getCategories, getSubcategories } from '../api/categories'
 import { createTransaction } from '../api/transactions'
@@ -23,6 +23,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 
 import type { AccountOut, CategoryOut, SubcategoryOut, TagOut } from '../types'
+import { todayIso } from '@/lib/dates'
 
 type CreatePayload = {
   date: string
@@ -58,7 +59,7 @@ export default function AddTransactionPage({ embedded = false }: { embedded?: bo
   const queryClient = useQueryClient()
   const form = useForm<AddTransactionFormValues>({
     defaultValues: {
-      date: new Date().toISOString().slice(0, 10),
+      date: todayIso(),
       amount: 0,
       merchant: '',
       account_id: null,
@@ -88,7 +89,7 @@ export default function AddTransactionPage({ embedded = false }: { embedded?: bo
   })
   const tagsQuery = useQuery<TagOut[], Error>({
     queryKey: queryKeys.tags(),
-    queryFn: () => apiGet<TagOut[]>('/api/tags'),
+    queryFn: getTags,
   })
   const subcategoriesQuery = useQuery<SubcategoryOut[], Error>({
     queryKey: queryKeys.subcategories(categoryId),
@@ -128,7 +129,7 @@ export default function AddTransactionPage({ embedded = false }: { embedded?: bo
     mutationFn: (payload: CreatePayload) => createTransaction(payload),
     onSuccess: () => {
       reset({
-        date: new Date().toISOString().slice(0, 10),
+        date: todayIso(),
         amount: 0,
         merchant: '',
         account_id: accountId,
@@ -140,12 +141,9 @@ export default function AddTransactionPage({ embedded = false }: { embedded?: bo
       setFeedbackTitle('Transaction added')
       setFeedbackMessage('Transaction added successfully.')
       setFeedbackOpen(true)
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      queryClient.invalidateQueries({ queryKey: ['views'] })
-      queryClient.invalidateQueries({ queryKey: ['reports'] })
+      void invalidateTransactionData(queryClient)
       // Tag recency changed.
-      queryClient.invalidateQueries({ queryKey: queryKeys.tags() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tags() })
     },
     onError: (e: unknown) => {
       setFeedbackTitle('Failed to add transaction')

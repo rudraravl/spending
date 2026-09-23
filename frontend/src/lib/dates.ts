@@ -36,3 +36,18 @@ export function fmtShortDate(value: string): string {
   const d = parseIsoDate(value)
   return d ? shortDate.format(d) : value
 }
+
+const relativeTime = new Intl.RelativeTimeFormat('en-US', { numeric: 'auto', style: 'short' })
+
+/** "5 min. ago" / "yesterday" for an ISO timestamp; "just now" under a minute. */
+export function formatRelativeTime(iso: string, now: Date = new Date()): string {
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return iso
+  const secs = Math.round((then - now.getTime()) / 1000)
+  if (Math.abs(secs) < 60) return 'just now'
+  const mins = Math.round(secs / 60)
+  if (Math.abs(mins) < 60) return relativeTime.format(mins, 'minute')
+  const hours = Math.round(mins / 60)
+  if (Math.abs(hours) < 24) return relativeTime.format(hours, 'hour')
+  return relativeTime.format(Math.round(hours / 24), 'day')
+}

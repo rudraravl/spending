@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
-import { motion } from 'framer-motion'
 import { CheckCircle2, EyeOff, RefreshCw, Trash2 } from 'lucide-react'
 import {
   bulkUpdateRecurringSeriesCategory,
@@ -29,6 +28,7 @@ import type { CategoryOut, SubcategoryOut } from '@/types'
 import { invalidateTransactionData, queryKeys } from '@/queryKeys'
 import type { RecurringOccurrenceOut, RecurringSeriesCardOut } from '@/types/recurring'
 import { formatMoney } from '@/lib/format'
+import PageHeader from '@/components/PageHeader'
 
 const queryKey = queryKeys.recurringSuggestions()
 const EMPTY_CATEGORIES: CategoryOut[] = []
@@ -165,33 +165,30 @@ export default function RecurringChargesPage() {
 
   if (error) {
     return (
-      <div className="p-6">
+      <div className="page">
         <p className="text-sm text-destructive">{error.message}</p>
       </div>
     )
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="min-w-0 flex-1">
-          <p className="text-sm text-muted-foreground mt-1">
-            Recurring charges are detected by grouping outflows from the same merchant across every account, then looking
-            for a regular weekly, biweekly, monthly, quarterly, or annual rhythm at a consistent amount. Confirm, ignore, or
-            remove any series.
-          </p>
-        </motion.div>
-        <Button
-          type="button"
-          variant="outline"
-          className="shrink-0 gap-2"
-          disabled={isLoading || scanMut.isPending}
-          onClick={() => scanMut.mutate()}
-        >
-          <RefreshCw className={`h-4 w-4 ${scanMut.isPending ? 'animate-spin' : ''}`} />
-          Scan for recurring charges
-        </Button>
-      </div>
+    <div className="page">
+      <PageHeader
+        title="Recurring"
+        description="Outflows from the same merchant at a steady amount and rhythm (weekly to annual). Confirm, ignore, or remove each series."
+        actions={
+          <Button
+            type="button"
+            variant="outline"
+            className="shrink-0 gap-2"
+            disabled={isLoading || scanMut.isPending}
+            onClick={() => scanMut.mutate()}
+          >
+            <RefreshCw className={`h-4 w-4 ${scanMut.isPending ? 'animate-spin' : ''}`} />
+            Scan for recurring charges
+          </Button>
+        }
+      />
 
       {scanMut.error ? (
         <p className="mb-4 text-sm text-destructive">{(scanMut.error as Error).message}</p>

@@ -12,8 +12,8 @@
 
     /*
      * Brand hue / saturation / lightness (space-separated, no hsl() wrapper).
-     * Change this one line to retheme the app; primary, ring, sidebar selection,
-     * top bar, chart-1, and Tailwind `brand` utilities all follow this value.
+     * Change this one line to retheme the app; primary, ring, active nav pill,
+     * logo, chart-1, and Tailwind `brand` utilities all follow this value.
      * 
      * --accent / --accent-foreground are still fixed blues for “soft highlight” 
      * surfaces. If you switch --brand to e.g. green or purple, you may want to 
@@ -59,16 +59,6 @@
 
     --radius: 0.75rem;
 
-    /* Sidebar: deep onyx field; brand accents */
-    --sidebar-background: 225 11% 9%;
-    --sidebar-foreground: 210 18% 78%;
-    --sidebar-primary: var(--brand);
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 14% 16%;
-    --sidebar-accent-foreground: 210 15% 95%;
-    --sidebar-border: 220 12% 18%;
-    --sidebar-ring: var(--brand);
-
     --success: 160 84% 39%;
     --success-foreground: 0 0% 100%;
     /* Semantic caution (not a second brand color) */
@@ -86,6 +76,15 @@
     --chart-3: 160 70% 38%;
     --chart-4: 262 52% 52%;
     --chart-5: 239 60% 58%;
+    /* Categorical series (validated dataviz reference order); assigned by category id, never by rank. */
+    --cat-1: #2a78d6;
+    --cat-2: #eb6834;
+    --cat-3: #1baf7a;
+    --cat-4: #eda100;
+    --cat-5: #e87ba4;
+    --cat-6: #008300;
+    --cat-7: #4a3aa7;
+    --cat-8: #e34948;
   }
 
   .dark {
@@ -117,15 +116,6 @@
     --input: 220 12% 22%;
     --ring: var(--brand);
 
-    --sidebar-background: 220 14% 8%;
-    --sidebar-foreground: 210 16% 72%;
-    --sidebar-primary: var(--brand);
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 14% 14%;
-    --sidebar-accent-foreground: 40 18% 94%;
-    --sidebar-border: 220 12% 16%;
-    --sidebar-ring: var(--brand);
-
     --success: 158 64% 52%;
     --success-foreground: 220 14% 9%;
     --warning: 45 90% 52%;
@@ -141,6 +131,14 @@
     --chart-3: 160 55% 48%;
     --chart-4: 262 48% 60%;
     --chart-5: 239 55% 62%;
+    --cat-1: #3987e5;
+    --cat-2: #d95926;
+    --cat-3: #199e70;
+    --cat-4: #c98500;
+    --cat-5: #d55181;
+    --cat-6: #008300;
+    --cat-7: #9085e9;
+    --cat-8: #e66767;
   }
 }
 
@@ -168,23 +166,19 @@
 }
 
 @layer components {
-  /* Solid brand top bar (uses --brand) */
-  .app-shell-header {
-    position: relative;
-    isolation: isolate;
-    overflow: hidden;
-    background: hsl(var(--brand));
-    /* Tweak the `/ 0.xx` alphas (and blur px) to adjust glow strength */
-    box-shadow:
-      0 3px 14px -4px hsl(var(--brand) / 0.28),
-      0 10px 32px -8px hsl(var(--brand) / 0.34);
+  /* Standard page frame used by every routed page. */
+  .page {
+    @apply mx-auto w-full max-w-[1360px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8;
   }
 
-  .dark .app-shell-header {
-    background: hsl(var(--brand));
-    box-shadow:
-      0 3px 16px -4px hsl(var(--brand) / 0.26),
-      0 12px 36px -8px hsl(var(--brand) / 0.42);
+  /* Surface card: white, hairline border, soft shadow. */
+  .surface {
+    @apply rounded-2xl border border-border/70 bg-card text-card-foreground shadow-card;
+  }
+
+  /* Small uppercase section eyebrow. */
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground;
   }
 }
 
@@ -198,12 +192,6 @@
     align-items: center;
     justify-content: center;
     border-radius: 0.75rem;
-    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-    background: linear-gradient(
-      to bottom right,
-      hsl(var(--brand) / 0.28),
-      hsl(var(--brand) / 0.12),
-      hsl(var(--brand) / 0.18)
-    );
+    background: hsl(var(--brand) / 0.1);
   }
 }

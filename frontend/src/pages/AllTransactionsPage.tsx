@@ -5,6 +5,7 @@ import TransactionForm from '../features/transactions/TransactionForm'
 import TransactionsTable from '../features/transactions/TransactionsTable'
 import { useTransactions } from '../features/transactions/useTransactions'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import PageHeader from '@/components/PageHeader'
 
 export default function AllTransactionsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -18,7 +19,7 @@ export default function AllTransactionsPage() {
     useTransactions()
 
   return (
-    <div className="p-6 lg:p-8 max-w-6xl mx-auto">
+    <div className="page">
       <Tabs
         value={activeTab}
         onValueChange={(value) => {
@@ -28,11 +29,18 @@ export default function AllTransactionsPage() {
           setSearchParams(next, { replace: true })
         }}
       >
-        <TabsList className="mb-6">
-          <TabsTrigger value="transactions">Transactions</TabsTrigger>
-          <TabsTrigger value="add-transaction">Add transaction</TabsTrigger>
-          <TabsTrigger value="transfers">Transfers</TabsTrigger>
-        </TabsList>
+        <PageHeader
+          className="mb-5"
+          title="Transactions"
+          description="Search, categorize, and reconcile activity across every account."
+          actions={
+            <TabsList>
+              <TabsTrigger value="transactions">Transactions</TabsTrigger>
+              <TabsTrigger value="add-transaction">Add transaction</TabsTrigger>
+              <TabsTrigger value="transfers">Transfers</TabsTrigger>
+            </TabsList>
+          }
+        />
 
         <TabsContent value="transactions">
           {bannerError ? <div className="text-destructive text-sm pb-4">{bannerError}</div> : null}
@@ -62,6 +70,8 @@ export default function AllTransactionsPage() {
             getSelectedIds={table.getSelectedIds}
             metaReady={table.metaReady}
             savePending={table.saveDirtyPending}
+            saveFailed={table.saveFailed}
+            lastSavedAt={table.lastSavedAt}
             deletePending={table.deletePending}
             linkCardPaymentPending={table.linkCardPaymentPending}
             unlinkTransferPending={table.unlinkTransferPending}

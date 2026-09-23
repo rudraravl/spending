@@ -11,6 +11,7 @@ from backend.app.schemas import (
     AccountUpdate,
     CategoryCreate,
     CategoryOut,
+    NameUpdate,
     SubcategoryCreate,
     SubcategoryOut,
     TagCreate,
@@ -211,6 +212,23 @@ def delete_category(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.patch("/api/categories/{category_id}", response_model=CategoryOut)
+def rename_category(
+    category_id: int,
+    payload: NameUpdate,
+    session: Session = Depends(get_db_session),
+) -> CategoryOut:
+    category = session.get(Category, category_id)
+    if not category:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
+    try:
+        category_service.rename_category(session, category, payload.name)
+        session.commit()
+    except ValueError as e:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return CategoryOut(id=category.id, name=category.name, created_at=category.created_at)
+
 @router.get("/api/categories/{category_id}/subcategories", response_model=list[SubcategoryOut])
 def list_subcategories(
     category_id: int,
@@ -273,6 +291,28 @@ def delete_subcategory(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.patch("/api/subcategories/{subcategory_id}", response_model=SubcategoryOut)
+def rename_subcategory(
+    subcategory_id: int,
+    payload: NameUpdate,
+    session: Session = Depends(get_db_session),
+) -> SubcategoryOut:
+    subcategory = session.get(Subcategory, subcategory_id)
+    if not subcategory:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Subcategory not found")
+    try:
+        category_service.rename_subcategory(session, subcategory, payload.name)
+        session.commit()
+    except ValueError as e:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return SubcategoryOut(
+        id=subcategory.id,
+        name=subcategory.name,
+        category_id=subcategory.category_id,
+        created_at=subcategory.created_at,
+    )
+
 @router.get("/api/tags", response_model=list[TagOut])
 def list_tags(
     session: Session = Depends(get_db_session),
@@ -310,3 +350,20 @@ def delete_tag(
     session.delete(tag)
     session.commit()
 
+
+@router.patch("/api/tags/{tag_id}", response_model=TagOut)
+def rename_tag(
+    tag_id: int,
+    payload: NameUpdate,
+    session: Session = Depends(get_db_session),
+) -> TagOut:
+    tag = session.get(Tag, tag_id)
+    if not tag:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found")
+    try:
+        category_service.rename_tag(session, tag, payload.name)
+        session.commit()
+    except ValueError as e:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return TagOut.model_validate(tag)

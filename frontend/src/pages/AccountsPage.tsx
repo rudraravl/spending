@@ -1,18 +1,17 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
-import { ChevronRight, Landmark, Plus, Trash2 } from 'lucide-react'
+import { Landmark, Plus, Trash2 } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { createAccount, deleteAccount, getAccounts, patchAccount } from '../api/accounts'
 import { invalidateTransactionData, queryKeys } from '../queryKeys'
-import { formatMoney } from '@/lib/format'
+import { formatRelativeTime } from '@/lib/dates'
+import { formatMoney, formatSignedUsd } from '@/lib/format'
 import { toast } from 'sonner'
 import { ACCOUNT_TYPES, accountTypeLabel } from '../features/accounts/accountViewKind'
 import type { Account } from '../api/accounts'
 import SimplefinConnectionsPage from './SimplefinConnectionsPage'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import ConfirmDialog from '../components/ConfirmDialog'
 import {
   Dialog,
@@ -33,22 +32,7 @@ import {
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Switch } from '@/components/ui/switch'
-
-function linkLabel(isLinked: boolean | undefined) {
-  if (isLinked) return 'Linked'
-  return 'Manual only'
-}
-
-function formatSyncTime(iso: string | null | undefined) {
-  if (!iso) return null
-  try {
-    return new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'short' }).format(
-      new Date(iso),
-    )
-  } catch {
-    return iso
-  }
-}
+import PageHeader from '@/components/PageHeader'
 
 const TYPE_ORDER = new Map(ACCOUNT_TYPES.map((t, i) => [t, i]))
 
@@ -127,16 +111,37 @@ export default function AccountsPage() {
 
   if (error) {
     return (
-      <div className="p-6">
+      <div className="page">
         <p className="text-sm text-destructive">{(error as Error).message}</p>
       </div>
     )
   }
 
   const sections = groupAccountsByType(accounts)
+  const totals = accounts.reduce(
+    (t, a) => {
+      const b = Number(a.balance)
+      t.net += b
+      if (b > 0) t.assets += b
+      else t.debts += -b
+      if (a.is_budget_account) t.budget += b
+      return t
+    },
+    { net: 0, assets: 0, debts: 0, budget: 0 },
+  )
 
   return (
-    <div className="p-6 lg:p-8 max-w-5xl mx-auto">
+    <div className="page max-w-6xl">
+      <PageHeader
+        title="Accounts"
+        description="Balances across linked and manual accounts."
+        actions={
+          <Button onClick={() => setCreateOpen(true)} className="gap-2">
+            <Plus className="h-4 w-4" />
+            New account
+          </Button>
+        }
+      />
       <ConfirmDialog
         open={confirmState != null}
         title={confirmState?.title ?? ''}
@@ -222,18 +227,6 @@ export default function AccountsPage() {
         </TabsList>
 
         <TabsContent value="accounts">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-8">
-            <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
-              <p className="text-sm text-muted-foreground mt-1.5 max-w-xl leading-relaxed">
-                Open an account for balances and activity. Use the Bank Sync tab to link institutions.
-              </p>
-            </motion.div>
-            <Button onClick={() => setCreateOpen(true)} className="shrink-0 gap-2">
-              <Plus className="h-4 w-4" />
-              New account
-            </Button>
-          </div>
-
           {isLoading ? (
             <p className="text-sm text-muted-foreground">Loading accounts…</p>
           ) : accounts.length === 0 ? (
@@ -247,91 +240,81 @@ export default function AccountsPage() {
               </CardContent>
             </Card>
           ) : (
-            <div className="space-y-10">
-              {sections.map(({ type, items }, sectionIdx) => {
-                const cardOffset = sections.slice(0, sectionIdx).reduce((n, s) => n + s.items.length, 0)
+            <div className="space-y-5">
+              <div className="surface grid grid-cols-2 divide-border/70 sm:grid-cols-4 sm:divide-x">
+                {[
+                  { label: 'Net worth', value: totals.net },
+                  { label: 'Assets', value: totals.assets },
+                  { label: 'Debts', value: totals.debts },
+                  { label: 'Budget pool', value: totals.budget },
+                ].map((t) => (
+                  <div key={t.label} className="px-5 py-4">
+                    <p className="text-xs text-muted-foreground">{t.label}</p>
+                    <p className="mt-0.5 text-lg font-semibold tabular-nums tracking-tight">{formatSignedUsd(t.value)}</p>
+                  </div>
+                ))}
+              </div>
+
+              {sections.map(({ type, items }) => {
+                const sectionTotal = items.reduce((n, a) => n + Number(a.balance), 0)
                 return (
-                  <section key={type}>
-                    <h2 className="text-sm font-semibold text-foreground tracking-tight mb-4">
-                      {accountTypeLabel(type)}
-                    </h2>
-                    <ul className="grid gap-4 sm:grid-cols-2">
-                      {items.map((a, j) => (
-                        <motion.li
-                          key={a.id}
-                          initial={{ opacity: 0, y: 8 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: (cardOffset + j) * 0.04 }}
-                          className="min-w-0"
-                        >
-                          <Card className="group/card relative h-full overflow-hidden transition-colors hover:border-border">
-                            <Link to={`/accounts/${a.id}`} className="block">
-                              <CardHeader className="flex flex-row items-start justify-between gap-2 pb-2 pr-14">
-                                <div className="flex items-start gap-3 min-w-0">
-                                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
-                                    <Landmark className="h-4 w-4 text-muted-foreground" />
-                                  </div>
-                                  <div className="min-w-0">
-                                    <p className="font-medium leading-tight truncate group-hover/card:text-primary transition-colors">
-                                      {a.name}
-                                    </p>
-                                    <p className="text-xs text-muted-foreground mt-0.5">{a.currency}</p>
-                                  </div>
-                                </div>
-                                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground opacity-0 group-hover/card:opacity-100 transition-opacity" />
-                              </CardHeader>
-                              <CardContent className="pt-0 space-y-2 pb-4">
-                                <p className="text-lg font-semibold tabular-nums tracking-tight">
-                                  {formatMoney(a.balance, a.currency)}
-                                </p>
-                                <Badge variant={a.is_linked ? 'default' : 'secondary'} className="text-[10px]">
-                                  {linkLabel(a.is_linked)}
-                                </Badge>
-                                {a.institution_name ? (
-                                  <p className="text-xs text-muted-foreground truncate">{a.institution_name}</p>
-                                ) : null}
-                                {a.is_linked && a.last_synced_at ? (
-                                  <p className="text-[10px] text-muted-foreground">
-                                    Synced {formatSyncTime(a.last_synced_at)}
-                                  </p>
-                                ) : null}
-                                {!a.is_linked ? (
-                                  <p className="text-[10px] text-muted-foreground">
-                                    Link this local account on Connections.
-                                  </p>
-                                ) : null}
-                                <div
-                                  className="flex items-center justify-between gap-2 pt-1"
-                                  onClick={(e) => e.preventDefault()}
-                                >
-                                  <span className="text-[11px] text-muted-foreground">Budget account</span>
-                                  <Switch
-                                    checked={Boolean(a.is_budget_account)}
-                                    onCheckedChange={(checked) =>
-                                      patchMutation.mutate({ id: a.id, is_budget_account: checked })
-                                    }
-                                  />
-                                </div>
-                              </CardContent>
-                            </Link>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="absolute right-2 top-3 z-10 h-8 w-8 text-muted-foreground hover:text-destructive opacity-0 group-hover/card:opacity-100 transition-opacity"
-                              title="Delete account"
-                              onClick={() =>
-                                setConfirmState({
-                                  title: 'Delete account?',
-                                  message: `Remove "${a.name}"? This cannot be undone.`,
-                                  action: () => deleteMutation.mutate(a.id),
-                                })
-                              }
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </Card>
-                        </motion.li>
+                  <section key={type} className="surface overflow-hidden">
+                    <div className="flex items-center justify-between border-b border-border/70 bg-muted/40 px-5 py-2.5">
+                      <h2 className="eyebrow">
+                        {accountTypeLabel(type)} <span className="ml-1 font-normal normal-case tracking-normal">· {items.length}</span>
+                      </h2>
+                      <p className="text-sm font-semibold tabular-nums">{formatSignedUsd(sectionTotal)}</p>
+                    </div>
+                    <ul className="divide-y divide-border/60">
+                      {items.map((a) => (
+                        <li key={a.id} className="group/row relative flex items-center gap-4 px-5 py-3 hover:bg-muted/40">
+                          <Link to={`/accounts/${a.id}`} className="flex min-w-0 flex-1 items-center gap-3">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-secondary">
+                              <Landmark className="h-4 w-4 text-muted-foreground" />
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block truncate font-medium group-hover/row:text-primary">{a.name}</span>
+                              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                <span
+                                  className={`h-1.5 w-1.5 rounded-full ${a.is_linked ? 'bg-income' : 'bg-muted-foreground/50'}`}
+                                  aria-hidden
+                                />
+                                <span className="truncate">
+                                  {a.is_linked
+                                    ? `${a.institution_name ?? 'Linked'}${a.last_synced_at ? ` · synced ${formatRelativeTime(a.last_synced_at)}` : ''}`
+                                    : 'Manual · link on Bank Sync'}
+                                  {a.currency !== 'USD' ? ` · ${a.currency}` : ''}
+                                </span>
+                              </span>
+                            </span>
+                          </Link>
+                          <label className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex">
+                            Budget
+                            <Switch
+                              checked={Boolean(a.is_budget_account)}
+                              onCheckedChange={(checked) => patchMutation.mutate({ id: a.id, is_budget_account: checked })}
+                            />
+                          </label>
+                          <span className="w-28 shrink-0 text-right font-semibold tabular-nums">
+                            {a.currency === 'USD' ? formatSignedUsd(Number(a.balance)) : formatMoney(a.balance, a.currency)}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover/row:opacity-100"
+                            title="Delete account"
+                            onClick={() =>
+                              setConfirmState({
+                                title: 'Delete account?',
+                                message: `Remove "${a.name}"? This cannot be undone.`,
+                                action: () => deleteMutation.mutate(a.id),
+                              })
+                            }
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </li>
                       ))}
                     </ul>
                   </section>

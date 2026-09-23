@@ -1,4 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query'
+import { MotionConfig } from 'framer-motion'
 import { ThemeProvider } from 'next-themes'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { Navigate } from 'react-router-dom'
@@ -28,6 +29,7 @@ export default function KeepApp() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+        <MotionConfig reducedMotion="user">
         <TooltipProvider>
           <Toaster />
           <BrowserRouter>
@@ -57,6 +59,7 @@ export default function KeepApp() {
             </TransferReviewProvider>
           </BrowserRouter>
         </TooltipProvider>
+        </MotionConfig>
       </ThemeProvider>
     </QueryClientProvider>
   )

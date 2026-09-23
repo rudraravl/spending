@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPostJson } from './client'
+import { apiDelete, apiGet, apiPatchJson, apiPostJson } from './client'
 
 import type { CategoryOut, SubcategoryOut } from '../types'
 
@@ -12,6 +12,10 @@ export const createCategory = (payload: { name: string }) => apiPostJson<Categor
 
 export const deleteCategory = (id: number) => apiDelete(`/api/categories/${id}`)
 
+/** Rename in place; transactions stay linked by id. */
+export const renameCategory = (id: number, name: string) =>
+  apiPatchJson<Category>(`/api/categories/${id}`, { name })
+
 export const getSubcategories = (categoryId: number) =>
   apiGet<Subcategory[]>(`/api/categories/${categoryId}/subcategories`)
 
@@ -20,4 +24,7 @@ export const createSubcategory = (payload: { category_id: number; name: string }
   apiPostJson<Subcategory>('/api/subcategories', payload)
 
 export const deleteSubcategory = (id: number) => apiDelete(`/api/subcategories/${id}`)
+
+export const renameSubcategory = (id: number, name: string) =>
+  apiPatchJson<Subcategory>(`/api/subcategories/${id}`, { name })
 

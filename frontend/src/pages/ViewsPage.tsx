@@ -53,6 +53,7 @@ import { getCategories, getSubcategories } from '../api/categories'
 import { getTags } from '../api/tags'
 import { getViews, type ViewsParams, type ViewsResponse } from '../api/views'
 import type { AccountOut, CategoryOut, SubcategoryOut, TagOut } from '../types'
+import PageHeader from '@/components/PageHeader'
 
 const VIEWS_SAVED_STORAGE_KEY = 'keep-views-saved-v1'
 
@@ -390,13 +391,12 @@ export default function ViewsPage() {
   const accountName = accountId != null ? accounts.find((a) => a.id === accountId)?.name : null
   const categoryName = categoryId != null ? categories.find((c) => c.id === categoryId)?.name : null
   return (
-    <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
-      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
-        <p className="text-muted-foreground text-sm mb-1">
-          Build a custom slice of your data with date range, accounts, categories, tags, and amounts. Transfers are
-          excluded from totals and charts.
-        </p>
-      </motion.div>
+    <div className="page space-y-6">
+      <PageHeader
+        className="mb-0"
+        title="Views"
+        description="Slice your data by date, account, category, tag, and amount. Transfers are excluded."
+      />
 
       <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
         <Card className="shadow-card">

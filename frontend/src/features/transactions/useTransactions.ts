@@ -1,5 +1,5 @@
 import type { OnChangeFn, RowSelectionState, SortingState } from '@tanstack/react-table'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useFieldArray, useForm } from 'react-hook-form'
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getAccounts } from '../../api/accounts'
@@ -36,6 +36,9 @@ type TransactionPatchPayload = {
 const PAGE_SIZE_OPTIONS = [100, 250, 500] as const
 const DEFAULT_PAGE_SIZE = 100
 const SEARCH_DEBOUNCE_MS = 300
+
+/** Delay after the last committed cell edit before it's saved. */
+const AUTOSAVE_DELAY_MS = 700
 
 /** Table columns the server can sort by; sorting spans every page, not just the visible one. */
 export const SORT_FIELD_BY_COLUMN: Record<string, TransactionSortField> = {
@@ -347,12 +350,10 @@ export function useTransactions() {
 
   const splitsQueryErrorMessage = splitsQuery.error?.message ?? null
 
-  const saveDirtyEditsMutation = useMutation({
-    mutationFn: async (ids: number[]) => {
-      for (const id of ids) {
-        const row = edits.get(id)
-        if (!row) continue
-
+  /** PATCH each edited row. Plain async so the unmount flush can call it without React state. */
+  const persistEdits = useCallback(
+    async (snapshot: Map<number, TransactionRow>) => {
+      for (const [id, row] of snapshot) {
         const payload: TransactionPatchPayload = {
           date: row.Date,
           amount: Number(row.Amount),
@@ -374,21 +375,39 @@ export function useTransactions() {
         }
 
         const tagNames = row.Tags ? row.Tags.split(',').map((s) => s.trim()).filter(Boolean) : []
-        const tagIds = tagNames.map((n) => tagNameToId.get(n)).filter((x): x is number => typeof x === 'number')
-        payload.tag_ids = tagIds
+        payload.tag_ids = tagNames
+          .map((n) => tagNameToId.get(n))
+          .filter((x): x is number => typeof x === 'number')
 
         await patchTransaction(id, payload)
       }
     },
-    onSuccess: () => {
+    [accountNameToId, categoryNameToId, subcategoriesByCategory, tagNameToId],
+  )
+
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null)
+  // The edits map that last failed to save; autosave pauses until the user edits again.
+  const [failedEdits, setFailedEdits] = useState<Map<number, TransactionRow> | null>(null)
+
+  const saveDirtyEditsMutation = useMutation({
+    mutationFn: persistEdits,
+    onSuccess: async (_data, snapshot) => {
       setError(null)
-      setEdits(new Map())
-      void invalidateTransactionData(queryClient)
+      setFailedEdits(null)
+      // Refetch before dropping the overlay so saved cells don't flash their old values.
+      await invalidateTransactionData(queryClient)
       // Tag recency changed.
       void queryClient.invalidateQueries({ queryKey: queryKeys.tags() })
-      toast.success('Changes saved', { duration: 1000 })
+      // Keep rows edited again while this save was in flight.
+      setEdits((prev) => {
+        const next = new Map(prev)
+        for (const [id, row] of snapshot) if (next.get(id) === row) next.delete(id)
+        return next
+      })
+      setLastSavedAt(Date.now())
     },
-    onError: (e: unknown) => {
+    onError: (e: unknown, snapshot) => {
+      setFailedEdits(snapshot)
       setError(e instanceof Error ? e.message : 'Failed to save edits')
     },
   })
@@ -491,12 +510,35 @@ export function useTransactions() {
   })
 
   function saveDirtyEdits() {
-    const ids = Array.from(edits.keys())
-    if (ids.length === 0) return
-    if (!metaReady) return
+    if (edits.size === 0 || !metaReady || saveDirtyEditsMutation.isPending) return
     setError(null)
-    saveDirtyEditsMutation.mutate(ids)
+    saveDirtyEditsMutation.mutate(new Map(edits))
   }
+
+  // Autosave: cells commit on blur / pick, then this saves shortly after the last change.
+  const { mutate: mutateSave, isPending: savePending } = saveDirtyEditsMutation
+  useEffect(() => {
+    if (edits.size === 0 || !metaReady || savePending || edits === failedEdits) return
+    const t = window.setTimeout(() => mutateSave(new Map(edits)), AUTOSAVE_DELAY_MS)
+    return () => window.clearTimeout(t)
+  }, [edits, metaReady, savePending, failedEdits, mutateSave])
+
+  // Flush anything still pending when leaving the page (navigation or tab close).
+  const flushRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    flushRef.current = () => {
+      if (edits.size === 0 || !metaReady) return
+      void persistEdits(new Map(edits)).then(() => invalidateTransactionData(queryClient))
+    }
+  }, [edits, metaReady, persistEdits, queryClient])
+  useEffect(() => {
+    const onUnload = () => flushRef.current()
+    window.addEventListener('pagehide', onUnload)
+    return () => {
+      window.removeEventListener('pagehide', onUnload)
+      flushRef.current()
+    }
+  }, [])
 
   function getSelectedIds(): number[] {
     return Object.entries(rowSelection)
@@ -595,6 +637,8 @@ export function useTransactions() {
       getSelectedIds,
       metaReady,
       saveDirtyPending: saveDirtyEditsMutation.isPending,
+      saveFailed: failedEdits != null && failedEdits === edits,
+      lastSavedAt,
       deletePending: deleteSelectedMutation.isPending,
       linkCardPayment,
       linkCardPaymentPending: linkCardPaymentMutation.isPending,

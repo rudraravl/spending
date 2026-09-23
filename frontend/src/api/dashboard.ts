@@ -29,6 +29,9 @@ export type DashboardRecentRow = {
   Merchant: string
   Amount: number
   Category: string
+  Subcategory: string
+  Acct: string
+  is_transfer: boolean
 }
 
 export type DashboardResponse = {

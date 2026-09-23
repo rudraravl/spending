@@ -30,7 +30,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { formatMoney as money } from '@/lib/format'
 import { queryKeys } from '@/queryKeys'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight, Info } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import PageHeader from '@/components/PageHeader'
 
 /** Integer cents for comparisons — avoids float noise at penny boundaries (e.g. last $0.01 of RTA). */
 function moneyCents(n: number): number {
@@ -211,7 +213,8 @@ export default function BudgetsPage() {
   })
 
   return (
-    <div className="p-6 lg:p-8 max-w-5xl mx-auto space-y-6">
+    <div className="page max-w-6xl space-y-6">
+      <PageHeader className="mb-0" title="Budget" description="Give every dollar a job, then track how each category is doing this month." />
       <Tabs defaultValue="budget">
         <TabsList className="mb-2">
           <TabsTrigger value="budget">Budget</TabsTrigger>
@@ -374,61 +377,72 @@ export default function BudgetsPage() {
             </Card>
           </Collapsible>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Ready to Assign (RTA)</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div
+          <section className="surface grid grid-cols-1 divide-y divide-border/70 sm:grid-cols-[1.4fr_1fr_1fr_1.2fr] sm:divide-x sm:divide-y-0">
+            <div className="px-5 py-4">
+              <div className="flex items-center gap-1.5">
+                <p className="text-xs text-muted-foreground">Ready to assign</p>
+                <Tooltip>
+                  <TooltipTrigger type="button" aria-label="What is Ready to Assign?">
+                    <Info className="h-3.5 w-3.5 text-muted-foreground/60" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-xs leading-relaxed">
+                    What is left to assign after every envelope&apos;s Available (money already covering categories)
+                    and, in flexible mode, overspend pulled from prior months. See the ZBB help tab for the formula.
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <p
                 className={cn(
-                  'text-3xl font-bold font-mono',
-                  moneyCents(zbbQ.data?.ready_to_assign ?? 0) < 0 ? 'text-red-600' : 'text-emerald-600',
+                  'mt-0.5 text-3xl font-semibold tracking-tight tabular-nums',
+                  moneyCents(zbbQ.data?.ready_to_assign ?? 0) < 0 ? 'text-expense' : 'text-income',
                   rtaAssignInputWarn && moneyCents(zbbQ.data?.ready_to_assign ?? 0) >= 0
                     ? 'text-amber-600 dark:text-amber-400'
                     : '',
                 )}
               >
                 {money(rtaDisplayDollars(zbbQ.data?.ready_to_assign ?? 0))}
-              </div>
+              </p>
               {rtaAssignInputWarn ? (
-                <p className="text-xs text-amber-700 dark:text-amber-300 mt-1.5 font-medium leading-relaxed">
-                  Draft assignment would exceed Ready to Assign. Leaving the field reverts the value; the server also
-                  rejects any save that would make RTA negative.
+                <p className="mt-1 text-xs font-medium leading-relaxed text-amber-700 dark:text-amber-300">
+                  Draft would exceed Ready to Assign; leaving the field reverts it.
                 </p>
               ) : null}
-              <p className="text-xs text-muted-foreground mt-2">
-                Liquid Pool {money(zbbQ.data?.liquid_pool ?? 0)} • Assigned this month{' '}
-                {money(zbbQ.data?.total_assigned ?? 0)}
-              </p>
-              <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
-                RTA is what is left to assign after accounting for every envelope&apos;s{' '}
-                <span className="font-medium text-foreground">Available</span> (money already covering
-                categories) and, in <span className="font-medium text-foreground">flexible</span> mode,
-                overspend pulled from prior months. See the <span className="font-medium text-foreground">ZBB help</span>{' '}
-                tab for the exact formula and where each number is computed.
-              </p>
-              <div className="mt-3 flex items-center gap-2">
-                <Label className="text-xs">Rollover mode</Label>
-                <Select
-                  value={(zbbQ.data?.rollover_mode as 'strict' | 'flexible' | undefined) ?? 'strict'}
-                  onValueChange={(v) => modeMut.mutate(v as 'strict' | 'flexible')}
-                >
-                  <SelectTrigger className="w-[160px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="strict">Strict</SelectItem>
-                    <SelectItem value="flexible">Flexible</SelectItem>
-                  </SelectContent>
-                </Select>
+            </div>
+            <div className="px-5 py-4">
+              <p className="text-xs text-muted-foreground">Liquid pool</p>
+              <p className="mt-1 text-lg font-semibold tabular-nums">{money(zbbQ.data?.liquid_pool ?? 0)}</p>
+            </div>
+            <div className="px-5 py-4">
+              <p className="text-xs text-muted-foreground">Assigned this month</p>
+              <p className="mt-1 text-lg font-semibold tabular-nums">{money(zbbQ.data?.total_assigned ?? 0)}</p>
+            </div>
+            <div className="px-5 py-4">
+              <div className="flex items-center gap-1.5">
+                <Label className="text-xs font-normal text-muted-foreground">Rollover mode</Label>
+                <Tooltip>
+                  <TooltipTrigger type="button" aria-label="Rollover modes">
+                    <Info className="h-3.5 w-3.5 text-muted-foreground/60" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-xs leading-relaxed">
+                    Strict: negative category balances carry into next month. Flexible: categories reset to $0 and the
+                    overspent amount is deducted from next month&apos;s Ready to Assign.
+                  </TooltipContent>
+                </Tooltip>
               </div>
-              <p className="mt-2 text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">Strict:</span> negative category balances carry into next
-                month. <span className="font-medium text-foreground">Flexible:</span> categories reset to $0 and the
-                overspent amount is deducted from next month&apos;s Ready to Assign.
-              </p>
-            </CardContent>
-          </Card>
+              <Select
+                value={(zbbQ.data?.rollover_mode as 'strict' | 'flexible' | undefined) ?? 'strict'}
+                onValueChange={(v) => modeMut.mutate(v as 'strict' | 'flexible')}
+              >
+                <SelectTrigger className="mt-1 h-8 w-full max-w-[180px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="strict">Strict</SelectItem>
+                  <SelectItem value="flexible">Flexible</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </section>
 
           {zbbQ.data?.is_before_budget_start ? (
             <p className="text-sm text-amber-800 dark:text-amber-200 bg-amber-500/10 border border-amber-500/25 rounded-md px-3 py-2">

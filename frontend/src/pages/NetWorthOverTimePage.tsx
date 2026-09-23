@@ -26,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import PageHeader from '@/components/PageHeader'
 
 type Preset = 'last_30' | 'last_90' | 'ytd' | 'all' | 'custom'
 
@@ -88,11 +89,13 @@ export default function NetWorthOverTimePage() {
   const loadFailed = Boolean(error) && !data
 
   return (
-    <div className="p-6 lg:p-8 max-w-4xl mx-auto space-y-6">
+    <div className="page max-w-5xl space-y-6">
+      <PageHeader
+        className="mb-0"
+        title="Net worth"
+        description="Daily net worth, estimated from account balances and transactions."
+      />
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
-        <p className="text-muted-foreground text-sm mb-2">
-          Net worth for each day, estimated from account balances and transactions. Use the date interval below to explore changes over time.
-        </p>
         {mixedAny ? (
           <p className="text-xs text-muted-foreground flex items-center gap-2">
             <Info className="h-4 w-4" />

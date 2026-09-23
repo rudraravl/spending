@@ -50,7 +50,7 @@ const primaryNav: NavItem[] = [
 ]
 
 const insightsNav: (NavItem & { description: string })[] = [
-  { title: 'Reports', url: '/reports', description: 'Monthly spending, income, breakdowns' },
+  { title: 'Reports', url: '/reports', description: 'Monthly spending and breakdowns' },
   { title: 'Views', url: '/views', description: 'Custom filters and saved views' },
   { title: 'Net worth', url: '/net-worth', description: 'Snapshots over time' },
 ]
@@ -216,10 +216,14 @@ export default function AppLayout() {
               <DropdownMenuTrigger className={cn(pillBase, insightsActive ? pillActive : pillIdle)}>
                 Insights <ChevronDown className="h-3.5 w-3.5 opacity-60" />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="center" className="w-64 rounded-xl p-1.5">
+              <DropdownMenuContent align="start" className="w-64 rounded-xl p-1.5">
                 {insightsNav.map((item) => (
-                  <DropdownMenuItem key={item.url} asChild className="rounded-lg px-3 py-2">
-                    <Link to={item.url} className="flex flex-col items-start gap-0.5">
+                  <DropdownMenuItem
+                    key={item.url}
+                    asChild
+                    className="flex-col items-start gap-0.5 rounded-lg px-3 py-2 text-left"
+                  >
+                    <Link to={item.url}>
                       <span className="text-sm font-medium">{item.title}</span>
                       <span className="text-xs text-muted-foreground">{item.description}</span>
                     </Link>

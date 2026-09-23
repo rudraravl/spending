@@ -66,10 +66,9 @@ export default {
         sm: 'calc(var(--radius) - 4px)',
       },
       fontFamily: {
-        sans: ["'Inter'", 'system-ui', '-apple-system', 'sans-serif'],
+        sans: ["'DM Sans'", 'system-ui', '-apple-system', 'sans-serif'],
         playfair: ['Playfair', 'serif'],
-        // Money columns use `font-mono` for alignment; tabular Inter digits read cleaner than a code font.
-        mono: [["'Inter'", 'system-ui', 'sans-serif'], { fontFeatureSettings: '"tnum"' }],
+        mono: ["'JetBrains Mono'", 'monospace'],
       },
       boxShadow: {
         card: '0 1px 2px 0 hsl(220 20% 10% / 0.04), 0 2px 8px -2px hsl(220 20% 10% / 0.04)',

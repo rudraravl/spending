@@ -10,6 +10,7 @@ import {
   Settings,
   Sun,
   Upload,
+  Wallet,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { Suspense, useMemo, useState } from 'react'
@@ -57,17 +58,15 @@ const insightsNav: (NavItem & { description: string })[] = [
 const pillBase =
   'inline-flex h-9 items-center gap-1 rounded-full px-3.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 const pillIdle = 'text-muted-foreground hover:bg-secondary hover:text-foreground'
-const pillActive = 'bg-secondary text-foreground'
+const pillActive = 'bg-primary text-primary-foreground shadow-md shadow-brand/25'
 
 function Logo() {
   return (
     <Link to="/" className="flex items-center gap-2.5 shrink-0" aria-label="Keep home">
-      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-semibold">
-        K
+      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary shadow-md shadow-brand/40 ring-2 ring-brand/15">
+        <Wallet className="h-4 w-4 text-primary-foreground drop-shadow-sm" />
       </span>
-      <span className="font-playfair text-[1.6rem] font-semibold leading-none tracking-tight text-primary">
-        Keep
-      </span>
+      <span className="font-playfair text-[1.9rem] font-bold leading-none tracking-tight">Keep</span>
     </Link>
   )
 }
@@ -168,7 +167,7 @@ function MobileNav() {
               className={({ isActive }) =>
                 cn(
                   'rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                  isActive ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
+                  isActive ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
                 )
               }
             >

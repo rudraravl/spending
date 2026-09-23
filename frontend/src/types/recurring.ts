@@ -19,6 +19,10 @@ export type RecurringSeriesCardOut = {
   cadence_days: number | null
   category_id: number | null
   subcategory_id: number | null
+  occurrence_count: number
+  last_date: string | null
+  next_expected_date: string | null
+  is_active: boolean
   occurrences: RecurringOccurrenceOut[]
 }
 

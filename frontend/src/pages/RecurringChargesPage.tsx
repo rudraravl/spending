@@ -44,9 +44,7 @@ function statusBadgeVariant(status: string): 'default' | 'secondary' | 'outline'
 }
 
 function cadenceLabel(row: RecurringSeriesCardOut) {
-  if (row.cadence_type) return row.cadence_type
-  if (row.occurrences?.length >= 2) return 'monthly (detected)'
-  return '—'
+  return row.cadence_type ?? '—'
 }
 
 export default function RecurringChargesPage() {
@@ -178,8 +176,9 @@ export default function RecurringChargesPage() {
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="min-w-0 flex-1">
           <p className="text-sm text-muted-foreground mt-1">
-            Suggested recurring charges are detected using amount tolerance (±$0.05) and month-over-month date matching (±2
-            days) across every account. Confirm, ignore, or remove any series.
+            Recurring charges are detected by grouping outflows from the same merchant across every account, then looking
+            for a regular weekly, biweekly, monthly, quarterly, or annual rhythm at a consistent amount. Confirm, ignore, or
+            remove any series.
           </p>
         </motion.div>
         <Button
@@ -220,7 +219,6 @@ export default function RecurringChargesPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {data.map((row) => {
             const occs = row.occurrences ?? []
-            const last = occs.length ? occs[0] : null
             const title = row.display_name || row.merchant_norm
             return (
               <Card
@@ -238,19 +236,22 @@ export default function RecurringChargesPage() {
                     <div className="min-w-0">
                       <CardTitle className="text-base truncate">{title}</CardTitle>
                       <div className="mt-1 text-sm text-muted-foreground">
-                        {formatMoney(row.amount_anchor_cents / 100)}
-                        {last ? (
-                          <span className="ml-2 text-xs text-muted-foreground/80">last: {last.date}</span>
+                        {formatMoney(row.amount_anchor)}
+                        {row.last_date ? (
+                          <span className="ml-2 text-xs text-muted-foreground/80">last: {row.last_date}</span>
                         ) : null}
                       </div>
                     </div>
-                    <Badge variant={statusBadgeVariant(row.status)} className="shrink-0">
-                      {row.status}
-                    </Badge>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <Badge variant={statusBadgeVariant(row.status)}>{row.status}</Badge>
+                      {!row.is_active ? <Badge variant="outline">inactive</Badge> : null}
+                    </div>
                   </div>
                   <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
                     <span>cadence:</span>
                     <span className="text-foreground">{cadenceLabel(row)}</span>
+                    {row.occurrence_count ? <span>· {row.occurrence_count} charges</span> : null}
+                    {row.is_active && row.next_expected_date ? <span>· next ~{row.next_expected_date}</span> : null}
                     {isFetching ? <span className="text-muted-foreground/70">(refreshing)</span> : null}
                   </div>
                 </CardHeader>

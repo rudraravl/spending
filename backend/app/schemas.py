@@ -97,6 +97,12 @@ class TagCreate(BaseModel):
     name: str
 
 
+class NameUpdate(BaseModel):
+    """Body for renaming a category, subcategory, or tag."""
+
+    name: str
+
+
 class TransactionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

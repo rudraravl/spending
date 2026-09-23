@@ -1,5 +1,5 @@
 """
-Category / subcategory deletion.
+Category / subcategory deletion and category / subcategory / tag renames.
 
 Deleting a category or subcategory must not leave rows pointing at it: with SQLite
 foreign keys enforced that delete would fail, and without them the rows would be
@@ -9,7 +9,7 @@ Other / Uncategorized first.
 
 from __future__ import annotations
 
-from sqlalchemy import extract, or_
+from sqlalchemy import extract, func, or_
 from sqlalchemy.orm import Session
 
 from db.models import (
@@ -19,6 +19,7 @@ from db.models import (
     RecurringSeries,
     Rule,
     Subcategory,
+    Tag,
     Transaction,
     TransactionSplit,
 )
@@ -116,3 +117,84 @@ def delete_subcategory(session: Session, subcategory: Subcategory) -> None:
     session.query(Subcategory).filter(Subcategory.id == sub_id).delete(synchronize_session=False)
     session.expire_all()
     recalc_activity_for_months(session, months)
+
+
+def _clean_name(raw: str, what: str) -> str:
+    name = (raw or "").strip()
+    if not name:
+        raise ValueError(f"{what} name is required")
+    return name
+
+
+def rename_category(session: Session, category: Category, raw_name: str) -> None:
+    """
+    Rename in place. Transactions, splits, rules, recurring series and budgets reference the
+    category by id, so every association is kept. The auto-created budget envelope follows the
+    new name unless it was renamed by hand or the new name is already taken by another envelope.
+    """
+    name = _clean_name(raw_name, "Category")
+    old = category.name
+    if name == old:
+        return
+    if old in PROTECTED_CATEGORY_NAMES:
+        raise ValueError(f"The '{old}' category is required by the app and cannot be renamed")
+    if name in PROTECTED_CATEGORY_NAMES:
+        raise ValueError(f"'{name}' is reserved by the app")
+    clash = (
+        session.query(Category)
+        .filter(func.lower(Category.name) == name.lower(), Category.id != category.id)
+        .first()
+    )
+    if clash:
+        raise ValueError(f"A category named '{clash.name}' already exists")
+
+    category.name = name
+    envelope = (
+        session.query(BudgetCategory)
+        .filter(
+            BudgetCategory.txn_category_id == category.id,
+            BudgetCategory.txn_subcategory_id.is_(None),
+            BudgetCategory.name == old,
+        )
+        .first()
+    )
+    if envelope is not None:
+        taken = (
+            session.query(BudgetCategory)
+            .filter(func.lower(BudgetCategory.name) == name.lower(), BudgetCategory.id != envelope.id)
+            .first()
+        )
+        if taken is None:
+            envelope.name = name
+
+
+def rename_subcategory(session: Session, subcategory: Subcategory, raw_name: str) -> None:
+    """Rename in place; transactions, splits and rules keep pointing at the same subcategory id."""
+    name = _clean_name(raw_name, "Subcategory")
+    if name == subcategory.name:
+        return
+    if is_protected_subcategory(subcategory):
+        raise ValueError("Other / Uncategorized is required by the app and cannot be renamed")
+    clash = (
+        session.query(Subcategory)
+        .filter(
+            Subcategory.category_id == subcategory.category_id,
+            func.lower(Subcategory.name) == name.lower(),
+            Subcategory.id != subcategory.id,
+        )
+        .first()
+    )
+    if clash:
+        raise ValueError(f"'{clash.name}' already exists in this category")
+    subcategory.name = name
+
+
+def rename_tag(session: Session, tag: Tag, raw_name: str) -> None:
+    """Rename in place; the transaction_tags links are by tag id and stay intact."""
+    name = _clean_name(raw_name, "Tag")
+    if name == tag.name:
+        return
+    clash = session.query(Tag).filter(func.lower(Tag.name) == name.lower(), Tag.id != tag.id).first()
+    if clash:
+        raise ValueError(f"A tag named '{clash.name}' already exists")
+    tag.name = name

@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/select'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { invalidateTransactionData, queryKeys } from '../queryKeys'
-import { createTag, deleteTag, getTags } from '../api/tags'
+import { createTag, deleteTag, getTags, renameTag } from '../api/tags'
 import { createRule, deleteRule, getRuleMeta, getRules, updateRule, type Rule, type RuleIn } from '../api/rules'
 import { toast } from 'sonner'
 import {
@@ -26,6 +26,8 @@ import {
   deleteSubcategory,
   getCategories,
   getSubcategories,
+  renameCategory,
+  renameSubcategory,
 } from '../api/categories'
 
 import type { CategoryOut, SubcategoryOut, TagOut } from '../types'
@@ -35,6 +37,7 @@ const EMPTY_TAGS: TagOut[] = []
 const EMPTY_RULES: Rule[] = []
 import { Link, useSearchParams } from 'react-router-dom'
 import PageHeader from '@/components/PageHeader'
+import InlineRename from '@/components/InlineRename'
 
 type RuleFormValues = {
   priority: number
@@ -52,7 +55,8 @@ function catName(categoryId: number, list: CategoryOut[]) {
 export default function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const tabParam = searchParams.get('tab')
-  const activeTab = tabParam === 'tags' || tabParam === 'rules' ? tabParam : 'categories'
+  // `?tab=tags` predates the merged tab; it lands on Categories & tags.
+  const activeTab = tabParam === 'rules' ? 'rules' : 'categories'
 
   const queryClient = useQueryClient()
 
@@ -159,6 +163,12 @@ export default function SettingsPage() {
     onError: onMutationError,
   })
 
+  const renameTagMutation = useMutation({
+    mutationFn: ({ id, name }: { id: number; name: string }) => renameTag(id, name),
+    onSuccess: reloadAll,
+    onError: onMutationError,
+  })
+
   const deleteTagMutation = useMutation({
     mutationFn: (id: number) => deleteTag(id),
     onSuccess: reloadAll,
@@ -228,8 +238,7 @@ export default function SettingsPage() {
           }
           actions={
             <TabsList>
-              <TabsTrigger value="categories">Categories</TabsTrigger>
-              <TabsTrigger value="tags">Tags</TabsTrigger>
+              <TabsTrigger value="categories">Categories &amp; tags</TabsTrigger>
               <TabsTrigger value="rules">Rules</TabsTrigger>
             </TabsList>
           }
@@ -240,10 +249,77 @@ export default function SettingsPage() {
         ) : (
           <>
             <TabsContent value="categories" className="mt-0 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm text-muted-foreground">
-                  Top-level groups drive reports, budgets, and charts; subcategories add detail inside each one.
-                </p>
+              <section className="surface p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-semibold">Tags</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Free-form labels for cross-cutting themes (trips, reimbursements, projects). Click a name to rename.
+                    </p>
+                  </div>
+                  <form
+                    className="flex w-full gap-2 sm:w-auto"
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      if (!tagName.trim()) return
+                      createTagMutation.mutate({ name: tagName.trim() }, { onSuccess: () => setTagName('') })
+                    }}
+                  >
+                    <Input
+                      value={tagName}
+                      onChange={(e) => setTagName(e.target.value)}
+                      placeholder="New tag"
+                      className="sm:w-56"
+                      aria-label="New tag name"
+                    />
+                    <Button type="submit" disabled={!tagName.trim() || createTagMutation.isPending}>
+                      <Plus className="h-4 w-4" /> Add
+                    </Button>
+                  </form>
+                </div>
+                <div className="mt-4 border-t border-border/70 pt-4">
+                  {tags.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No tags yet.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {tags.map((t) => (
+                        <span
+                          key={t.id}
+                          className="group inline-flex items-center gap-1 rounded-full border bg-secondary/50 py-1 pl-3 pr-1 text-sm"
+                        >
+                          <InlineRename
+                            value={t.name}
+                            label="tag"
+                            onRename={(name) => renameTagMutation.mutateAsync({ id: t.id, name })}
+                          />
+                          <button
+                            type="button"
+                            aria-label={`Delete tag ${t.name}`}
+                            className="flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() =>
+                              setConfirmState({
+                                title: 'Delete tag?',
+                                message: `Remove tag "${t.name}"?`,
+                                action: () => deleteTagMutation.mutate(t.id),
+                              })
+                            }
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <div className="flex flex-wrap items-end justify-between gap-3 pt-2">
+                <div>
+                  <h2 className="text-base font-semibold">Categories</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Groups drive reports, budgets, and charts; subcategories add detail. Click any name to rename it.
+                  </p>
+                </div>
                 <form
                   className="flex w-full gap-2 sm:w-auto"
                   onSubmit={(e) => {
@@ -284,65 +360,6 @@ export default function SettingsPage() {
                   ))}
                 </div>
               )}
-            </TabsContent>
-
-            <TabsContent value="tags" className="mt-0">
-              <section className="surface p-5">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-sm text-muted-foreground">
-                    Free-form labels for cross-cutting themes (trips, reimbursements, projects) alongside categories.
-                  </p>
-                  <form
-                    className="flex w-full gap-2 sm:w-auto"
-                    onSubmit={(e) => {
-                      e.preventDefault()
-                      if (!tagName.trim()) return
-                      createTagMutation.mutate({ name: tagName.trim() }, { onSuccess: () => setTagName('') })
-                    }}
-                  >
-                    <Input
-                      value={tagName}
-                      onChange={(e) => setTagName(e.target.value)}
-                      placeholder="New tag"
-                      className="sm:w-56"
-                      aria-label="New tag name"
-                    />
-                    <Button type="submit" disabled={!tagName.trim() || createTagMutation.isPending}>
-                      <Plus className="h-4 w-4" /> Add
-                    </Button>
-                  </form>
-                </div>
-                <div className="mt-4 border-t border-border/70 pt-4">
-                  {tags.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No tags yet.</p>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {tags.map((t) => (
-                        <span
-                          key={t.id}
-                          className="group inline-flex items-center gap-1 rounded-full border bg-secondary/50 py-1 pl-3 pr-1 text-sm"
-                        >
-                          {t.name}
-                          <button
-                            type="button"
-                            aria-label={`Delete tag ${t.name}`}
-                            className="flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                            onClick={() =>
-                              setConfirmState({
-                                title: 'Delete tag?',
-                                message: `Remove tag "${t.name}"?`,
-                                action: () => deleteTagMutation.mutate(t.id),
-                              })
-                            }
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </section>
             </TabsContent>
 
             <TabsContent value="rules" className="mt-0">
@@ -586,6 +603,9 @@ export default function SettingsPage() {
   )
 }
 
+/** Names the backend looks up directly (see services/category_service.py); renaming would break them. */
+const PROTECTED_CATEGORIES = new Set(['Income', 'Other'])
+
 /** One category: its subcategories as removable chips plus an inline "add subcategory" field. */
 function CategoryCard({
   category,
@@ -617,6 +637,18 @@ function CategoryCard({
     onError: (e: Error) => toast.error(e.message),
   })
 
+  const renameCat = useMutation({
+    mutationFn: (name: string) => renameCategory(category.id, name),
+    onSuccess: onReload,
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const renameSub = useMutation({
+    mutationFn: ({ id, name }: { id: number; name: string }) => renameSubcategory(id, name),
+    onSuccess: onReload,
+    onError: (e: Error) => toast.error(e.message),
+  })
+
   const deleteSub = useMutation({
     mutationFn: (id: number) => deleteSubcategory(id),
     onSuccess: onReload,
@@ -643,45 +675,67 @@ function CategoryCard({
           style={{ background: categoryColor(category.id) }}
           aria-hidden
         />
-        <h3 className="flex-1 truncate font-semibold">{category.name}</h3>
+        <h3 className="min-w-0 flex-1 truncate font-semibold">
+          <InlineRename
+            value={category.name}
+            label="category"
+            className="max-w-full truncate"
+            lockedReason={
+              PROTECTED_CATEGORIES.has(category.name) ? 'Required by the app, so it can’t be renamed' : undefined
+            }
+            onRename={(name) => renameCat.mutateAsync(name)}
+          />
+        </h3>
         <span className="text-xs text-muted-foreground">{subs.length}</span>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover/card:opacity-100"
-          aria-label={`Delete category ${category.name}`}
-          onClick={onDelete}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
+        {PROTECTED_CATEGORIES.has(category.name) ? null : (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover/card:opacity-100"
+            aria-label={`Delete category ${category.name}`}
+            onClick={onDelete}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        )}
       </div>
 
       <div className="mt-3 flex flex-1 flex-wrap content-start gap-1.5">
         {subs.length === 0 ? (
           <p className="text-xs text-muted-foreground">No subcategories yet.</p>
         ) : (
-          subs.map((s) => (
-            <span
-              key={s.id}
-              className="inline-flex items-center gap-0.5 rounded-full bg-secondary py-0.5 pl-2.5 pr-0.5 text-xs"
-            >
-              {s.name}
-              <button
-                type="button"
-                aria-label={`Delete subcategory ${s.name}`}
-                className="flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                onClick={() =>
-                  setConfirmState({
-                    title: 'Delete subcategory?',
-                    message: `Remove "${s.name}" from ${category.name}?`,
-                    action: () => deleteSub.mutate(s.id),
-                  })
-                }
+          subs.map((s) => {
+            const locked = category.name === 'Other' && s.name === 'Uncategorized'
+            return (
+              <span
+                key={s.id}
+                className={`inline-flex items-center gap-0.5 rounded-full bg-secondary py-0.5 pl-2.5 text-xs ${locked ? 'pr-2.5' : 'pr-0.5'}`}
               >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))
+                <InlineRename
+                  value={s.name}
+                  label="subcategory"
+                  lockedReason={locked ? 'Required by the app, so it can’t be renamed' : undefined}
+                  onRename={(name) => renameSub.mutateAsync({ id: s.id, name })}
+                />
+                {locked ? null : (
+                  <button
+                    type="button"
+                    aria-label={`Delete subcategory ${s.name}`}
+                    className="flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() =>
+                      setConfirmState({
+                        title: 'Delete subcategory?',
+                        message: `Remove "${s.name}" from ${category.name}?`,
+                        action: () => deleteSub.mutate(s.id),
+                      })
+                    }
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </span>
+            )
+          })
         )}
       </div>
 

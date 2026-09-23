@@ -101,7 +101,10 @@ def _compute_sync_start_date_for_linked_accounts(
             required_starts.append(latest_local_txn_date)
 
     computed_start = min(required_starts) if required_starts else fallback_start_date
-    max_window_floor = date.today() - timedelta(days=MAX_SIMPLEFIN_WINDOW_DAYS)
+    # SimpleFIN measures the window from start-date to "now", so a start of exactly
+    # 90 days ago at local midnight is a few hours over and triggers a
+    # "[gen.api] ... exceeds limit of 90 days" warning. Leave a day of margin.
+    max_window_floor = date.today() - timedelta(days=MAX_SIMPLEFIN_WINDOW_DAYS - 1)
     return max(computed_start, max_window_floor)
 
 
@@ -465,6 +468,13 @@ def is_account_present_in_cached_snapshot(
     return any(a.conn_id == conn_id and a.account_id == sfin_account_id for a in accounts)
 
 
+def _is_external_id_in_cached_snapshot(session: Session, external_id: str) -> bool:
+    accounts, _connections, _errors, _captured_at = get_cached_accounts_snapshot(session)
+    return any(
+        _make_account_external_id(a.conn_id, a.account_id) == external_id for a in accounts
+    )
+
+
 def validate_discovered_account(
     session: Session,
     connection_id: int | None,
@@ -526,11 +536,15 @@ def link_account(
     if not local_account:
         raise ValueError(f"Local account {local_account_id} not found.")
 
+    # A stale link (remote account no longer returned by SimpleFIN, e.g. after
+    # the institution was reconnected) has no Unlink button in the UI, so it
+    # is replaced instead of blocking the new link.
     if (
         local_account.provider == PROVIDER_NAME
         and local_account.is_linked
         and local_account.external_id
         and local_account.external_id != ext_id
+        and _is_external_id_in_cached_snapshot(session, local_account.external_id)
     ):
         raise ValueError(
             "This local account is already linked to a different SimpleFIN account. "

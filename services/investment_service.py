@@ -17,6 +17,7 @@ from db.models import (
     InvestmentSyncSnapshot,
     Transaction,
 )
+from utils.timestamps import utc_isoformat
 
 UNKNOWN_LABEL = "Unknown investment"
 CASH_ALLOCATION_LABEL = "Cash"
@@ -59,7 +60,7 @@ def get_history_series(session: Session, account_id: int, *, limit: int = 365) -
     rows.reverse()
     return [
         {
-            "captured_at": r.captured_at.isoformat() if r.captured_at else None,
+            "captured_at": utc_isoformat(r.captured_at),
             "total_value": r.positions_value if rh_crypto else r.reported_balance,
             "cash_balance": 0.0 if rh_crypto else r.cash_balance,
             "positions_value": r.positions_value,
@@ -156,7 +157,7 @@ def get_portfolio_detail(session: Session, account_id: int) -> dict[str, Any] | 
         },
         "latest_snapshot": (
             {
-                "captured_at": snap.captured_at.isoformat() if snap.captured_at else None,
+                "captured_at": utc_isoformat(snap.captured_at),
                 "reported_balance": snap.reported_balance,
                 "positions_value": snap.positions_value,
                 "cash_balance": 0.0 if rh_crypto else snap.cash_balance,
@@ -277,7 +278,7 @@ def _build_summary_clean(session: Session, accounts: list[Account]) -> dict[str,
                 "cash_balance": cash_for_row,
                 "positions_count": len(bundle.holdings),
                 "unknown_on_account": acct_unknown,
-                "last_snapshot_at": snap.captured_at.isoformat() if snap and snap.captured_at else None,
+                "last_snapshot_at": utc_isoformat(snap.captured_at) if snap else None,
             }
         )
 

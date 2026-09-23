@@ -17,7 +17,7 @@ import hashlib
 import json
 import os
 import re
-from datetime import date
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -104,6 +104,11 @@ class SFINAccountSet:
 _RATE_LOCK = Lock()
 _RATE_FILE = Path(__file__).resolve().parent.parent / "data" / ".simplefin_rate_usage.json"
 _DEFAULT_DAILY_LIMIT = 24
+# SimpleFIN Bridge: "you are expected to make 24 requests or fewer per day ...
+# Quotas are replenished throughout the day." Model that as a rolling 24-hour
+# window rather than a reset at local midnight.
+_RATE_WINDOW_SECONDS = 24 * 60 * 60
+_RATE_FILE_VERSION = 2
 _DEFAULT_SIMPLEFIN_ROOT_URL = "https://bridge.simplefin.org/simplefin"
 _VERSION_RE = re.compile(r"^\d+\.\d+(?:\.\d+)?$|^\d+$")
 
@@ -158,66 +163,151 @@ def _access_scope_key(access_url: str) -> str:
     return hashlib.sha256(basis.encode("utf-8")).hexdigest()[:16]
 
 
-def _account_bucket(account_ids: list[str] | None) -> str:
+ALL_ACCOUNTS_BUCKET = "all_accounts"
+
+
+def _request_buckets(account_ids: list[str] | None) -> list[str]:
+    """
+    Quotas a request draws from. SimpleFIN Bridge: "Requests for all accounts
+    GET /accounts have a quota. Requests for individual accounts have their own
+    quota GET /accounts?account=...".
+    """
     if not account_ids:
-        return "all_accounts"
-    if len(account_ids) == 1:
-        return f"account:{account_ids[0]}"
-    # Multiple account filters are semantically close to all-accounts fanout.
-    return "all_accounts"
+        return [ALL_ACCOUNTS_BUCKET]
+    return [f"account:{aid}" for aid in dict.fromkeys(account_ids)]
 
 
-def _enforce_daily_budget(access_url: str, account_ids: list[str] | None) -> None:
-    today = date.today().isoformat()
+def _load_rate_data(now: float) -> dict[str, dict[str, list[float]]]:
+    """Return {scope: {bucket: [request epoch seconds]}} within the rolling window."""
+    if not _RATE_FILE.exists():
+        return {}
+    try:
+        raw = json.loads(_RATE_FILE.read_text())
+    except Exception:
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+
+    requests: dict[str, dict[str, list[float]]] = {}
+    if raw.get("version") == _RATE_FILE_VERSION:
+        for scope, buckets in (raw.get("requests") or {}).items():
+            if not isinstance(buckets, dict):
+                continue
+            requests[scope] = {
+                bucket: [float(ts) for ts in stamps if isinstance(ts, (int, float))]
+                for bucket, stamps in buckets.items()
+                if isinstance(stamps, list)
+            }
+    else:
+        # Legacy {day: {scope: {bucket: count}}} counters carry no timestamps.
+        # Charge them at the file's last write so they age out conservatively.
+        try:
+            written_at = _RATE_FILE.stat().st_mtime
+        except OSError:
+            written_at = now
+        for day_data in raw.values():
+            if not isinstance(day_data, dict):
+                continue
+            for scope, buckets in day_data.items():
+                if not isinstance(buckets, dict):
+                    continue
+                for bucket, count in buckets.items():
+                    try:
+                        n = int(count)
+                    except (TypeError, ValueError):
+                        continue
+                    requests.setdefault(scope, {}).setdefault(bucket, []).extend([written_at] * n)
+
+    cutoff = now - _RATE_WINDOW_SECONDS
+    pruned: dict[str, dict[str, list[float]]] = {}
+    for scope, buckets in requests.items():
+        live = {b: sorted(ts for ts in stamps if ts > cutoff) for b, stamps in buckets.items()}
+        live = {b: stamps for b, stamps in live.items() if stamps}
+        if live:
+            pruned[scope] = live
+    return pruned
+
+
+def _save_rate_data(requests: dict[str, dict[str, list[float]]]) -> None:
+    _RATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _RATE_FILE.write_text(json.dumps({"version": _RATE_FILE_VERSION, "requests": requests}))
+
+
+def _next_slot_epoch(stamps: list[float], limit: int) -> float:
+    """When enough requests age out of the window for usage to drop below limit."""
+    return stamps[len(stamps) - limit] + _RATE_WINDOW_SECONDS
+
+
+def _reserve_request(access_url: str, buckets: list[str]) -> float:
+    """
+    Charge one request to each bucket, or raise if any is exhausted. Reserving
+    under the lock (rather than check-then-record) keeps concurrent syncs from
+    both slipping past the limit.
+    """
     scope = _access_scope_key(access_url)
-    bucket = _account_bucket(account_ids)
     limit = _get_daily_limit()
+    now = time.time()
 
     with _RATE_LOCK:
-        data: dict[str, Any] = {}
-        if _RATE_FILE.exists():
-            try:
-                data = json.loads(_RATE_FILE.read_text())
-            except Exception:
-                data = {}
+        requests = _load_rate_data(now)
+        scope_data = requests.setdefault(scope, {})
+        for bucket in buckets:
+            stamps = scope_data.get(bucket, [])
+            if len(stamps) >= limit:
+                available_at = datetime.fromtimestamp(_next_slot_epoch(stamps, limit)).astimezone()
+                raise SimpleFINError(
+                    f"SimpleFIN request budget reached ({limit} per 24 hours). "
+                    f"Next request available at {available_at.strftime('%I:%M %p').lstrip('0')}."
+                )
+        for bucket in buckets:
+            scope_data.setdefault(bucket, []).append(now)
+        _save_rate_data(requests)
+    return now
 
-        day_data = data.setdefault(today, {})
-        scope_data = day_data.setdefault(scope, {})
-        used = int(scope_data.get(bucket, 0))
-        if used >= limit:
-            raise SimpleFINError(
-                "SimpleFIN daily request budget reached for this connection. "
-                "Try again later today or lower request frequency."
+
+def _release_request(access_url: str, buckets: list[str], reserved_at: float) -> None:
+    """Refund a reservation for a request that never reached SimpleFIN."""
+    scope = _access_scope_key(access_url)
+    with _RATE_LOCK:
+        requests = _load_rate_data(time.time())
+        scope_data = requests.get(scope, {})
+        for bucket in buckets:
+            stamps = scope_data.get(bucket, [])
+            if reserved_at in stamps:
+                stamps.remove(reserved_at)
+        _save_rate_data(requests)
+
+
+@dataclass
+class DailyBudgetUsage:
+    used: int
+    limit: int
+    # When the oldest counted request leaves the 24-hour window; only set when
+    # the budget is exhausted.
+    next_available_at: datetime | None = None
+
+
+def get_daily_budget_usage(access_url: str, *, account_ids: list[str] | None = None) -> DailyBudgetUsage:
+    """
+    Return requests counted in the last 24 hours against the quota that a
+    request for ``account_ids`` (all accounts when omitted) would draw from.
+    """
+    scope = _access_scope_key(access_url)
+    limit = _get_daily_limit()
+    with _RATE_LOCK:
+        requests = _load_rate_data(time.time())
+    scope_data = requests.get(scope, {})
+    usage = DailyBudgetUsage(used=0, limit=limit)
+    for bucket in _request_buckets(account_ids):
+        stamps = scope_data.get(bucket, [])
+        if len(stamps) < usage.used:
+            continue
+        usage.used = len(stamps)
+        if len(stamps) >= limit:
+            usage.next_available_at = datetime.fromtimestamp(
+                _next_slot_epoch(stamps, limit), tz=timezone.utc
             )
-        scope_data[bucket] = used + 1
-
-        # Retain only recent days to keep file small.
-        for key in list(data.keys()):
-            if key != today:
-                data.pop(key, None)
-
-        _RATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _RATE_FILE.write_text(json.dumps(data))
-
-
-def get_daily_budget_usage(access_url: str, *, account_ids: list[str] | None = None) -> tuple[int, int]:
-    """
-    Return (used, limit) for today's local SimpleFIN request budget bucket.
-    """
-    today = date.today().isoformat()
-    scope = _access_scope_key(access_url)
-    bucket = _account_bucket(account_ids)
-    limit = _get_daily_limit()
-
-    with _RATE_LOCK:
-        data: dict[str, Any] = {}
-        if _RATE_FILE.exists():
-            try:
-                data = json.loads(_RATE_FILE.read_text())
-            except Exception:
-                data = {}
-        used = int(data.get(today, {}).get(scope, {}).get(bucket, 0))
-    return used, limit
+    return usage
 
 
 def resolve_simplefin_root_url(
@@ -489,7 +579,8 @@ def get_accounts_with_payload(
     (e.g. ``https://user:pass@host/simplefin``).
     """
     _ensure_https(access_url)
-    _enforce_daily_budget(access_url, account_ids)
+    buckets = _request_buckets(account_ids)
+    reserved_at = _reserve_request(access_url, buckets)
 
     params: list[tuple[str, str]] = [("version", "2")]
     if start_date is not None:
@@ -506,8 +597,14 @@ def get_accounts_with_payload(
 
     url = f"{access_url.rstrip('/')}/accounts"
 
-    with httpx.Client(verify=True, timeout=60.0) as client:
-        resp = client.get(url, params=params)
+    try:
+        with httpx.Client(verify=True, timeout=60.0) as client:
+            resp = client.get(url, params=params)
+    except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+        # No connection was made, so SimpleFIN never saw (or counted) the request.
+        # Anything later (e.g. a read timeout) may have been counted and stays charged.
+        _release_request(access_url, buckets, reserved_at)
+        raise SimpleFINError("Could not connect to SimpleFIN. Check your network and try again.") from exc
 
     if resp.status_code == 403:
         raise SimpleFINAuthError(

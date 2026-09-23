@@ -132,6 +132,8 @@ export default function SimplefinConnectionsPage({ embedded = false }: { embedde
     queryKey: ['simplefin', 'daily-budget', connection?.id ?? 'none'],
     queryFn: () => getDailyBudget(connection?.id ?? null),
     enabled: connection != null,
+    // The budget refills on a rolling window; re-check while exhausted so Sync re-enables.
+    refetchInterval: (query) => (query.state.data?.next_available_at ? 60_000 : false),
   })
 
   const cachedAccountsQuery = useQuery({
@@ -258,8 +260,13 @@ export default function SimplefinConnectionsPage({ embedded = false }: { embedde
                 <p className="text-xs text-muted-foreground">Last synced: {formatDate(connection.last_synced_at)}</p>
                 {dailyBudget ? (
                   <Badge variant={budgetVariant(dailyBudget.used, dailyBudget.limit)} className="text-[10px]">
-                    Daily sync budget: {dailyBudget.used}/{dailyBudget.limit}
+                    Syncs in last 24h: {dailyBudget.used}/{dailyBudget.limit}
                   </Badge>
+                ) : null}
+                {dailyBudget?.next_available_at ? (
+                  <p className="text-xs text-muted-foreground">
+                    Next sync available: {formatDate(dailyBudget.next_available_at)}
+                  </p>
                 ) : null}
                 {connection.last_error ? <p className="text-xs text-destructive truncate">{connection.last_error}</p> : null}
               </div>

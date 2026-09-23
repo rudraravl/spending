@@ -4,12 +4,13 @@ SimpleFIN API router – connection management, account discovery/linking, sync.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.app.deps import get_db_session
+from backend.app.schemas import UTCDateTime
 from services.simplefin_client import SimpleFINAuthError, SimpleFINError
 from services.simplefin_sync_service import (
     create_connection_from_token,
@@ -40,9 +41,9 @@ class ConnectionOut(BaseModel):
     id: int
     label: str
     status: str
-    last_synced_at: datetime | None = None
+    last_synced_at: UTCDateTime | None = None
     last_error: str | None = None
-    created_at: datetime | None = None
+    created_at: UTCDateTime | None = None
 
 
 class ConnectionClaimIn(BaseModel):
@@ -115,8 +116,8 @@ class SyncResultOut(BaseModel):
 class SyncRunOut(BaseModel):
     id: int
     connection_id: int
-    started_at: datetime | None = None
-    finished_at: datetime | None = None
+    started_at: UTCDateTime | None = None
+    finished_at: UTCDateTime | None = None
     status: str
     accounts_synced: int | None = None
     transactions_imported: int | None = None
@@ -127,6 +128,8 @@ class DailyBudgetOut(BaseModel):
     connection_id: int
     used: int
     limit: int
+    # Set when the budget is exhausted: when the rolling 24h window frees a request.
+    next_available_at: UTCDateTime | None = None
 
 
 class EndpointStatusOut(BaseModel):
@@ -392,11 +395,16 @@ def api_daily_budget(
     session: Session = Depends(get_db_session),
 ):
     try:
-        used, limit = get_connection_daily_budget(session, connection_id)
+        usage = get_connection_daily_budget(session, connection_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     conn = get_connection(session, connection_id) if connection_id is not None else get_singleton_connection(session)
-    return DailyBudgetOut(connection_id=conn.id, used=used, limit=limit)
+    return DailyBudgetOut(
+        connection_id=conn.id,
+        used=usage.used,
+        limit=usage.limit,
+        next_available_at=usage.next_available_at,
+    )
 
 
 @router.get("/api/simplefin/accounts-cached", response_model=CachedDiscoveryResponse)

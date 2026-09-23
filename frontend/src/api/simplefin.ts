@@ -82,6 +82,8 @@ export interface SimpleFINDailyBudget {
   connection_id: number
   used: number
   limit: number
+  /** Set when the budget is exhausted: when the rolling 24h window frees a request. */
+  next_available_at?: string | null
 }
 
 export interface SimpleFINEndpointStatus {

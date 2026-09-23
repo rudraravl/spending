@@ -2,9 +2,15 @@ from __future__ import annotations
 
 from datetime import datetime
 from datetime import date as Date
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, model_validator
+
+from utils.timestamps import as_utc
+
+# Stored timestamps are UTC but come back from SQLite naive; serialize with an
+# explicit offset so clients don't read them as local time.
+UTCDateTime = Annotated[datetime, AfterValidator(as_utc)]
 
 
 class AccountOut(BaseModel):
@@ -14,14 +20,14 @@ class AccountOut(BaseModel):
     name: str
     type: str
     currency: str
-    created_at: datetime | None = None
+    created_at: UTCDateTime | None = None
     is_linked: bool = False
     provider: str | None = None
     external_id: str | None = None
     institution_name: str | None = None
-    last_synced_at: datetime | None = None
+    last_synced_at: UTCDateTime | None = None
     reported_balance: float | None = None
-    reported_balance_at: datetime | None = None
+    reported_balance_at: UTCDateTime | None = None
     # Display balance (same logic as GET …/summary: reported for asset types when set, else ledger sum)
     balance: float
     is_robinhood_crypto: bool = False
@@ -51,7 +57,7 @@ class CategoryOut(BaseModel):
 
     id: int
     name: str
-    created_at: datetime | None = None
+    created_at: UTCDateTime | None = None
 
 
 class CategoryCreate(BaseModel):
@@ -64,7 +70,7 @@ class SubcategoryOut(BaseModel):
     id: int
     name: str
     category_id: int
-    created_at: datetime | None = None
+    created_at: UTCDateTime | None = None
 
 
 class SubcategoryCreate(BaseModel):
@@ -77,7 +83,7 @@ class TagOut(BaseModel):
 
     id: int
     name: str
-    created_at: datetime | None = None
+    created_at: UTCDateTime | None = None
 
 
 class TagCreate(BaseModel):

@@ -32,6 +32,7 @@ from services.simplefin_client import (
     SFINAccount,
     SFINAccountSet,
     SimpleFINAuthError,
+    DailyBudgetUsage,
     SimpleFINError,
     claim_access_url,
     get_info,
@@ -554,9 +555,9 @@ def validate_discovered_account(
     return any(a.id == sfin_account_id and a.conn_id == conn_id for a in account_set.accounts)
 
 
-def get_connection_daily_budget(session: Session, connection_id: int | None = None) -> tuple[int, int]:
+def get_connection_daily_budget(session: Session, connection_id: int | None = None) -> DailyBudgetUsage:
     """
-    Return local daily SimpleFIN request usage for all-accounts bucket.
+    Return SimpleFIN all-accounts request usage over the last 24 hours.
     """
     conn = get_connection(session, connection_id) if connection_id is not None else get_singleton_connection(session)
     access_url = decrypt(conn.access_url_encrypted)

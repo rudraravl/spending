@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from db.models import Account, NetWorthSnapshot
 from services.account_service import account_display_balance
+from utils.timestamps import utc_isoformat
 
 
 def capture_net_worth_snapshot(
@@ -51,7 +52,7 @@ def net_worth_history(
     )
     return [
         {
-            "captured_at": row.captured_at.isoformat(),
+            "captured_at": utc_isoformat(row.captured_at),
             "total_value": float(row.total_value),
             "currency": str(row.currency or "USD"),
             "mixed_currencies": bool(row.mixed_currencies),

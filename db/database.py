@@ -109,6 +109,15 @@ def _migrate_accounts_columns(conn) -> None:
         conn.execute(text("ALTER TABLE accounts ADD COLUMN institution_name VARCHAR"))
     if "last_synced_at" not in cols:
         conn.execute(text("ALTER TABLE accounts ADD COLUMN last_synced_at DATETIME"))
+    if "sync_covered_through" not in cols:
+        conn.execute(text("ALTER TABLE accounts ADD COLUMN sync_covered_through DATETIME"))
+        # Previously synced accounts were fetched through their last sync.
+        conn.execute(
+            text(
+                "UPDATE accounts SET sync_covered_through = last_synced_at "
+                "WHERE is_linked = 1 AND last_synced_at IS NOT NULL"
+            )
+        )
     if "reported_balance" not in cols:
         conn.execute(text("ALTER TABLE accounts ADD COLUMN reported_balance FLOAT"))
     if "reported_balance_at" not in cols:

@@ -29,6 +29,7 @@ from services.investment_txn_parser import classify_investment_transaction
 from services.net_worth_service import capture_net_worth_snapshot
 from services.rule_service import apply_rules_to_transaction
 from services.simplefin_client import (
+    SFINAccount,
     SFINAccountSet,
     SimpleFINAuthError,
     SimpleFINError,
@@ -42,7 +43,14 @@ from services.simplefin_client import (
 )
 
 DEFAULT_LOOKBACK_DAYS = 7
-MAX_SIMPLEFIN_WINDOW_DAYS = 90
+# SimpleFIN hard-caps /accounts ranges at 90 days and warns past 45.
+RECOMMENDED_SIMPLEFIN_WINDOW_DAYS = 45
+# SimpleFIN counts the range more strictly than start-date-to-now (89.9 elapsed
+# days tripped the 90-day cap), so stay a few days inside the recommendation.
+MAX_SYNC_WINDOW_DAYS = RECOMMENDED_SIMPLEFIN_WINDOW_DAYS - 3
+# Re-fetch this many days before each account's covered-through point so
+# transactions that post late (or are backdated by the institution) are caught.
+SYNC_OVERLAP_DAYS = 10
 PROVIDER_NAME = "simplefin"
 TXN_SOURCE = "simplefin"
 _LATEST_ACCOUNTS_SNAPSHOT_PATH = Path(__file__).resolve().parent.parent / "data" / "simplefin_accounts_latest.json"
@@ -69,43 +77,94 @@ def _normalize_simplefin_amount(raw_amount: str) -> float:
     return float(raw_amount)
 
 
-def _compute_sync_start_date_for_linked_accounts(
+def _to_utc_date(value: datetime) -> date:
+    # SQLite hands back naive datetimes; they are stored as UTC.
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).date()
+
+
+def _account_covered_through(session: Session, account: Account) -> date | None:
+    """
+    Date through which this account's transactions are known to be imported:
+    the later of its last SimpleFIN coverage point and its newest local
+    transaction (e.g. a CSV import made after linking). None means the account
+    has no history at all and needs a full-history bootstrap.
+    """
+    candidates: list[date] = []
+    if account.sync_covered_through is not None:
+        candidates.append(_to_utc_date(account.sync_covered_through))
+    latest_local_txn_date = (
+        session.query(Transaction.date)
+        .filter(Transaction.account_id == account.id)
+        .order_by(Transaction.date.desc())
+        .limit(1)
+        .scalar()
+    )
+    if latest_local_txn_date is not None:
+        candidates.append(latest_local_txn_date)
+    return max(candidates) if candidates else None
+
+
+@dataclass
+class _SyncWindowPlan:
+    start_date: date
+    # Local account id -> earliest date that account needs fetched. Accounts
+    # absent from this map have no history and are bootstrapped separately.
+    required_starts: dict[int, date]
+    # (account, covered-through date) for accounts whose missing range starts
+    # before the window SimpleFIN will serve; that gap cannot be synced.
+    gaps: list[tuple[Account, date]]
+
+
+def _plan_sync_window(
     session: Session,
+    linked_accounts: list[Account],
     *,
     fallback_start_date: date,
-) -> date:
+    today: date | None = None,
+) -> _SyncWindowPlan:
     """
-    Determine the global start date for a single /accounts call.
+    Pick the single start-date for an all-accounts /accounts call.
 
-    For linked accounts that already have local transactions, use each account's
-    most recent local transaction date as its required start. Since SimpleFIN
-    accepts one start-date per request, use the earliest of those required dates
-    so all linked accounts are covered. Clamp to protocol's 90-day max window.
+    Each linked account needs data from SYNC_OVERLAP_DAYS before the point it is
+    already covered through. Coverage comes from SimpleFIN's balance-date (when
+    the institution data was last refreshed), so a dormant account that is
+    synced regularly stays current instead of dragging every request back to
+    its last transaction, and an institution whose refresh has been failing is
+    re-fetched from where its data actually stopped.
+
+    The earliest requirement wins, clamped to MAX_SYNC_WINDOW_DAYS.
     """
-    linked_accounts = (
-        session.query(Account)
-        .filter(Account.provider == PROVIDER_NAME, Account.is_linked.is_(True))
-        .all()
-    )
+    today = today or date.today()
+    window_floor = today - timedelta(days=MAX_SYNC_WINDOW_DAYS)
 
-    required_starts: list[date] = []
-    for linked in linked_accounts:
-        latest_local_txn_date = (
-            session.query(Transaction.date)
-            .filter(Transaction.account_id == linked.id)
-            .order_by(Transaction.date.desc())
-            .limit(1)
-            .scalar()
-        )
-        if latest_local_txn_date is not None:
-            required_starts.append(latest_local_txn_date)
+    required_starts: dict[int, date] = {}
+    covered_through: dict[int, date] = {}
+    for account in linked_accounts:
+        covered = _account_covered_through(session, account)
+        if covered is None:
+            continue
+        covered_through[account.id] = covered
+        required_starts[account.id] = min(covered, today) - timedelta(days=SYNC_OVERLAP_DAYS)
 
-    computed_start = min(required_starts) if required_starts else fallback_start_date
-    # SimpleFIN measures the window from start-date to "now", so a start of exactly
-    # 90 days ago at local midnight is a few hours over and triggers a
-    # "[gen.api] ... exceeds limit of 90 days" warning. Leave a day of margin.
-    max_window_floor = date.today() - timedelta(days=MAX_SIMPLEFIN_WINDOW_DAYS - 1)
-    return max(computed_start, max_window_floor)
+    start = min(required_starts.values()) if required_starts else fallback_start_date
+    start = min(max(start, window_floor), today)
+
+    gaps = [
+        (account, covered_through[account.id])
+        for account in linked_accounts
+        if account.id in covered_through and covered_through[account.id] < start
+    ]
+    return _SyncWindowPlan(start_date=start, required_starts=required_starts, gaps=gaps)
+
+
+def _data_as_of(sfin_account: SFINAccount, now: datetime) -> datetime:
+    """When SimpleFIN last refreshed this account from the institution."""
+    if sfin_account.balance_date:
+        refreshed = datetime.fromtimestamp(sfin_account.balance_date, tz=timezone.utc)
+        return min(refreshed, now)
+    return now
 
 
 def _get_singleton_connection_or_none(session: Session) -> SimpleFINConnection | None:
@@ -551,6 +610,10 @@ def link_account(
             "Unlink it first before linking a new one."
         )
 
+    if local_account.external_id != ext_id:
+        # Coverage belonged to the previous remote account; recompute from local
+        # transactions (or bootstrap full history if there are none).
+        local_account.sync_covered_through = None
     local_account.is_linked = True
     local_account.provider = PROVIDER_NAME
     local_account.external_id = ext_id
@@ -616,16 +679,19 @@ def sync_connection(
     session.flush()
 
     try:
-        if start_date is None:
-            if conn.last_synced_at is not None:
-                # Minimize API scope while allowing overlap for late-posting edits.
-                fallback_start_date = conn.last_synced_at.date() - timedelta(days=15)
-            else:
-                fallback_start_date = date.today() - timedelta(days=lookback_days)
-            start_date = _compute_sync_start_date_for_linked_accounts(
-                session,
-                fallback_start_date=fallback_start_date,
-            )
+        linked_accounts = (
+            session.query(Account)
+            .filter(Account.provider == PROVIDER_NAME, Account.is_linked.is_(True))
+            .all()
+        )
+        plan = _plan_sync_window(
+            session,
+            linked_accounts,
+            fallback_start_date=date.today() - timedelta(days=lookback_days),
+        )
+        auto_window = start_date is None
+        if auto_window:
+            start_date = plan.start_date
         start_epoch = int(time.mktime(start_date.timetuple()))
         end_epoch = int(time.mktime(end_date.timetuple())) if end_date else None
 
@@ -637,11 +703,6 @@ def sync_connection(
         )
         _write_latest_accounts_snapshot(conn.id, payload, source="sync")
 
-        linked_accounts = (
-            session.query(Account)
-            .filter(Account.provider == PROVIDER_NAME, Account.is_linked.is_(True))
-            .all()
-        )
         ext_id_to_local: dict[str, Account] = {}
         for la in linked_accounts:
             if la.external_id:
@@ -651,11 +712,22 @@ def sync_connection(
         error_messages: list[str] = []
         for err in account_set.errors:
             error_messages.append(f"[{err.code}] {err.message}")
+        if auto_window:
+            for gap_account, covered in plan.gaps:
+                error_messages.append(
+                    f"{gap_account.name}: no synced data since {covered.isoformat()}, and SimpleFIN "
+                    f"only serves the last {MAX_SYNC_WINDOW_DAYS} days. Transactions from "
+                    f"{covered.isoformat()} to {start_date.isoformat()} may be missing; "
+                    "import a CSV to fill the gap."
+                )
+        # Errors scoped to a connection or account mean its data may be incomplete,
+        # so its coverage is not advanced and the next sync re-fetches the range.
+        errored_conn_ids = {e.conn_id for e in account_set.errors if e.conn_id and not e.account_id}
+        errored_account_ids = {e.account_id for e in account_set.errors if e.account_id}
 
         other_category = ensure_category(session, "Other")
         other_subcategory = ensure_subcategory(session, "Uncategorized", other_category.id)
 
-        local_has_txn_cache: dict[int, bool] = {}
         full_history_by_external_id: dict[str, SFINAccountSet] = {}
 
         for sfin_acct in account_set.accounts:
@@ -664,24 +736,18 @@ def sync_connection(
             if not local_acct:
                 continue
 
-            if local_acct.id not in local_has_txn_cache:
-                local_has_txn_cache[local_acct.id] = (
-                    session.query(Transaction.id)
-                    .filter(Transaction.account_id == local_acct.id)
-                    .first()
-                    is not None
-                )
-
             # First-time account bootstrap:
-            # if the local account has no transactions yet, pull full history for this
-            # specific remote account (no start-date bound).
+            # if the local account has no history (no transactions and never
+            # synced), pull full history for this specific remote account (no
+            # start-date bound). Empty accounts are only bootstrapped once.
             #
             # Some aggregators return transactions on the all-accounts response but omit
             # them on ?account=<id> fetches (balance still present). Always prefer the
             # response with the longer transaction list; use the per-account row for
             # reported balance when available.
             account_for_import = sfin_acct
-            if not local_has_txn_cache[local_acct.id]:
+            needs_bootstrap = local_acct.id not in plan.required_starts
+            if needs_bootstrap:
                 if ext_id not in full_history_by_external_id:
                     full_history_by_external_id[ext_id] = get_accounts(
                         access_url,
@@ -770,7 +836,21 @@ def sync_connection(
                     captured_at=captured,
                 )
 
-            local_acct.last_synced_at = datetime.now(timezone.utc)
+            now = datetime.now(timezone.utc)
+            local_acct.last_synced_at = now
+            # Advance coverage only when this fetch reached back to what the account
+            # needed (a clamped automatic window is as far as SimpleFIN goes, and its
+            # gap was reported above) and ran to the present.
+            window_reached_account = (
+                needs_bootstrap
+                or auto_window
+                or start_date <= plan.required_starts[local_acct.id]
+            )
+            account_errored = (
+                sfin_acct.id in errored_account_ids or sfin_acct.conn_id in errored_conn_ids
+            )
+            if end_date is None and window_reached_account and not account_errored:
+                local_acct.sync_covered_through = _data_as_of(account_for_import, now)
 
         now = datetime.now(timezone.utc)
         conn.last_synced_at = now

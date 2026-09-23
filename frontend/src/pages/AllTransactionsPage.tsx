@@ -20,7 +20,6 @@ export default function AllTransactionsPage() {
 
   return (
     <div className="page">
-      <PageHeader title="Transactions" description="Search, categorize, and reconcile activity across every account." />
       <Tabs
         value={activeTab}
         onValueChange={(value) => {
@@ -30,11 +29,18 @@ export default function AllTransactionsPage() {
           setSearchParams(next, { replace: true })
         }}
       >
-        <TabsList className="mb-6">
-          <TabsTrigger value="transactions">Transactions</TabsTrigger>
-          <TabsTrigger value="add-transaction">Add transaction</TabsTrigger>
-          <TabsTrigger value="transfers">Transfers</TabsTrigger>
-        </TabsList>
+        <PageHeader
+          className="mb-5"
+          title="Transactions"
+          description="Search, categorize, and reconcile activity across every account."
+          actions={
+            <TabsList>
+              <TabsTrigger value="transactions">Transactions</TabsTrigger>
+              <TabsTrigger value="add-transaction">Add transaction</TabsTrigger>
+              <TabsTrigger value="transfers">Transfers</TabsTrigger>
+            </TabsList>
+          }
+        />
 
         <TabsContent value="transactions">
           {bannerError ? <div className="text-destructive text-sm pb-4">{bannerError}</div> : null}

@@ -44,6 +44,7 @@ import {
   rawSlicesFromRows,
   SpendPieCard,
   type BreakdownRow,
+  withSignedShare,
 } from '@/components/reports/SpendBreakdownCharts'
 import { queryKeys } from '../queryKeys'
 import { getAccounts } from '../api/accounts'
@@ -62,6 +63,18 @@ function rangeLast30Days() {
     start: isoDate(new Date(today.getTime() - 30 * 24 * 3600 * 1000)),
     end: isoDate(today),
   }
+}
+
+function PercentCell({ row }: { row: BreakdownRow }) {
+  const inflow = Number(row.total) > 0
+  return (
+    <TableCell
+      className={cn('tabular-nums', inflow && 'text-income')}
+      title={inflow ? 'Share of net inflows (refunds/income) in this view' : 'Share of net spending in this view'}
+    >
+      {Number(row.percent).toFixed(1)}%
+    </TableCell>
+  )
 }
 
 function fmtShortDate(ymd: string) {
@@ -287,7 +300,7 @@ export default function ViewsPage() {
   const subcategoryRowsFiltered = useMemo(() => {
     const rows = data?.by_subcategory ?? []
     if (selectedCategoryId == null) return rows
-    return rows.filter((r) => r.category_id === selectedCategoryId)
+    return withSignedShare(rows.filter((r) => r.category_id === selectedCategoryId))
   }, [data?.by_subcategory, selectedCategoryId])
 
   const sortedViewsBySubcategory = useMemo(() => {
@@ -957,7 +970,7 @@ export default function ViewsPage() {
                     <p
                       className={cn(
                         'text-2xl font-bold tabular-nums font-mono',
-                        Number(data.total) < 0 ? 'text-income' : 'text-foreground',
+                        Number(data.total) > 0 ? 'text-income' : Number(data.total) < 0 ? 'text-expense' : 'text-foreground',
                       )}
                     >
                       {formatMoney(Number(data.total))}
@@ -1124,7 +1137,7 @@ export default function ViewsPage() {
                                   <TableCell className="font-medium">{String(r.tag)}</TableCell>
                                   <TableCell className="tabular-nums">{formatMoney(Number(r.total))}</TableCell>
                                   <TableCell className="tabular-nums">{String(r.count ?? '')}</TableCell>
-                                  <TableCell className="tabular-nums">{Number(r.percent).toFixed(1)}%</TableCell>
+                                  <PercentCell row={r as BreakdownRow} />
                                 </TableRow>
                               ))
                             )}
@@ -1185,7 +1198,7 @@ export default function ViewsPage() {
                                   <TableCell className="font-medium">{String(r.category)}</TableCell>
                                   <TableCell className="tabular-nums">{formatMoney(Number(r.total))}</TableCell>
                                   <TableCell className="tabular-nums">{String(r.count ?? '')}</TableCell>
-                                  <TableCell className="tabular-nums">{Number(r.percent).toFixed(1)}%</TableCell>
+                                  <PercentCell row={r as BreakdownRow} />
                                 </TableRow>
                               ))
                             )}
@@ -1271,7 +1284,7 @@ export default function ViewsPage() {
                                   <TableCell>{String(r.subcategory)}</TableCell>
                                   <TableCell className="tabular-nums">{formatMoney(Number(r.total))}</TableCell>
                                   <TableCell className="tabular-nums">{String(r.count ?? '')}</TableCell>
-                                  <TableCell className="tabular-nums">{Number(r.percent).toFixed(1)}%</TableCell>
+                                  <PercentCell row={r as BreakdownRow} />
                                 </TableRow>
                               ))
                             )}

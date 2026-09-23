@@ -134,6 +134,27 @@ def _migrate_accounts_columns(conn) -> None:
         )
 
 
+def _migrate_tags_columns(conn) -> None:
+    """Add tags.last_used_at, seeded from each tag's most recent tagged transaction."""
+    if "tags" not in {
+        row[0]
+        for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()
+    }:
+        return
+    cols = {row[1] for row in conn.execute(text("PRAGMA table_info(tags)")).fetchall()}
+    if "last_used_at" not in cols:
+        conn.execute(text("ALTER TABLE tags ADD COLUMN last_used_at DATETIME"))
+        conn.execute(
+            text(
+                "UPDATE tags SET last_used_at = ("
+                "  SELECT MAX(t.date) || ' 00:00:00' FROM transaction_tags tt"
+                "  JOIN transactions t ON t.id = tt.transaction_id"
+                "  WHERE tt.tag_id = tags.id"
+                ")"
+            )
+        )
+
+
 def _migrate_budget_settings_table(conn) -> None:
     tables = {
         row[0]
@@ -389,6 +410,7 @@ def init_db():
         Base.metadata.create_all(bind=engine)
 
         _migrate_accounts_columns(conn)
+        _migrate_tags_columns(conn)
         _migrate_recurring_series_columns(conn)
         _migrate_remove_payments_subcategory(conn)
         _migrate_budget_category_decoupling(conn)

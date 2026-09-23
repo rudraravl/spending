@@ -126,6 +126,8 @@ class Tag(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, nullable=False)
     created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
+    # Last time this tag was added to a transaction; orders tag pickers by recency.
+    last_used_at = Column(DateTime, nullable=True)
 
     # Relationships
     transactions = relationship(

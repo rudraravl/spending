@@ -380,6 +380,7 @@ export function useTransactions() {
       setError(null)
       setEdits(new Map())
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tags() })
       queryClient.invalidateQueries({ queryKey: ['splits'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['views'] })

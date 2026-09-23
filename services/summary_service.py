@@ -263,6 +263,31 @@ def calculate_total_income(
     return float(result) if result is not None else 0.0
 
 
+def _apply_signed_share(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Set ``percent`` as a share within the row's own flow direction and order rows
+    biggest outflow first.
+
+    Net-outflow rows (total < 0) get |total| / total outflow; net-inflow rows
+    (total > 0) get total / total inflow. Each group sums to 100%, so refunds or
+    income in the same view can't push spending shares negative or above 100%.
+    """
+    totals = pd.to_numeric(df["total"], errors="coerce").fillna(0.0).astype(float)
+    df["total"] = totals
+    outflow = -totals[totals < 0].sum()
+    inflow = totals[totals > 0].sum()
+
+    percent = pd.Series(0.0, index=df.index)
+    if outflow > 0:
+        percent[totals < 0] = -totals[totals < 0] / outflow * 100
+    if inflow > 0:
+        percent[totals > 0] = totals[totals > 0] / inflow * 100
+    df["percent"] = percent.round(2)
+
+    order = sorted(df.index, key=lambda i: (totals[i] > 0, -abs(totals[i])))
+    return df.loc[order].reset_index(drop=True)
+
+
 def filter_dashboard_breakdowns(
     by_category_df: pd.DataFrame,
     by_subcategory_df: pd.DataFrame,
@@ -275,14 +300,10 @@ def filter_dashboard_breakdowns(
     sub = by_subcategory_df.copy() if by_subcategory_df is not None else pd.DataFrame()
 
     if len(cat) > 0 and "category" in cat.columns:
-        cat = cat[cat["category"] != INCOME_CATEGORY_NAME].reset_index(drop=True)
-        grand = cat["total"].sum()
-        cat["percent"] = (cat["total"] / grand * 100).round(2) if grand != 0 else 0.0
+        cat = _apply_signed_share(cat[cat["category"] != INCOME_CATEGORY_NAME].reset_index(drop=True))
 
     if len(sub) > 0 and "category" in sub.columns:
-        sub = sub[sub["category"] != INCOME_CATEGORY_NAME].reset_index(drop=True)
-        grand_sub = sub["total"].sum()
-        sub["percent"] = (sub["total"] / grand_sub * 100).round(2) if grand_sub != 0 else 0.0
+        sub = _apply_signed_share(sub[sub["category"] != INCOME_CATEGORY_NAME].reset_index(drop=True))
 
     return cat, sub
 
@@ -446,15 +467,7 @@ def summarize_by_tag(
     if len(df) == 0:
         return pd.DataFrame(columns=['tag', 'total', 'count', 'percent'])
     
-    # Calculate percentage (totals may be negative under cash-flow for spending)
-    total = df['total'].sum()
-    if total != 0:
-        df['percent'] = (df['total'] / total * 100).round(2)
-    else:
-        df['percent'] = 0.0
-    
-    # Sort by total descending
-    df = df.sort_values('total', ascending=False).reset_index(drop=True)
+    df = _apply_signed_share(df)
     
     return df[['tag', 'total', 'count', 'percent']]
 
@@ -526,9 +539,7 @@ def summarize_by_category(
     if len(df) == 0:
         return pd.DataFrame(columns=["category_id", "category", "total", "count", "percent"])
 
-    total = df["total"].sum()
-    df["percent"] = (df["total"] / total * 100).round(2) if total != 0 else 0.0
-    df = df.sort_values("total", ascending=False).reset_index(drop=True)
+    df = _apply_signed_share(df)
 
     return df[["category_id", "category", "total", "count", "percent"]]
 
@@ -619,9 +630,7 @@ def summarize_by_subcategory(
             ]
         )
 
-    total = df["total"].sum()
-    df["percent"] = (df["total"] / total * 100).round(2) if total != 0 else 0.0
-    df = df.sort_values("total", ascending=False).reset_index(drop=True)
+    df = _apply_signed_share(df)
 
     return df[
         ["category_id", "category", "subcategory", "total", "count", "percent"]

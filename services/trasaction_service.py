@@ -9,8 +9,8 @@ Provides:
 - Delete transactions
 """
 
-from datetime import date
-from typing import List, Literal, Optional, cast
+from datetime import date, datetime, timezone
+from typing import Iterable, List, Literal, Optional, cast
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Query, Session, aliased
 from db.models import Transaction, Tag, Account, Category, Subcategory, TransferGroup, TransactionSplit
@@ -40,6 +40,17 @@ def _remove_link_note(notes: str | None) -> str | None:
 
 
 _UNSET = object()
+
+
+def _set_tags(transaction: Transaction, tags: Iterable[Tag]) -> None:
+    """Replace a transaction's tags, stamping newly added ones as just used."""
+    tags = list(tags)
+    previous = {t.id for t in transaction.tags}
+    now = datetime.now(timezone.utc)
+    for tag in tags:
+        if tag.id not in previous:
+            tag.last_used_at = now
+    transaction.tags = tags
 
 
 def _month_key(d: date | None) -> tuple[int, int] | None:
@@ -127,7 +138,7 @@ def create_transaction(
             existing_ids = {tag.id for tag in tags}
             missing_ids = set(tag_ids) - existing_ids
             raise ValueError(f"Tags with ids {missing_ids} do not exist")
-        transaction.tags = tags
+        _set_tags(transaction, tags)
     
     session.add(transaction)
     _recalc_zbb_months(session, [_month_key(date_)])
@@ -234,7 +245,7 @@ def update_transaction(
             existing_ids = {tag.id for tag in tags}
             missing_ids = set(tag_ids) - existing_ids
             raise ValueError(f"Tags with ids {missing_ids} do not exist")
-        transaction.tags = tags
+        _set_tags(transaction, tags)
 
     _recalc_zbb_months(session, [old_month, _month_key(new_date)])
     session.commit()
@@ -271,7 +282,7 @@ def assign_tags(
         missing_ids = set(tag_ids) - existing_ids
         raise ValueError(f"Tags with ids {missing_ids} do not exist")
     
-    transaction.tags = tags
+    _set_tags(transaction, tags)
     session.commit()
     
     return transaction

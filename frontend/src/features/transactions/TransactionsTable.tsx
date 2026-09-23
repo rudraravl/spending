@@ -48,6 +48,18 @@ import { DataTableColumnHeader } from '@/components/data-table-column-header'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 
+/** Most recently used first; never-used tags last, alphabetically. */
+function sortTagsByRecentUse(tags: TagOut[]): TagOut[] {
+  return [...tags].sort((a, b) => {
+    const aUsed = a.last_used_at ? Date.parse(a.last_used_at) : null
+    const bUsed = b.last_used_at ? Date.parse(b.last_used_at) : null
+    if (aUsed != null && bUsed != null && aUsed !== bUsed) return bUsed - aUsed
+    if (aUsed != null && bUsed == null) return -1
+    if (aUsed == null && bUsed != null) return 1
+    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+  })
+}
+
 function parseTagNames(s: string): string[] {
   return s ? s.split(',').map((x) => x.trim()).filter(Boolean) : []
 }
@@ -309,9 +321,10 @@ function TagsPickerCell({
     if (!open) setQ('')
   }, [open])
 
+  const sortedTags = useMemo(() => sortTagsByRecentUse(tags), [tags])
   const filtered = useMemo(
-    () => tags.filter((t) => t.name.toLowerCase().includes(q.toLowerCase())),
-    [tags, q],
+    () => sortedTags.filter((t) => t.name.toLowerCase().includes(q.toLowerCase())),
+    [sortedTags, q],
   )
 
   const toggle = (name: string, checked: boolean) => {

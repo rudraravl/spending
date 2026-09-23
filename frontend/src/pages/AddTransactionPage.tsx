@@ -144,6 +144,8 @@ export default function AddTransactionPage({ embedded = false }: { embedded?: bo
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['views'] })
       queryClient.invalidateQueries({ queryKey: ['reports'] })
+      // Tag recency changed.
+      queryClient.invalidateQueries({ queryKey: queryKeys.tags() })
     },
     onError: (e: unknown) => {
       setFeedbackTitle('Failed to add transaction')

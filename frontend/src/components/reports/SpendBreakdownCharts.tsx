@@ -148,6 +148,25 @@ export function rawSlicesFromRows(
   return out
 }
 
+/**
+ * Re-derive `percent` within a subset of rows, matching the backend rule: outflow rows
+ * share total outflow, inflow rows share total inflow.
+ */
+export function withSignedShare<T extends { total: number; percent: number }>(rows: T[]): T[] {
+  let outflow = 0
+  let inflow = 0
+  for (const r of rows) {
+    const t = Number(r.total)
+    if (t < 0) outflow -= t
+    else if (t > 0) inflow += t
+  }
+  return rows.map((r) => {
+    const t = Number(r.total)
+    const percent = t < 0 && outflow > 0 ? (-t / outflow) * 100 : t > 0 && inflow > 0 ? (t / inflow) * 100 : 0
+    return { ...r, percent }
+  })
+}
+
 export function formatMoney(n: number) {
   const sign = n < 0 ? '−' : ''
   return `${sign}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`

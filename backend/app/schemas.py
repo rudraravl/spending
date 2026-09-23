@@ -84,6 +84,7 @@ class TagOut(BaseModel):
     id: int
     name: str
     created_at: UTCDateTime | None = None
+    last_used_at: UTCDateTime | None = None
 
 
 class TagCreate(BaseModel):

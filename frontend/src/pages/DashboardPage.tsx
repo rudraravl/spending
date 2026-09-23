@@ -27,6 +27,7 @@ import { queryKeys } from '../queryKeys'
 import { toast } from 'sonner'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import { SortableTableHead } from '@/components/sortable-table-head'
+import { withSignedShare } from '@/components/reports/SpendBreakdownCharts'
 import { cycleSort, sortBySelector, type ColumnSortState } from '@/lib/tableSort'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -266,7 +267,7 @@ export default function DashboardPage() {
 
   const subPieData = useMemo(() => {
     if (!data || selectedCategoryId == null) return []
-    const rows = data.by_subcategory.filter((r) => r.category_id === selectedCategoryId)
+    const rows = withSignedShare(data.by_subcategory.filter((r) => r.category_id === selectedCategoryId))
     return rows
       .map((r) => ({
         name: (r.subcategory && String(r.subcategory).trim()) || 'Uncategorized',

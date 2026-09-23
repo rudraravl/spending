@@ -249,7 +249,7 @@ def list_tags(
     session: Session = Depends(get_db_session),
 ) -> list[TagOut]:
     return [
-        TagOut(id=t.id, name=t.name, created_at=t.created_at)
+        TagOut.model_validate(t)
         for t in session.query(Tag).order_by(Tag.id.asc()).all()
     ]
 
@@ -267,7 +267,7 @@ def create_tag(
         session.rollback()
         raise _integrity_error_to_http(str(e)) from e
 
-    return TagOut(id=tag.id, name=tag.name, created_at=tag.created_at)
+    return TagOut.model_validate(tag)
 
 
 @router.delete("/api/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)

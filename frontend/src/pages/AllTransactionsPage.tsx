@@ -64,6 +64,8 @@ export default function AllTransactionsPage() {
             getSelectedIds={table.getSelectedIds}
             metaReady={table.metaReady}
             savePending={table.saveDirtyPending}
+            saveFailed={table.saveFailed}
+            lastSavedAt={table.lastSavedAt}
             deletePending={table.deletePending}
             linkCardPaymentPending={table.linkCardPaymentPending}
             unlinkTransferPending={table.unlinkTransferPending}

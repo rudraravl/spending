@@ -51,18 +51,15 @@ export default function TransactionForm({
   metaReady,
 }: TransactionFormProps) {
   return (
-    <div className="px-6 lg:px-8 pb-8 max-w-6xl">
-      <Card className="shadow-card">
-        <CardHeader>
+    <div className="mt-8">
+      <Card>
+        <CardHeader className={splitSelectionState === 'none' ? 'pb-5' : undefined}>
           <CardTitle className="text-base">Splits</CardTitle>
           <CardDescription>
-            Select exactly one transaction in the table above (checkbox) to load and edit its category splits.
+            Divide one transaction across several categories. Tick exactly one row in the table to edit its splits.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {splitSelectionState === 'none' ? (
-            <p className="text-sm text-muted-foreground">Select a transaction using the row checkboxes to edit splits.</p>
-          ) : null}
+        <CardContent className={splitSelectionState === 'none' ? 'hidden' : 'space-y-4'}>
           {splitSelectionState === 'multiple' ? (
             <p className="text-sm text-muted-foreground">
               Splits apply to one transaction at a time. Leave only one row selected, or clear the selection.

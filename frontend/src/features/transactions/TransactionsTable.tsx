@@ -8,6 +8,7 @@ import {
   type SortingState,
 } from '@tanstack/react-table'
 import {
+  AlertCircle,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -101,8 +102,10 @@ function EditableCell({
       className={`h-8 rounded-md border-0 bg-transparent px-1.5 text-[13px] font-mono shadow-none hover:bg-muted/70 focus-visible:bg-card focus-visible:ring-1 ${columnId === 'Amount' ? 'text-right' : ''} ${inputClassName ?? ''}`}
       defaultValue={strVal}
       key={`${row.id}-${columnId}-${strVal}`}
-      type={columnId === 'Amount' ? 'number' : 'text'}
-      step={columnId === 'Amount' ? '0.01' : undefined}
+      // Text + decimal keypad: number inputs draw spin buttons flush against the digits.
+      type="text"
+      inputMode={columnId === 'Amount' ? 'decimal' : undefined}
+      title={columnId === 'Merchant' || columnId === 'Notes' ? strVal : undefined}
       onBlur={(e) => commit(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
@@ -416,6 +419,8 @@ export type TransactionsTableProps = {
   getSelectedIds: () => number[]
   metaReady: boolean
   savePending: boolean
+  saveFailed: boolean
+  lastSavedAt: number | null
   deletePending: boolean
   linkCardPaymentPending: boolean
   unlinkTransferPending: boolean
@@ -426,6 +431,20 @@ export type TransactionsTableProps = {
 }
 
 const numberFormat = new Intl.NumberFormat()
+
+/** Fixed column widths (px); Merchant takes whatever is left. */
+const COLUMN_WIDTHS: Record<string, number> = {
+  select: 40,
+  Date: 112,
+  Amount: 104,
+  Category: 124,
+  Subcategory: 144,
+  Acct: 164,
+  Tags: 124,
+  Notes: 180,
+  Split: 56,
+}
+const TABLE_MIN_WIDTH = Object.values(COLUMN_WIDTHS).reduce((a, b) => a + b, 0) + 240
 
 export default function TransactionsTable({
   categories,
@@ -453,6 +472,8 @@ export default function TransactionsTable({
   getSelectedIds,
   metaReady,
   savePending,
+  saveFailed,
+  lastSavedAt,
   deletePending,
   linkCardPaymentPending,
   unlinkTransferPending,
@@ -774,16 +795,15 @@ export default function TransactionsTable({
               </Button>
             </>
           ) : (
-            <span className="hidden text-xs text-muted-foreground md:inline">Select rows to link, split, or delete</span>
+            <span className="hidden text-xs text-muted-foreground lg:inline">Select rows to link, split, or delete</span>
           )}
-          <Button
-            size="sm"
-            variant={unsavedCount > 0 ? 'default' : 'outline'}
-            onClick={onSaveEdits}
-            disabled={savePending || !metaReady || unsavedCount === 0}
-          >
-            {unsavedCount > 0 ? `Save ${unsavedCount} edit${unsavedCount === 1 ? '' : 's'}` : 'Saved'}
-          </Button>
+          <SaveStatus
+            pending={savePending}
+            failed={saveFailed}
+            unsaved={unsavedCount}
+            lastSavedAt={lastSavedAt}
+            onRetry={onSaveEdits}
+          />
         </div>
       </div>
 
@@ -795,12 +815,17 @@ export default function TransactionsTable({
           pagination.loading && 'opacity-60',
         )}
       >
-        <Table>
+        <Table className="table-fixed" style={{ minWidth: TABLE_MIN_WIDTH }}>
+          <colgroup>
+            {table.getVisibleLeafColumns().map((c) => (
+              <col key={c.id} style={COLUMN_WIDTHS[c.id] ? { width: COLUMN_WIDTHS[c.id] } : undefined} />
+            ))}
+          </colgroup>
           <TableHeader className="sticky top-0 z-10 bg-card shadow-[0_1px_0_hsl(var(--border))]">
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id} className="hover:bg-transparent">
                 {hg.headers.map((h) => (
-                  <TableHead key={h.id} className={h.column.id === 'Amount' ? 'text-right' : ''}>
+                  <TableHead key={h.id} className={h.column.id === 'Amount' ? 'pr-3 text-right' : ''}>
                     {flexRender(h.column.columnDef.header, h.getContext())}
                   </TableHead>
                 ))}
@@ -822,7 +847,7 @@ export default function TransactionsTable({
                     return (
                       <TableCell
                         key={cell.id}
-                        className={`p-1 align-middle ${isAmount ? 'text-right' : ''}`}
+                        className={`p-1 align-middle ${isAmount ? 'pr-3 text-right' : ''}`}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </TableCell>
@@ -930,5 +955,45 @@ function PageButton({
     <Button variant="outline" size="icon" className="h-8 w-8" onClick={onClick} disabled={disabled} aria-label={label} title={label}>
       {children}
     </Button>
+  )
+}
+
+/** Autosave indicator: edits save on their own; this only reports state and offers a retry. */
+function SaveStatus({
+  pending,
+  failed,
+  unsaved,
+  lastSavedAt,
+  onRetry,
+}: {
+  pending: boolean
+  failed: boolean
+  unsaved: number
+  lastSavedAt: number | null
+  onRetry: () => void
+}) {
+  if (failed) {
+    return (
+      <span className="inline-flex items-center gap-2 text-xs text-destructive">
+        <AlertCircle className="h-3.5 w-3.5" />
+        Couldn&apos;t save {unsaved} edit{unsaved === 1 ? '' : 's'}
+        <Button size="sm" variant="outline" className="h-7" onClick={onRetry} disabled={pending}>
+          Retry
+        </Button>
+      </span>
+    )
+  }
+  const [icon, label] = pending
+    ? [<Loader2 key="i" className="h-3.5 w-3.5 animate-spin" />, 'Saving…']
+    : unsaved > 0
+      ? [<Loader2 key="i" className="h-3.5 w-3.5 opacity-0" />, 'Unsaved changes']
+      : lastSavedAt
+        ? [<Check key="i" className="h-3.5 w-3.5 text-income" />, 'All changes saved']
+        : [<Check key="i" className="h-3.5 w-3.5" />, 'Edits save automatically']
+  return (
+    <span className="inline-flex min-w-[9.5rem] items-center justify-end gap-1.5 text-xs text-muted-foreground" aria-live="polite">
+      {icon}
+      {label}
+    </span>
   )
 }

@@ -45,6 +45,7 @@ import {
 } from '@/components/ui/tooltip'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
+import { useTransferReview } from '@/features/transfers/transferReviewContext'
 
 type RangeKey = 'this_month' | 'last_month' | 'year' | 'custom'
 
@@ -192,9 +193,12 @@ export default function DashboardPage() {
   })
   const simplefinConnection = simplefinConnections[0] ?? null
 
+  const reviewTransfers = useTransferReview()
+
   const syncMutation = useMutation({
     mutationFn: () => triggerSync({ connection_id: simplefinConnection?.id ?? null }),
     onSuccess: (result: SyncResult) => {
+      reviewTransfers(result.transfer_candidates ?? [])
       const base = `Synced ${result.accounts_synced} account(s), imported ${result.transactions_imported} new transaction(s).`
       if (result.errors?.length) {
         toast.success(`${base} ${result.errors.join('; ')}`)

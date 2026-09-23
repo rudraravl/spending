@@ -14,6 +14,7 @@ import {
 } from '../api/transfers'
 import { queryKeys } from '../queryKeys'
 import { getAccounts } from '../api/accounts'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -28,6 +29,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 
 import type { AccountOut } from '../types'
+import { CONFIDENCE_BADGE_VARIANT, CONFIDENCE_LABEL, DUPLICATE_TRANSFER_WARNING } from '@/features/transfers/transferMatchDisplay'
 
 function formatMoney(amount: number) {
   return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(amount)
@@ -212,16 +214,28 @@ export default function TransferPage({ embedded = false }: { embedded?: boolean 
                       <p className="tabular-nums">{formatMoney(c.credit.amount)}</p>
                       <p className="text-xs text-muted-foreground">{c.credit.date}</p>
                     </div>
-                    <div className="md:col-span-2 flex justify-end gap-2">
+                    <div className="md:col-span-2 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2 min-w-0">
+                        <Badge variant={CONFIDENCE_BADGE_VARIANT[c.confidence ?? 'medium']}>
+                          {CONFIDENCE_LABEL[c.confidence ?? 'medium']}
+                        </Badge>
+                        {c.reasons?.length ? (
+                          <span className="text-xs text-muted-foreground">{c.reasons.join(' · ')}</span>
+                        ) : null}
+                      </div>
                       <Button
                         type="button"
                         size="sm"
+                        variant={c.duplicate_of_transfer_group_id != null ? 'outline' : 'default'}
                         disabled={linkMutation.isPending}
                         onClick={() => linkMutation.mutate(c)}
                       >
-                        Link as transfer
+                        {c.duplicate_of_transfer_group_id != null ? 'Link anyway' : 'Link as transfer'}
                       </Button>
                     </div>
+                    {c.duplicate_of_transfer_group_id != null ? (
+                      <p className="md:col-span-2 text-xs text-destructive">{DUPLICATE_TRANSFER_WARNING}</p>
+                    ) : null}
                   </li>
                   )
                 })}

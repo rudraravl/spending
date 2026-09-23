@@ -5,7 +5,8 @@ inflow) and moves between asset accounts (e.g. checking ↔ investment).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Literal
 
@@ -23,6 +24,13 @@ SEARCH_PADDING_DAYS = 8
 
 
 TransferCandidateKind = Literal["card_payment", "asset_transfer"]
+TransferConfidence = Literal["high", "medium", "low"]
+_CONFIDENCE_RANK: dict[str, int] = {"high": 0, "medium": 1, "low": 2}
+# Descriptions banks use for payments and moves between accounts.
+_TRANSFER_WORDING = re.compile(
+    r"\b(payment|pymt|pmt|autopay|auto pay|epay|transfer|xfer|trnsfr|ach|deposit|withdrawal|thank you|zelle)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -35,6 +43,11 @@ class CardPaymentCandidatePair:
     date_delta_days: int
     canonical_amount: float
     kind: TransferCandidateKind = "card_payment"
+    confidence: TransferConfidence = "medium"
+    reasons: list[str] = field(default_factory=list)
+    # An existing transfer between the same accounts for the same amount; linking
+    # this pair too would count the money twice (typically a manual transfer).
+    duplicate_of_transfer_group_id: int | None = None
 
     def to_api_dict(
         self,
@@ -61,6 +74,9 @@ class CardPaymentCandidatePair:
             "canonical_amount": self.canonical_amount,
             "amount_delta": self.amount_delta,
             "date_delta_days": self.date_delta_days,
+            "confidence": self.confidence,
+            "reasons": list(self.reasons),
+            "duplicate_of_transfer_group_id": self.duplicate_of_transfer_group_id,
             "asset": _txn_brief(a),
             "credit": _txn_brief(c),
         }
@@ -338,6 +354,102 @@ def _find_asset_to_asset_pair_candidates_full_scan(
     return _dedupe_pairs(raw_pairs)
 
 
+def _mentions_account(merchant: str | None, account: Account | None) -> str | None:
+    """Name of `account` (or its institution) if the description mentions it."""
+    if not merchant or not account:
+        return None
+    text = merchant.lower()
+    for label in (account.institution_name, account.name):
+        if label and len(label.strip()) >= 4 and label.strip().lower() in text:
+            return label.strip()
+    return None
+
+
+def _existing_transfer_duplicate(session: Session, outflow: Transaction, inflow: Transaction) -> Transaction | None:
+    """Outflow leg of an already-linked transfer between the same accounts and amount, if any."""
+    magnitude = abs(float(outflow.amount))
+    lo = min(outflow.date, inflow.date) - timedelta(days=CARD_PAYMENT_DATE_WINDOW_DAYS)
+    hi = max(outflow.date, inflow.date) + timedelta(days=CARD_PAYMENT_DATE_WINDOW_DAYS)
+    linked_outflows = (
+        session.query(Transaction)
+        .filter(Transaction.is_transfer.is_(True))
+        .filter(Transaction.transfer_group_id.isnot(None))
+        .filter(Transaction.account_id == outflow.account_id)
+        .filter(Transaction.amount < 0)
+        .filter(Transaction.date >= lo, Transaction.date <= hi)
+        .all()
+    )
+    for leg in linked_outflows:
+        if not _amounts_compatible(abs(float(leg.amount)), magnitude):
+            continue
+        peer_on_inflow_account = (
+            session.query(Transaction.id)
+            .filter(Transaction.transfer_group_id == leg.transfer_group_id)
+            .filter(Transaction.id != leg.id)
+            .filter(Transaction.account_id == inflow.account_id)
+            .first()
+        )
+        if peer_on_inflow_account:
+            return leg
+    return None
+
+
+def _assess_pairs(session: Session, pairs: list[CardPaymentCandidatePair]) -> None:
+    """
+    Rate how likely each pair is a real transfer. Amount and date alone produce
+    coincidences (a card refund equal to a grocery debit, a paycheck equal to
+    rent); descriptions that say "payment"/"transfer" or name the other account
+    are what separate real transfers from those.
+    """
+    ids = {i for p in pairs for i in (p.asset_transaction_id, p.credit_transaction_id)}
+    if not ids:
+        return
+    by_id = {
+        t.id: t
+        for t in session.query(Transaction)
+        .options(joinedload(Transaction.account))
+        .filter(Transaction.id.in_(ids))
+        .all()
+    }
+    for p in pairs:
+        outflow = by_id.get(p.asset_transaction_id)
+        inflow = by_id.get(p.credit_transaction_id)
+        if outflow is None or inflow is None:
+            continue
+        reasons: list[str] = []
+        wording = any(_TRANSFER_WORDING.search(t.merchant or "") for t in (outflow, inflow))
+        if wording:
+            reasons.append("Description looks like a payment or transfer")
+        mentioned = _mentions_account(outflow.merchant, inflow.account) or _mentions_account(
+            inflow.merchant, outflow.account
+        )
+        if mentioned:
+            reasons.append(f"Description mentions {mentioned}")
+        exact = p.amount_delta < 0.005
+        reasons.append("Same amount" if exact else f"Amounts differ by ${p.amount_delta:.2f}")
+        reasons.append(
+            "Same day" if p.date_delta_days == 0
+            else f"{p.date_delta_days} day{'s' if p.date_delta_days != 1 else ''} apart"
+        )
+
+        duplicate = _existing_transfer_duplicate(session, outflow, inflow)
+        if duplicate is not None:
+            p.duplicate_of_transfer_group_id = duplicate.transfer_group_id
+            reasons.insert(0, f"Matches a transfer already recorded on {duplicate.date.isoformat()}")
+            p.confidence = "low"
+        elif (wording or mentioned) and exact and p.date_delta_days <= 3:
+            p.confidence = "high"
+        elif wording or mentioned:
+            p.confidence = "medium"
+        else:
+            p.confidence = "low"
+        p.reasons = reasons
+
+
+def _candidate_sort_key(p: CardPaymentCandidatePair) -> tuple[int, int, float]:
+    return (_CONFIDENCE_RANK[p.confidence], p.date_delta_days, p.amount_delta)
+
+
 def find_transfer_match_candidates(
     session: Session,
     *,
@@ -353,12 +465,12 @@ def find_transfer_match_candidates(
         seed_transaction_ids=seed_transaction_ids,
         lookback_days=lookback_days,
     )
-    if seed_transaction_ids:
-        return pairs
-    asset_pairs = _find_asset_to_asset_pair_candidates_full_scan(
-        session,
-        lookback_days=lookback_days,
-    )
-    combined = pairs + asset_pairs
-    combined.sort(key=lambda p: (p.date_delta_days, p.amount_delta))
-    return combined
+    if not seed_transaction_ids:
+        pairs = pairs + _find_asset_to_asset_pair_candidates_full_scan(
+            session,
+            lookback_days=lookback_days,
+        )
+    _assess_pairs(session, pairs)
+    # Most likely first; within a confidence level, closest dates and amounts first.
+    pairs.sort(key=_candidate_sort_key)
+    return pairs

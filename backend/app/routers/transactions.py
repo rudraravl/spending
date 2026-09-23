@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -24,11 +26,13 @@ from backend.app.transfer_helpers import transfer_pair_to_candidate_out
 from db.models import Subcategory, Transaction
 from services.trasaction_service import (
     create_transaction,
+    count_transactions,
     create_transfer,
     delete_transaction,
     get_transactions,
     get_transaction_by_id,
     link_transactions_as_transfer,
+    TransactionSortField,
     unlink_transfer_pair,
     update_transaction,
 )
@@ -68,8 +72,14 @@ def _txn_to_out(txn: Transaction) -> TransactionOut:
     )
 
 
-@router.get("/api/transactions", response_model=list[TransactionOut])
-def list_transactions(
+@dataclass
+class _ListScope:
+    filters: Optional[TransactionFilter]
+    include_transfers: bool
+    search: Optional[str]
+
+
+def _list_scope(
     start_date: date | None = Query(default=None),
     end_date: date | None = Query(default=None),
     account_id: int | None = Query(default=None),
@@ -80,10 +90,9 @@ def list_transactions(
     min_amount: float | None = Query(default=None),
     max_amount: float | None = Query(default=None),
     include_transfers: bool = Query(default=True),
-    limit: int | None = Query(default=None, ge=1),
-    offset: int = Query(default=0, ge=0),
-    session: Session = Depends(get_db_session),
-) -> list[TransactionOut]:
+    search: str | None = Query(default=None, description="Substring of merchant or notes"),
+) -> _ListScope:
+    """Query params shared by the list and count endpoints, so totals always match pages."""
     filters = TransactionFilter(
         start_date=start_date,
         end_date=end_date,
@@ -109,16 +118,52 @@ def list_transactions(
             max_amount is not None,
         ]
     )
-    filters_arg: Optional[TransactionFilter] = None if is_empty_filters else filters
+    return _ListScope(
+        filters=None if is_empty_filters else filters,
+        include_transfers=include_transfers,
+        search=search,
+    )
 
+
+@router.get("/api/transactions", response_model=list[TransactionOut])
+def list_transactions(
+    scope: _ListScope = Depends(_list_scope),
+    sort_by: TransactionSortField = Query(default="date"),
+    sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
+    limit: int | None = Query(default=None, ge=1),
+    offset: int = Query(default=0, ge=0),
+    session: Session = Depends(get_db_session),
+) -> list[TransactionOut]:
     txns = get_transactions(
         session,
-        filters=filters_arg,
+        filters=scope.filters,
         limit=limit,
         offset=offset,
-        include_transfers=include_transfers,
+        include_transfers=scope.include_transfers,
+        search=scope.search,
+        sort_by=sort_by,
+        sort_desc=sort_dir == "desc",
     )
     return [_txn_to_out(t) for t in txns]
+
+
+class TransactionCountOut(BaseModel):
+    total: int
+
+
+# Registered before /{transaction_id} so "count" isn't parsed as an id.
+@router.get("/api/transactions/count", response_model=TransactionCountOut)
+def count_transactions_endpoint(
+    scope: _ListScope = Depends(_list_scope),
+    session: Session = Depends(get_db_session),
+) -> TransactionCountOut:
+    total = count_transactions(
+        session,
+        filters=scope.filters,
+        include_transfers=scope.include_transfers,
+        search=scope.search,
+    )
+    return TransactionCountOut(total=total)
 
 
 @router.get("/api/transactions/{transaction_id}", response_model=TransactionOut)

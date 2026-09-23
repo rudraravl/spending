@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, date, timezone, timedelta
 from pathlib import Path
 from typing import Any
@@ -649,6 +649,8 @@ class SyncResult:
     accounts_synced: int = 0
     transactions_imported: int = 0
     errors: list[str] | None = None
+    # New rows from this sync; seeds transfer detection so only fresh pairs are suggested.
+    imported_transaction_ids: list[int] = field(default_factory=list)
 
 
 def sync_connection(
@@ -821,6 +823,7 @@ def sync_connection(
                 if local_acct.type == "investment":
                     classify_investment_transaction(session, new_txn)
                 result.transactions_imported += 1
+                result.imported_transaction_ids.append(new_txn.id)
 
             holdings = list(account_for_import.holdings or [])
             if not holdings and sfin_acct.holdings:

@@ -180,6 +180,9 @@ class TransferMatchCandidateOut(BaseModel):
     canonical_amount: float
     amount_delta: float
     date_delta_days: int
+    confidence: Literal["high", "medium", "low"] = "medium"
+    reasons: list[str] = []
+    duplicate_of_transfer_group_id: int | None = None
     asset: TransferMatchTxnBrief
     credit: TransferMatchTxnBrief
 

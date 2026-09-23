@@ -1,18 +1,21 @@
-import type { RowSelectionState } from '@tanstack/react-table'
-import { useEffect, useMemo, useState } from 'react'
+import type { OnChangeFn, RowSelectionState, SortingState } from '@tanstack/react-table'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useFieldArray, useForm } from 'react-hook-form'
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiGet } from '../../api/client'
 import { getAccounts } from '../../api/accounts'
 import { getCategories, getSubcategories } from '../../api/categories'
 import { linkExistingTransfer, unlinkExistingTransfer } from '../../api/transfers'
 import {
   deleteTransaction,
+  getTransactionCount,
   getTransactionSplits,
   getTransactions,
   patchTransaction,
   putTransactionSplits,
+  type TransactionSortField,
 } from '../../api/transactions'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { toast } from '@/components/ui/sonner'
 import { queryKeys } from '../../queryKeys'
 import type { AccountOut, CategoryOut, SubcategoryOut, TagOut, TransactionOut, TransactionSplitOut } from '../../types'
@@ -31,6 +34,53 @@ type TransactionPatchPayload = {
 
 const PAGE_SIZE_OPTIONS = [100, 250, 500] as const
 const DEFAULT_PAGE_SIZE = 100
+const SEARCH_DEBOUNCE_MS = 300
+
+/** Table columns the server can sort by; sorting spans every page, not just the visible one. */
+export const SORT_FIELD_BY_COLUMN: Record<string, TransactionSortField> = {
+  Date: 'date',
+  Merchant: 'merchant',
+  Amount: 'amount',
+  Category: 'category',
+  Subcategory: 'subcategory',
+  Acct: 'account',
+}
+const DEFAULT_SORTING: SortingState = [{ id: 'Date', desc: true }]
+
+export type TransactionsPagination = {
+  pageIndex: number
+  /** Null until the row total has loaded. */
+  pageCount: number | null
+  total: number | null
+  rangeStart: number
+  rangeEnd: number
+  canPrevPage: boolean
+  canNextPage: boolean
+  goToPage: (index: number) => void
+  /** Rows shown are from the previous page/filters while the next ones load. */
+  loading: boolean
+  initialLoading: boolean
+  /** Changes whenever a different page or result set is shown. */
+  pageToken: string
+  pageSize: number
+  setPageSize: (size: number) => void
+  pageSizeOptions: readonly number[]
+}
+
+function toRow(t: TransactionOut): TransactionRow {
+  return {
+    id: t.id,
+    Date: new Date(t.date).toISOString().slice(0, 10),
+    Merchant: t.merchant ?? '',
+    Amount: Number(t.amount),
+    Category: t.category_name ?? '',
+    Subcategory: t.subcategory_name ?? '',
+    Tags: t.tag_names?.length ? t.tag_names.join(', ') : '',
+    Notes: t.notes ?? '',
+    Acct: t.account_name ?? '',
+    Split: t.has_splits ? 'Split' : '',
+  }
+}
 
 export function useTransactions() {
   const queryClient = useQueryClient()
@@ -41,10 +91,11 @@ export function useTransactions() {
   const [fAccountId, setFAccountId] = useState<number | null>(null)
   const [showOnlyRecent, setShowOnlyRecent] = useState(false)
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE)
-  const [pageIndex, setPageIndex] = useState(0)
+  const [sorting, setSorting] = useState<SortingState>(DEFAULT_SORTING)
 
-  const [gridRows, setGridRows] = useState<TransactionRow[]>([])
-  const [dirtyIds, setDirtyIds] = useState<Set<number>>(new Set())
+  // Unsaved cell edits by transaction id. Kept apart from the visible rows so
+  // they survive paging, searching, and sorting until saved.
+  const [edits, setEdits] = useState<Map<number, TransactionRow>>(new Map())
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const [error, setError] = useState<string | null>(null)
 
@@ -141,10 +192,36 @@ export function useTransactions() {
 
   const tagIdsKey = useMemo(() => (serverTagIds?.length ? serverTagIds.join(',') : ''), [serverTagIds])
 
-  const offset = pageIndex * pageSize
-  const transactionsQuery = useQuery<TransactionOut[], Error>({
-    queryKey: [
-      ...queryKeys.transactions({
+  const debouncedSearch = useDebouncedValue(merchantSearch.trim(), SEARCH_DEBOUNCE_MS)
+  const activeSort = sorting[0]
+  const sortBy = activeSort ? SORT_FIELD_BY_COLUMN[activeSort.id] : undefined
+  const sortDir: 'asc' | 'desc' | undefined = sortBy ? (activeSort.desc ? 'desc' : 'asc') : undefined
+
+  const filterParams = useMemo(
+    () => ({
+      includeTransfers: true,
+      startDate: recentRange.startDate,
+      endDate: recentRange.endDate,
+      accountId: fAccountId ?? undefined,
+      categoryId: serverCategoryId,
+      tagIds: serverTagIds,
+      tagsMatchAny: true,
+      search: debouncedSearch || undefined,
+    }),
+    [recentRange.startDate, recentRange.endDate, fAccountId, serverCategoryId, serverTagIds, debouncedSearch],
+  )
+
+  // Any change to what's listed starts back at page 1. Tying the page to this key
+  // (rather than resetting it in an effect) avoids first fetching the old page
+  // number under the new filters.
+  const scopeKey = JSON.stringify([filterParams, sortBy, sortDir, pageSize])
+  const [page, setPage] = useState({ scopeKey, index: 0 })
+  const pageIndex = page.scopeKey === scopeKey ? page.index : 0
+  const setPageIndex = useCallback((index: number) => setPage({ scopeKey, index }), [scopeKey])
+
+  const pageQueryOptions = useCallback(
+    (index: number) => ({
+      queryKey: queryKeys.transactions({
         includeTransfers: true,
         startDate: recentRange.startDate,
         endDate: recentRange.endDate,
@@ -152,72 +229,78 @@ export function useTransactions() {
         categoryId: serverCategoryId ?? null,
         tagIdsKey,
         tagsMatchAny: true,
+        search: debouncedSearch || null,
+        sortBy: sortBy ?? null,
+        sortDir: sortDir ?? null,
         limit: pageSize,
+        offset: index * pageSize,
       }),
-      offset,
-    ],
-    queryFn: () =>
-      getTransactions<TransactionOut[]>({
-        includeTransfers: true,
-        startDate: recentRange.startDate,
-        endDate: recentRange.endDate,
-        accountId: fAccountId ?? undefined,
-        categoryId: serverCategoryId,
-        tagIds: serverTagIds,
-        tagsMatchAny: true,
-        limit: pageSize,
-        offset,
-      }),
+      queryFn: () =>
+        getTransactions<TransactionOut[]>({
+          ...filterParams,
+          sortBy,
+          sortDir,
+          limit: pageSize,
+          offset: index * pageSize,
+        }),
+      staleTime: 30_000,
+    }),
+    [recentRange.startDate, recentRange.endDate, fAccountId, serverCategoryId, tagIdsKey, debouncedSearch, sortBy, sortDir, pageSize, filterParams],
+  )
+
+  const transactionsQuery = useQuery<TransactionOut[], Error>({
+    ...pageQueryOptions(pageIndex),
+    // Keep showing the current rows while the next page loads instead of blanking the table.
+    placeholderData: keepPreviousData,
   })
-  const currentPageTransactions = transactionsQuery.data ?? []
-  const hasNextPage = currentPageTransactions.length === pageSize
+  const countQuery = useQuery({
+    queryKey: queryKeys.transactionsCount({
+      includeTransfers: true,
+      startDate: recentRange.startDate,
+      endDate: recentRange.endDate,
+      accountId: fAccountId,
+      categoryId: serverCategoryId ?? null,
+      tagIdsKey,
+      tagsMatchAny: true,
+      search: debouncedSearch || null,
+    }),
+    queryFn: () => getTransactionCount(filterParams),
+    staleTime: 30_000,
+  })
 
-  const filteredRows = useMemo(() => {
-    const needle = merchantSearch.trim().toLowerCase()
-    let filtered = currentPageTransactions
-    if (needle) {
-      filtered = filtered.filter((t) => {
-        const hay = `${t.merchant ?? ''} ${t.notes ?? ''}`.toLowerCase()
-        return hay.includes(needle)
-      })
-    }
+  const currentPageTransactions = useMemo(() => transactionsQuery.data ?? [], [transactionsQuery.data])
+  const total = countQuery.data?.total ?? null
+  const pageCount = total != null ? Math.max(1, Math.ceil(total / pageSize)) : null
+  const hasNextPage =
+    pageCount != null ? pageIndex + 1 < pageCount : currentPageTransactions.length === pageSize
 
-    return filtered.map((t) => ({
-      id: t.id,
-      Date: new Date(t.date).toISOString().slice(0, 10),
-      Merchant: t.merchant ?? '',
-      Amount: Number(t.amount),
-      Category: t.has_splits ? t.category_name ?? '' : t.category_name ?? '',
-      Subcategory: t.has_splits ? t.subcategory_name ?? '' : t.subcategory_name ?? '',
-      Tags: t.tag_names?.length ? t.tag_names.join(', ') : '',
-      Notes: t.notes ?? '',
-      Acct: t.account_name ?? '',
-      Split: t.has_splits ? 'Split' : '',
-    }))
-  }, [currentPageTransactions, merchantSearch])
-
+  // Stay in range when the total shrinks (e.g. after deleting the last rows of the last page).
   useEffect(() => {
-    setPageIndex(0)
-    // Reset stale local edit markers when pagination/filter scope changes.
-    setDirtyIds(new Set())
-  }, [recentRange.startDate, recentRange.endDate, fAccountId, serverCategoryId, tagIdsKey, pageSize])
+    if (pageCount != null && pageIndex > pageCount - 1) setPageIndex(pageCount - 1)
+  }, [pageCount, pageIndex, setPageIndex])
 
+  // Fetch the next page in the background so "Next" is instant.
   useEffect(() => {
-    if (metaLoading || transactionsQuery.isPending) return
-    setGridRows((prev) => {
-      // Preserve local edits for dirty rows while refreshing/adding server data.
-      const prevById = new Map(prev.map((r) => [r.id, r]))
-      const next: TransactionRow[] = []
-      for (const r of filteredRows) {
-        if (dirtyIds.has(r.id)) next.push(prevById.get(r.id) ?? r)
-        else next.push(r)
-      }
-      return next
-    })
-    // If filters changed (or a refetch happened) while there are no pending edits, clear selection.
+    if (!hasNextPage || transactionsQuery.isPlaceholderData) return
+    void queryClient.prefetchQuery(pageQueryOptions(pageIndex + 1))
+  }, [hasNextPage, pageIndex, pageQueryOptions, queryClient, transactionsQuery.isPlaceholderData])
+
+  const serverRows = useMemo(() => currentPageTransactions.map(toRow), [currentPageTransactions])
+  const gridRows = useMemo(() => serverRows.map((r) => edits.get(r.id) ?? r), [serverRows, edits])
+
+  // A new page or result set starts with nothing selected.
+  useEffect(() => {
     setRowSelection({})
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredRows, metaLoading, transactionsQuery.isPending])
+  }, [scopeKey, pageIndex])
+
+  // Drop selections for rows that disappeared (deleted, or filtered out on refetch).
+  useEffect(() => {
+    setRowSelection((prev) => {
+      const visible = new Set(serverRows.map((r) => String(r.id)))
+      const kept = Object.entries(prev).filter(([id, selected]) => selected && visible.has(id))
+      return kept.length === Object.keys(prev).length ? prev : Object.fromEntries(kept)
+    })
+  }, [serverRows])
 
   const splitsQuery = useQuery<TransactionSplitOut[], Error>({
     queryKey: queryKeys.splits(splitTxnId),
@@ -263,7 +346,7 @@ export function useTransactions() {
   const saveDirtyEditsMutation = useMutation({
     mutationFn: async (ids: number[]) => {
       for (const id of ids) {
-        const row = gridRows.find((r) => r.id === id)
+        const row = edits.get(id)
         if (!row) continue
 
         const payload: TransactionPatchPayload = {
@@ -295,7 +378,7 @@ export function useTransactions() {
     },
     onSuccess: () => {
       setError(null)
-      setDirtyIds(new Set())
+      setEdits(new Map())
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
       queryClient.invalidateQueries({ queryKey: ['splits'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
@@ -385,8 +468,13 @@ export function useTransactions() {
         await deleteTransaction(id)
       }
     },
-    onSuccess: () => {
+    onSuccess: (_data, ids) => {
       setError(null)
+      setEdits((prev) => {
+        const next = new Map(prev)
+        for (const id of ids) next.delete(id)
+        return next
+      })
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
       queryClient.invalidateQueries({ queryKey: ['splits'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
@@ -415,7 +503,7 @@ export function useTransactions() {
   })
 
   function saveDirtyEdits() {
-    const ids = Array.from(dirtyIds)
+    const ids = Array.from(edits.keys())
     if (ids.length === 0) return
     if (!metaReady) return
     setError(null)
@@ -447,29 +535,32 @@ export function useTransactions() {
   }
 
   function processRowUpdate(newRow: TransactionRow) {
-    setGridRows((prev) => prev.map((r) => (r.id === newRow.id ? newRow : r)))
-    setDirtyIds((prev) => {
-      const next = new Set(prev)
-      next.add(newRow.id)
-      return next
-    })
+    setEdits((prev) => new Map(prev).set(newRow.id, newRow))
     return newRow
   }
 
-  function prevPage() {
-    if (!metaReady) return
-    if (dirtyIds.size > 0) return
-    if (pageIndex <= 0) return
-    if (transactionsQuery.isFetching) return
-    setPageIndex((prev) => prev - 1)
+  function goToPage(index: number) {
+    const last = pageCount != null ? pageCount - 1 : hasNextPage ? pageIndex + 1 : pageIndex
+    const target = Math.min(Math.max(index, 0), last)
+    if (target !== pageIndex) setPageIndex(target)
   }
 
-  function nextPage() {
-    if (!metaReady) return
-    if (dirtyIds.size > 0) return
-    if (!hasNextPage) return
-    if (transactionsQuery.isFetching) return
-    setPageIndex((prev) => prev + 1)
+  const pageStart = pageIndex * pageSize
+  const pagination: TransactionsPagination = {
+    pageIndex,
+    pageCount,
+    total,
+    rangeStart: currentPageTransactions.length ? pageStart + 1 : 0,
+    rangeEnd: pageStart + currentPageTransactions.length,
+    canPrevPage: pageIndex > 0,
+    canNextPage: hasNextPage,
+    goToPage,
+    loading: transactionsQuery.isPlaceholderData,
+    initialLoading: transactionsQuery.isPending,
+    pageToken: `${scopeKey}|${pageIndex}`,
+    pageSize,
+    setPageSize,
+    pageSizeOptions: PAGE_SIZE_OPTIONS,
   }
 
   function saveSplits() {
@@ -520,26 +611,10 @@ export function useTransactions() {
       linkCardPaymentPending: linkCardPaymentMutation.isPending,
       unlinkTransfer,
       unlinkTransferPending: unlinkTransferMutation.isPending,
-      prevPage,
-      canPrevPage:
-        metaReady &&
-        dirtyIds.size === 0 &&
-        pageIndex > 0 &&
-        !transactionsQuery.isFetching &&
-        !transactionsQuery.isPending,
-      nextPage,
-      canNextPage:
-        metaReady &&
-        dirtyIds.size === 0 &&
-        hasNextPage &&
-        !transactionsQuery.isFetching &&
-        !transactionsQuery.isPending,
-      nextPagePending: transactionsQuery.isFetching,
-      pageSize,
-      setPageSize: (size: number) => setPageSize(size),
-      pageSizeOptions: PAGE_SIZE_OPTIONS as readonly number[],
-      pageNumber: pageIndex + 1,
-      currentPageCount: currentPageTransactions.length,
+      unsavedCount: edits.size,
+      sorting,
+      setSorting: setSorting as OnChangeFn<SortingState>,
+      pagination,
     },
     splits: {
       splitsControl,

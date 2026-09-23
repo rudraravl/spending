@@ -23,6 +23,7 @@ import {
 import { queryKeys } from '@/queryKeys'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { useTransferReview } from '@/features/transfers/transferReviewContext'
 
 function formatMoney(amount: number, currency = 'USD') {
   try {
@@ -58,9 +59,12 @@ export default function InvestmentsPage() {
   })
   const simplefinConnection = simplefinConnections[0] ?? null
 
+  const reviewTransfers = useTransferReview()
+
   const syncMutation = useMutation({
     mutationFn: () => triggerSync({ connection_id: simplefinConnection?.id ?? null }),
     onSuccess: (result: SyncResult) => {
+      reviewTransfers(result.transfer_candidates ?? [])
       const base = `Synced ${result.accounts_synced} account(s), imported ${result.transactions_imported} new transaction(s).`
       if (result.errors?.length) {
         toast.success(`${base} ${result.errors.join('; ')}`)

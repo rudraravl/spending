@@ -1,6 +1,7 @@
 import { apiGet, apiPostJson } from './client'
 
 export type TransferMatchKind = 'card_payment' | 'asset_transfer'
+export type TransferMatchConfidence = 'high' | 'medium' | 'low'
 
 export type TransferMatchTxnBrief = {
   id: number
@@ -20,6 +21,11 @@ export type TransferMatchCandidate = {
   canonical_amount: number
   amount_delta: number
   date_delta_days: number
+  confidence?: TransferMatchConfidence
+  /** Why the pair was suggested, most important first. */
+  reasons?: string[]
+  /** Set when an existing transfer already covers this money; linking would double count it. */
+  duplicate_of_transfer_group_id?: number | null
   asset: TransferMatchTxnBrief
   credit: TransferMatchTxnBrief
 }

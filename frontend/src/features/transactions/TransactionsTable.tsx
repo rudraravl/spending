@@ -1,17 +1,27 @@
 import {
   flexRender,
   getCoreRowModel,
-  getSortedRowModel,
   useReactTable,
   type ColumnDef,
   type OnChangeFn,
   type RowSelectionState,
   type SortingState,
 } from '@tanstack/react-table'
-import { Check, ChevronsUpDown, Filter, Search } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  ChevronsUpDown,
+  Filter,
+  Loader2,
+  Search,
+} from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { AccountOut, CategoryOut, SubcategoryOut, TagOut } from '../../types'
 import type { TransactionRow } from './types'
+import type { TransactionsPagination } from './useTransactions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -392,17 +402,13 @@ export type TransactionsTableProps = {
   deletePending: boolean
   linkCardPaymentPending: boolean
   unlinkTransferPending: boolean
-  onPrevPage: () => void
-  canPrevPage: boolean
-  onNextPage: () => void
-  canNextPage: boolean
-  nextPagePending: boolean
-  pageSize: number
-  onPageSizeChange: (size: number) => void
-  pageSizeOptions: readonly number[]
-  pageNumber: number
-  currentPageCount: number
+  unsavedCount: number
+  sorting: SortingState
+  onSortingChange: OnChangeFn<SortingState>
+  pagination: TransactionsPagination
 }
+
+const numberFormat = new Intl.NumberFormat()
 
 export default function TransactionsTable({
   categories,
@@ -433,18 +439,16 @@ export default function TransactionsTable({
   deletePending,
   linkCardPaymentPending,
   unlinkTransferPending,
-  onPrevPage,
-  canPrevPage,
-  onNextPage,
-  canNextPage,
-  nextPagePending,
-  pageSize,
-  onPageSizeChange,
-  pageSizeOptions,
-  pageNumber,
-  currentPageCount,
+  unsavedCount,
+  sorting,
+  onSortingChange,
+  pagination,
 }: TransactionsTableProps) {
-  const [sorting, setSorting] = useState<SortingState>([])
+  const scrollRef = useRef<HTMLDivElement>(null)
+  // Start each page (or new result set) at the top of the scroll area.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 })
+  }, [pagination.pageToken])
 
   const accountSelectOptions = useMemo(() => {
     const nameCount = new Map<string, number>()
@@ -576,6 +580,7 @@ export default function TransactionsTable({
       },
       {
         accessorKey: 'Tags',
+        enableSorting: false,
         header: ({ column }) => <DataTableColumnHeader column={column} title="Tags" />,
         cell: ({ row }) => (
           <TagsPickerCell row={row.original} tags={tags} processRowUpdate={onProcessRowUpdate} />
@@ -583,6 +588,7 @@ export default function TransactionsTable({
       },
       {
         accessorKey: 'Notes',
+        enableSorting: false,
         header: ({ column }) => <DataTableColumnHeader column={column} title="Notes" />,
         cell: ({ row }) => (
           <EditableCell row={row.original} columnId="Notes" processRowUpdate={onProcessRowUpdate} />
@@ -590,6 +596,7 @@ export default function TransactionsTable({
       },
       {
         accessorKey: 'Split',
+        enableSorting: false,
         header: ({ column }) => <DataTableColumnHeader column={column} title="Split" />,
         cell: ({ row }) => <span className="text-xs text-muted-foreground">{row.original.Split}</span>,
       },
@@ -603,18 +610,25 @@ export default function TransactionsTable({
     getRowId: (row) => String(row.id),
     state: { rowSelection, sorting },
     onRowSelectionChange: setRowSelection,
-    onSortingChange: setSorting,
+    // Sorted by the server so the order spans every page, not just this one.
+    manualSorting: true,
+    onSortingChange,
+    enableSortingRemoval: false,
     enableRowSelection: true,
     getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
   })
 
   return (
     <div className="p-6 lg:p-8">
       <div className="flex flex-col items-end gap-2 mb-6">
         <div className="flex items-center justify-end gap-2">
-          <Button variant="outline" size="sm" onClick={onSaveEdits} disabled={savePending || !metaReady}>
-            Save Edits
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onSaveEdits}
+            disabled={savePending || !metaReady || unsavedCount === 0}
+          >
+            {unsavedCount > 0 ? `Save Edits (${unsavedCount})` : 'Save Edits'}
           </Button>
           <Button
             variant="secondary"
@@ -743,7 +757,14 @@ export default function TransactionsTable({
         </Popover>
       </div>
 
-      <div className="rounded-xl border bg-card shadow-card overflow-hidden max-h-[520px] overflow-y-auto">
+      <div
+        ref={scrollRef}
+        aria-busy={pagination.loading}
+        className={cn(
+          'rounded-xl border bg-card shadow-card overflow-hidden max-h-[520px] overflow-y-auto transition-opacity',
+          pagination.loading && 'opacity-60',
+        )}
+      >
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (
@@ -760,7 +781,7 @@ export default function TransactionsTable({
             {table.getRowModel().rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground text-sm">
-                  No transactions match your filters.
+                  {pagination.initialLoading ? 'Loading transactions…' : 'No transactions match your filters.'}
                 </TableCell>
               </TableRow>
             ) : (
@@ -784,33 +805,100 @@ export default function TransactionsTable({
         </Table>
       </div>
 
-      <div className="flex items-center justify-between gap-3 mt-3">
-        <p className="text-xs text-muted-foreground">
-          Page <span className="font-medium text-foreground">{pageNumber}</span> · Showing{' '}
-          <span className="font-medium text-foreground">{currentPageCount}</span> of{' '}
-          <span className="font-medium text-foreground">{pageSize}</span> rows
-        </p>
+      <TablePaginationFooter pagination={pagination} />
+    </div>
+  )
+}
+
+
+function TablePaginationFooter({ pagination }: { pagination: TransactionsPagination }) {
+  const {
+    pageIndex,
+    pageCount,
+    total,
+    rangeStart,
+    rangeEnd,
+    canPrevPage,
+    canNextPage,
+    goToPage,
+    loading,
+    pageSize,
+    setPageSize,
+    pageSizeOptions,
+  } = pagination
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 mt-3">
+      <p className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums" aria-live="polite">
+        {total === 0 ? (
+          'No transactions'
+        ) : (
+          <>
+            <span className="font-medium text-foreground">
+              {numberFormat.format(rangeStart)}–{numberFormat.format(rangeEnd)}
+            </span>
+            {total != null ? <> of {numberFormat.format(total)}</> : null}
+          </>
+        )}
+        {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-label="Loading" /> : null}
+      </p>
+      <div className="flex items-center gap-4">
         <div className="flex items-center gap-2">
-          <Select value={String(pageSize)} onValueChange={(v) => onPageSizeChange(Number(v))}>
-            <SelectTrigger className="h-8 w-[110px]">
+          <span className="text-xs text-muted-foreground whitespace-nowrap">Rows per page</span>
+          <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+            <SelectTrigger className="h-8 w-[76px]" aria-label="Rows per page">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {pageSizeOptions.map((size) => (
                 <SelectItem key={size} value={String(size)}>
-                  {size} / page
+                  {size}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm" onClick={onPrevPage} disabled={!canPrevPage || nextPagePending}>
-            Previous page
-          </Button>
-          <Button variant="outline" size="sm" onClick={onNextPage} disabled={!canNextPage || nextPagePending}>
-            {nextPagePending ? 'Loading…' : 'Next page'}
-          </Button>
+        </div>
+        <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
+          Page <span className="font-medium text-foreground">{pageIndex + 1}</span>
+          {pageCount != null ? <> of {pageCount}</> : null}
+        </span>
+        <div className="flex items-center gap-1">
+          <PageButton label="First page" onClick={() => goToPage(0)} disabled={!canPrevPage}>
+            <ChevronsLeft className="h-4 w-4" />
+          </PageButton>
+          <PageButton label="Previous page" onClick={() => goToPage(pageIndex - 1)} disabled={!canPrevPage}>
+            <ChevronLeft className="h-4 w-4" />
+          </PageButton>
+          <PageButton label="Next page" onClick={() => goToPage(pageIndex + 1)} disabled={!canNextPage}>
+            <ChevronRight className="h-4 w-4" />
+          </PageButton>
+          <PageButton
+            label="Last page"
+            onClick={() => pageCount != null && goToPage(pageCount - 1)}
+            disabled={!canNextPage || pageCount == null}
+          >
+            <ChevronsRight className="h-4 w-4" />
+          </PageButton>
         </div>
       </div>
     </div>
+  )
+}
+
+function PageButton({
+  label,
+  onClick,
+  disabled,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  disabled: boolean
+  children: ReactNode
+}) {
+  return (
+    <Button variant="outline" size="icon" className="h-8 w-8" onClick={onClick} disabled={disabled} aria-label={label} title={label}>
+      {children}
+    </Button>
   )
 }

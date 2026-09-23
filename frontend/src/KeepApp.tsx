@@ -3,6 +3,7 @@ import { ThemeProvider } from 'next-themes'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { Navigate } from 'react-router-dom'
 import AppLayout from '@/components/AppLayout'
+import TransferReviewProvider from '@/features/transfers/TransferReviewProvider'
 import { Toaster as Sonner } from '@/components/ui/sonner'
 import { Toaster } from '@/components/ui/toaster'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -29,6 +30,7 @@ export default function KeepApp() {
           <Toaster />
           <Sonner />
           <BrowserRouter>
+            <TransferReviewProvider>
             <Routes>
               <Route element={<AppLayout />}>
                 <Route path="/" element={<DashboardPage />} />
@@ -51,6 +53,7 @@ export default function KeepApp() {
               </Route>
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
+            </TransferReviewProvider>
           </BrowserRouter>
         </TooltipProvider>
       </ThemeProvider>

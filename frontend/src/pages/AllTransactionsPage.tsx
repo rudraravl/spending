@@ -65,16 +65,10 @@ export default function AllTransactionsPage() {
             deletePending={table.deletePending}
             linkCardPaymentPending={table.linkCardPaymentPending}
             unlinkTransferPending={table.unlinkTransferPending}
-            onPrevPage={table.prevPage}
-            canPrevPage={table.canPrevPage}
-            onNextPage={table.nextPage}
-            canNextPage={table.canNextPage}
-            nextPagePending={table.nextPagePending}
-            pageSize={table.pageSize}
-            onPageSizeChange={table.setPageSize}
-            pageSizeOptions={table.pageSizeOptions}
-            pageNumber={table.pageNumber}
-            currentPageCount={table.currentPageCount}
+            unsavedCount={table.unsavedCount}
+            sorting={table.sorting}
+            onSortingChange={table.setSorting}
+            pagination={table.pagination}
           />
 
           <TransactionForm

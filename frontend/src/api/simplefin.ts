@@ -1,4 +1,5 @@
 import { apiDelete, apiGet, apiPatchJson, apiPostJson } from './client'
+import type { TransferMatchCandidate } from './transfers'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,6 +66,9 @@ export interface SyncResult {
   accounts_synced: number
   transactions_imported: number
   errors: string[] | null
+  imported_transaction_ids?: number[]
+  /** Likely transfers involving this sync's new transactions. */
+  transfer_candidates?: TransferMatchCandidate[]
 }
 
 export interface SyncRun {

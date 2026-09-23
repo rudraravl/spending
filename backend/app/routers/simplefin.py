@@ -10,7 +10,9 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.app.deps import get_db_session
-from backend.app.schemas import UTCDateTime
+from backend.app.schemas import TransferMatchCandidateOut, UTCDateTime
+from backend.app.transfer_helpers import transfer_pair_to_candidate_out
+from services.transfer_matching_service import find_transfer_match_candidates
 from services.simplefin_client import SimpleFINAuthError, SimpleFINError
 from services.simplefin_sync_service import (
     create_connection_from_token,
@@ -111,6 +113,9 @@ class SyncResultOut(BaseModel):
     accounts_synced: int
     transactions_imported: int
     errors: list[str] | None = None
+    imported_transaction_ids: list[int] = []
+    # Likely transfers involving this sync's new transactions, for the review prompt.
+    transfer_candidates: list[TransferMatchCandidateOut] = []
 
 
 class SyncRunOut(BaseModel):
@@ -356,10 +361,25 @@ def api_sync(
         )
     except (SimpleFINError, SimpleFINAuthError) as exc:
         return SyncResultOut(accounts_synced=0, transactions_imported=0, errors=[str(exc)])
+
+    errors = list(result.errors or [])
+    candidates: list[TransferMatchCandidateOut] = []
+    if result.imported_transaction_ids:
+        # The sync is already committed; a detection failure should not report it as failed.
+        try:
+            pairs = find_transfer_match_candidates(
+                session,
+                seed_transaction_ids=result.imported_transaction_ids,
+            )
+            candidates = [transfer_pair_to_candidate_out(session, p) for p in pairs]
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"Transfer detection failed: {exc}")
     return SyncResultOut(
         accounts_synced=result.accounts_synced,
         transactions_imported=result.transactions_imported,
-        errors=result.errors,
+        errors=errors or None,
+        imported_transaction_ids=result.imported_transaction_ids,
+        transfer_candidates=candidates,
     )
 
 

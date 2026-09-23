@@ -11,11 +11,20 @@ export type TransactionFilterParams = {
   tagsMatchAny?: boolean
   minAmount?: number
   maxAmount?: number
+  /** Case-insensitive substring of merchant or notes. */
+  search?: string
+}
+
+export type TransactionSortField = 'date' | 'amount' | 'merchant' | 'account' | 'category' | 'subcategory'
+
+export type TransactionListParams = TransactionFilterParams & {
+  sortBy?: TransactionSortField
+  sortDir?: 'asc' | 'desc'
   limit?: number
   offset?: number
 }
 
-export const getTransactions = <T,>(params: TransactionFilterParams) => {
+function filterQuery(params: TransactionFilterParams): URLSearchParams {
   const query = new URLSearchParams()
   query.set('include_transfers', params.includeTransfers ? 'true' : 'false')
   if (params.startDate && params.endDate) {
@@ -41,6 +50,19 @@ export const getTransactions = <T,>(params: TransactionFilterParams) => {
   if (params.maxAmount != null) {
     query.set('max_amount', String(params.maxAmount))
   }
+  const search = params.search?.trim()
+  if (search) {
+    query.set('search', search)
+  }
+  return query
+}
+
+export const getTransactions = <T,>(params: TransactionListParams) => {
+  const query = filterQuery(params)
+  if (params.sortBy) {
+    query.set('sort_by', params.sortBy)
+    query.set('sort_dir', params.sortDir ?? 'desc')
+  }
   if (params.limit != null) {
     query.set('limit', String(params.limit))
   }
@@ -49,6 +71,10 @@ export const getTransactions = <T,>(params: TransactionFilterParams) => {
   }
   return apiGet<T>(`/api/transactions?${query.toString()}`)
 }
+
+/** Total rows matching the same filters as getTransactions (ignores sort/limit/offset). */
+export const getTransactionCount = (params: TransactionFilterParams) =>
+  apiGet<{ total: number }>(`/api/transactions/count?${filterQuery(params).toString()}`)
 
 export const createTransaction = <T,>(payload: unknown) => apiPostJson<T>('/api/transactions', payload)
 

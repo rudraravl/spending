@@ -10,8 +10,9 @@ Provides:
 """
 
 from datetime import date
-from typing import List, Optional, cast
-from sqlalchemy.orm import Session
+from typing import List, Literal, Optional, cast
+from sqlalchemy import func, or_
+from sqlalchemy.orm import Query, Session, aliased
 from db.models import Transaction, Tag, Account, Category, Subcategory, TransferGroup, TransactionSplit
 from services.transfer_matching_service import CARD_PAYMENT_AMOUNT_TOLERANCE
 from services.zbb_service import recalc_activity_for_months
@@ -20,6 +21,22 @@ from utils.filters import TransactionFilter
 
 SPLIT_TOLERANCE = .01
 LINK_AMOUNT_TOLERANCE = CARD_PAYMENT_AMOUNT_TOLERANCE
+# Appended to each leg's notes on link and removed again on unlink.
+TRANSFER_LINK_NOTE = "Linked as transfer."
+
+
+def _add_link_note(notes: str | None) -> str:
+    lines = (notes or "").splitlines()
+    if TRANSFER_LINK_NOTE in lines:
+        return notes or TRANSFER_LINK_NOTE
+    return f"{notes}\n{TRANSFER_LINK_NOTE}" if notes else TRANSFER_LINK_NOTE
+
+
+def _remove_link_note(notes: str | None) -> str | None:
+    if not notes:
+        return notes
+    kept = [line for line in notes.splitlines() if line != TRANSFER_LINK_NOTE]
+    return "\n".join(kept) or None
 
 
 _UNSET = object()
@@ -163,6 +180,20 @@ def update_transaction(
     # `notes` needs to support explicit clearing (notes=None) vs "field omitted".
     new_notes = transaction.notes if notes is _UNSET else notes
 
+    # A linked leg must keep mirroring its peer; changing its amount or account
+    # would leave a "transfer" that no longer nets to zero across two accounts.
+    if transaction.transfer_group_id is not None:
+        if abs(float(new_amount) - float(transaction.amount)) > 0.005:
+            raise ValueError(
+                f"Transaction {transaction_id} is part of a linked transfer; "
+                "unlink it before changing its amount"
+            )
+        if new_account_id != transaction.account_id:
+            raise ValueError(
+                f"Transaction {transaction_id} is part of a linked transfer; "
+                "unlink it before moving it to another account"
+            )
+
     # Validate account
     account = session.query(Account).filter(Account.id == new_account_id).first()
     if not account:
@@ -246,25 +277,19 @@ def assign_tags(
     return transaction
 
 
-def get_transactions(
+TransactionSortField = Literal["date", "amount", "merchant", "account", "category", "subcategory"]
+
+
+def _escape_like(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _filtered_transactions_query(
     session: Session,
-    filters: Optional[TransactionFilter] = None,
-    limit: Optional[int] = None,
-    offset: int = 0,
-    include_transfers: bool = True,
-) -> List[Transaction]:
-    """
-    Get transactions matching the given filters.
-    
-    Args:
-        session: Database session
-        filters: TransactionFilter object (if None, returns all transactions)
-        limit: Maximum number of results
-        offset: Number of results to skip
-        
-    Returns:
-        List of Transaction objects
-    """
+    filters: Optional[TransactionFilter],
+    include_transfers: bool,
+    search: Optional[str],
+) -> Query:
     query = session.query(Transaction)
     if not include_transfers:
         query = query.filter(Transaction.is_transfer.is_(False))
@@ -306,9 +331,74 @@ def get_transactions(
             query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
         elif getattr(filters, "subcategory_ids", None):
             query = query.filter(Transaction.subcategory_id.in_(filters.subcategory_ids))
+
+    needle = (search or "").strip()
+    if needle:
+        pattern = f"%{_escape_like(needle)}%"
+        query = query.filter(
+            or_(
+                Transaction.merchant.ilike(pattern, escape="\\"),
+                Transaction.notes.ilike(pattern, escape="\\"),
+            )
+        )
+    return query
+
+
+def _apply_transaction_sort(query: Query, sort_by: TransactionSortField, descending: bool) -> Query:
+    if sort_by == "amount":
+        key = Transaction.amount
+    elif sort_by == "merchant":
+        key = func.lower(Transaction.merchant)
+    elif sort_by == "account":
+        # Aliased so it can't collide with the Account join used by filters.
+        account = aliased(Account)
+        query = query.outerjoin(account, Transaction.account_id == account.id)
+        key = func.lower(account.name)
+    elif sort_by == "category":
+        category = aliased(Category)
+        query = query.outerjoin(category, Transaction.category_id == category.id)
+        key = func.lower(category.name)
+    elif sort_by == "subcategory":
+        subcategory = aliased(Subcategory)
+        query = query.outerjoin(subcategory, Transaction.subcategory_id == subcategory.id)
+        key = func.lower(subcategory.name)
+    else:
+        key = Transaction.date
+    # Newest-first tiebreakers keep the order stable, so offset pages never
+    # skip or repeat rows that share a sort value.
+    return query.order_by(
+        key.desc() if descending else key.asc(),
+        Transaction.date.desc(),
+        Transaction.id.desc(),
+    )
+
+
+def get_transactions(
+    session: Session,
+    filters: Optional[TransactionFilter] = None,
+    limit: Optional[int] = None,
+    offset: int = 0,
+    include_transfers: bool = True,
+    search: Optional[str] = None,
+    sort_by: TransactionSortField = "date",
+    sort_desc: bool = True,
+) -> List[Transaction]:
+    """
+    Get transactions matching the given filters.
     
-    # Apply ordering
-    query = query.order_by(Transaction.date.desc(), Transaction.id.desc())
+    Args:
+        session: Database session
+        filters: TransactionFilter object (if None, returns all transactions)
+        limit: Maximum number of results
+        offset: Number of results to skip
+        search: Case-insensitive substring match on merchant or notes
+        sort_by / sort_desc: Ordering (default newest first)
+        
+    Returns:
+        List of Transaction objects
+    """
+    query = _filtered_transactions_query(session, filters, include_transfers, search)
+    query = _apply_transaction_sort(query, sort_by, sort_desc)
     
     # Apply limit and offset
     if limit:
@@ -316,6 +406,16 @@ def get_transactions(
     query = query.offset(offset)
     
     return query.all()
+
+
+def count_transactions(
+    session: Session,
+    filters: Optional[TransactionFilter] = None,
+    include_transfers: bool = True,
+    search: Optional[str] = None,
+) -> int:
+    """Number of transactions get_transactions would return without limit/offset."""
+    return _filtered_transactions_query(session, filters, include_transfers, search).count()
 
 
 def get_transaction_by_id(
@@ -528,8 +628,6 @@ def link_transactions_as_transfer(
     session.add(group)
     session.flush()
 
-    link_line = "Linked as transfer."
-
     source_txn.amount = -canonical
     destination_txn.amount = canonical
     source_txn.is_transfer = True
@@ -541,7 +639,7 @@ def link_transactions_as_transfer(
     destination_txn.category_id = None
     destination_txn.subcategory_id = None
     for t in (source_txn, destination_txn):
-        t.notes = f"{t.notes}\n{link_line}" if t.notes else link_line
+        t.notes = _add_link_note(t.notes)
 
     _recalc_zbb_months(session, [_month_key(t_a.date), _month_key(t_b.date)])
     session.commit()
@@ -597,6 +695,7 @@ def unlink_transfer_pair(
     for t in (t_a, t_b):
         t.is_transfer = False
         t.transfer_group_id = None
+        t.notes = _remove_link_note(t.notes)
         if t.category_id is None:
             t.category_id = other_cat_id
         if t.subcategory_id is None:
@@ -609,59 +708,6 @@ def unlink_transfer_pair(
     _recalc_zbb_months(session, [_month_key(t_a.date), _month_key(t_b.date)])
     session.commit()
     return group_id
-
-
-def count_transactions(
-    session: Session,
-    filters: Optional[TransactionFilter] = None,
-) -> int:
-    """
-    Count transactions matching the given filters.
-    
-    Args:
-        session: Database session
-        filters: TransactionFilter object
-        
-    Returns:
-        Number of transactions
-    """
-    query = session.query(Transaction)
-    
-    if filters:
-        if filters.start_date:
-            query = query.filter(Transaction.date >= filters.start_date)
-        
-        if filters.end_date:
-            query = query.filter(Transaction.date <= filters.end_date)
-        
-        if filters.account_id:
-            query = query.filter(Transaction.account_id == filters.account_id)
-        
-        if filters.min_amount is not None:
-            query = query.filter(Transaction.amount >= filters.min_amount)
-        
-        if filters.max_amount is not None:
-            query = query.filter(Transaction.amount <= filters.max_amount)
-        
-        # Filter by tag (AND: all tags required; OR: any tag matches)
-        if filters.tag_ids:
-            if getattr(filters, "tags_match_any", False):
-                query = query.filter(Transaction.tags.any(Tag.id.in_(filters.tag_ids)))
-            else:
-                for tag_id in filters.tag_ids:
-                    query = query.filter(Transaction.tags.any(Tag.id == tag_id))
-        
-        # Filter by category (direct category_id match only)
-        if filters.category_id:
-            query = query.filter(Transaction.category_id == filters.category_id)
-        
-        # Filter by subcategory
-        if filters.subcategory_id:
-            query = query.filter(Transaction.subcategory_id == filters.subcategory_id)
-        elif getattr(filters, "subcategory_ids", None):
-            query = query.filter(Transaction.subcategory_id.in_(filters.subcategory_ids))
-    
-    return query.count()
 
 
 def _validate_split_row(

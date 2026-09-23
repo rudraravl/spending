@@ -18,6 +18,9 @@ def transfer_pair_to_candidate_out(
         canonical_amount=d["canonical_amount"],
         amount_delta=d["amount_delta"],
         date_delta_days=d["date_delta_days"],
+        confidence=d.get("confidence", "medium"),
+        reasons=d.get("reasons", []),
+        duplicate_of_transfer_group_id=d.get("duplicate_of_transfer_group_id"),
         asset=TransferMatchTxnBrief(**d["asset"]),
         credit=TransferMatchTxnBrief(**d["credit"]),
     )

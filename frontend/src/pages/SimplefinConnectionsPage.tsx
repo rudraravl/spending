@@ -30,6 +30,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { useTransferReview } from '@/features/transfers/transferReviewContext'
 
 function formatDate(iso: string | null | undefined) {
   if (!iso) return 'Never'
@@ -87,9 +88,12 @@ export default function SimplefinConnectionsPage({ embedded = false }: { embedde
     onError: (err: Error) => setClaimError(err.message),
   })
 
+  const reviewTransfers = useTransferReview()
+
   const syncMutation = useMutation({
     mutationFn: () => triggerSync({ connection_id: connection?.id ?? null }),
     onSuccess: (result: SyncResult) => {
+      reviewTransfers(result.transfer_candidates ?? [])
       setSyncFeedback(
         `Synced ${result.accounts_synced} account(s), imported ${result.transactions_imported} transaction(s).` +
           (result.errors?.length ? ` Warnings: ${result.errors.join('; ')}` : ''),

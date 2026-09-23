@@ -19,7 +19,11 @@ export const queryKeys = {
     subcategoryId?: number | null
     tagIdsKey?: string | null
     tagsMatchAny?: boolean | null
+    search?: string | null
+    sortBy?: string | null
+    sortDir?: 'asc' | 'desc' | null
     limit?: number | null
+    offset?: number | null
   }) =>
     [
       'transactions',
@@ -31,7 +35,35 @@ export const queryKeys = {
       params.subcategoryId ?? null,
       params.tagIdsKey ?? null,
       params.tagsMatchAny ?? null,
+      params.search ?? null,
+      params.sortBy ?? null,
+      params.sortDir ?? null,
       params.limit ?? null,
+      params.offset ?? null,
+    ] as const,
+
+  /** Row total for a filtered transactions list; under 'transactions' so list invalidations refresh it. */
+  transactionsCount: (params: {
+    includeTransfers: boolean
+    startDate?: string
+    endDate?: string
+    accountId?: number | null
+    categoryId?: number | null
+    tagIdsKey?: string | null
+    tagsMatchAny?: boolean | null
+    search?: string | null
+  }) =>
+    [
+      'transactions',
+      'count',
+      params.includeTransfers,
+      params.startDate ?? null,
+      params.endDate ?? null,
+      params.accountId ?? null,
+      params.categoryId ?? null,
+      params.tagIdsKey ?? null,
+      params.tagsMatchAny ?? null,
+      params.search ?? null,
     ] as const,
 
   /** Transactions scoped to one account (hub / account detail). */

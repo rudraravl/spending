@@ -5,6 +5,7 @@ import TransactionForm from '../features/transactions/TransactionForm'
 import TransactionsTable from '../features/transactions/TransactionsTable'
 import { useTransactions } from '../features/transactions/useTransactions'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import PageHeader from '@/components/PageHeader'
 
 export default function AllTransactionsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -18,7 +19,8 @@ export default function AllTransactionsPage() {
     useTransactions()
 
   return (
-    <div className="p-6 lg:p-8 max-w-6xl mx-auto">
+    <div className="page">
+      <PageHeader title="Transactions" description="Search, categorize, and reconcile activity across every account." />
       <Tabs
         value={activeTab}
         onValueChange={(value) => {

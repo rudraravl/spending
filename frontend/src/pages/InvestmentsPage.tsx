@@ -24,6 +24,7 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { formatMoney } from '@/lib/format'
 import { syncResultSummary, useSimplefinSync } from '@/features/simplefin/useSimplefinSync'
+import PageHeader from '@/components/PageHeader'
 
 const UNKNOWN = 'Unknown investment'
 const CASH = 'Cash'
@@ -56,40 +57,43 @@ export default function InvestmentsPage() {
   })
 
   const pageToolbar = (
-    <div className="flex flex-wrap items-start justify-between gap-4 mb-2">
-      <p className="text-sm text-muted-foreground">All investment accounts, combined</p>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="inline-flex shrink-0">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
-              disabled={!simplefinConnection || syncMutation.isPending}
-              onClick={() => syncMutation.mutate()}
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
-              Sync
-            </Button>
-          </span>
-        </TooltipTrigger>
-        {!simplefinConnection ? (
-          <TooltipContent side="bottom" className="max-w-xs text-xs">
-            Add a SimpleFIN connection under Connections first.
-          </TooltipContent>
-        ) : (
-          <TooltipContent side="bottom" className="text-xs">
-            Pull latest balances and holdings from SimpleFIN
-          </TooltipContent>
-        )}
-      </Tooltip>
-    </div>
+    <PageHeader
+      title="Investments"
+      description="All investment accounts, combined."
+      actions={
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex shrink-0">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={!simplefinConnection || syncMutation.isPending}
+                  onClick={() => syncMutation.mutate()}
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
+                  Sync
+                </Button>
+              </span>
+            </TooltipTrigger>
+            {!simplefinConnection ? (
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                Add a SimpleFIN connection under Accounts → Bank Sync first.
+              </TooltipContent>
+            ) : (
+              <TooltipContent side="bottom" className="text-xs">
+                Pull latest balances and holdings from SimpleFIN
+              </TooltipContent>
+            )}
+          </Tooltip>
+      }
+    />
   )
 
   if (summaryQ.isPending) {
     return (
-      <div className="p-6 max-w-4xl mx-auto">
+      <div className="page max-w-5xl">
         {pageToolbar}
         <p className="text-sm text-muted-foreground mt-4">Loading investments…</p>
       </div>
@@ -97,7 +101,7 @@ export default function InvestmentsPage() {
   }
   if (summaryQ.isError) {
     return (
-      <div className="p-6 max-w-4xl mx-auto">
+      <div className="page max-w-5xl">
         {pageToolbar}
         <p className="text-sm text-destructive mt-4">{(summaryQ.error as Error).message}</p>
       </div>
@@ -110,7 +114,7 @@ export default function InvestmentsPage() {
   const dayChg = s.day_change_pct
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="page max-w-5xl">
       <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
         {pageToolbar}
 

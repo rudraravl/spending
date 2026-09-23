@@ -131,7 +131,7 @@ export default function AccountDetailPage() {
 
   if (accountQuery.isError) {
     return (
-      <div className="p-6">
+      <div className="page">
         <p className="text-sm text-destructive">{(accountQuery.error as Error).message}</p>
         <Button variant="ghost" className="mt-4" asChild>
           <Link to="/accounts">
@@ -145,7 +145,7 @@ export default function AccountDetailPage() {
 
   if (accountQuery.isPending || !accountQuery.data) {
     return (
-      <div className="p-6 max-w-4xl mx-auto">
+      <div className="page max-w-5xl">
         <p className="text-sm text-muted-foreground">Loading account…</p>
       </div>
     )
@@ -165,7 +165,7 @@ export default function AccountDetailPage() {
   const showRobinhoodCryptoToggle = acct.type === 'investment'
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="page max-w-5xl">
       <ConfirmDialog
         open={confirmOpen}
         title="Delete account?"
@@ -178,7 +178,7 @@ export default function AccountDetailPage() {
       />
 
       <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
-        <Button variant="ghost" size="sm" className="mb-6 -ml-2 text-muted-foreground" asChild>
+        <Button variant="ghost" size="sm" className="mb-3 -ml-2 text-muted-foreground" asChild>
           <Link to="/accounts">
             <ArrowLeft className="h-4 w-4 mr-2" />
             Accounts
@@ -187,6 +187,7 @@ export default function AccountDetailPage() {
 
         <div className="flex flex-nowrap items-start justify-between gap-4 mb-6">
           <div className="min-w-0 flex-1 pr-2">
+            <h1 className="text-[1.75rem] font-semibold leading-tight tracking-tight truncate">{acct.name}</h1>
             <p className="text-sm text-muted-foreground mt-1">
               {accountTypeLabel(acct.type)} · {acct.currency}
             </p>

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&family=Playfair:ital,opsz,wght@0,5..1200,300..900;1,5..1200,300..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=Playfair:ital,opsz,wght@0,5..1200,500..800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -12,72 +12,53 @@
 
     /*
      * Brand hue / saturation / lightness (space-separated, no hsl() wrapper).
-     * Change this one line to retheme the app; primary, ring, sidebar selection,
-     * top bar, chart-1, and Tailwind `brand` utilities all follow this value.
-     * 
-     * --accent / --accent-foreground are still fixed blues for “soft highlight” 
-     * surfaces. If you switch --brand to e.g. green or purple, you may want to 
-     * tweak those lines so UI chrome matches; the rest of the app will still 
-     * track --brand automatically.
-     *
-     * Use spaces only — no commas (e.g. `265 91% 58%`). Commas break
-     * `hsl(var(--brand) / …)` used for the header glow and other effects.
+     * Change this one line to retheme the app; primary, ring, active nav, links,
+     * and the first chart series all follow it. No commas: `hsl(var(--brand) / …)`
+     * is used for tints.
      */
-    --brand: 265 91% 58%;
+    --brand: 218 80% 52%;
 
-    /* Page shell – #F7FAF9 bright snow + #141519 onyx */
-    --background: 164 23% 97%;
-    --foreground: 225 11% 9%;
+    /* Page shell: cool near-white page, white cards (Apple-ish neutral) */
+    --background: 220 14% 97%;
+    --foreground: 222 20% 10%;
 
     --card: 0 0% 100%;
-    --card-foreground: 225 11% 9%;
+    --card-foreground: 222 20% 10%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 225 11% 9%;
+    --popover-foreground: 222 20% 10%;
 
     --primary: var(--brand);
     --primary-foreground: 0 0% 100%;
 
-    /* Neutrals on snow */
-    --secondary: 165 18% 93%;
-    --secondary-foreground: 225 11% 9%;
+    --secondary: 220 14% 94%;
+    --secondary-foreground: 222 20% 10%;
 
-    --muted: 165 14% 92%;
-    --muted-foreground: 225 9% 42%;
+    --muted: 220 14% 95%;
+    --muted-foreground: 220 9% 44%;
 
-    /* Accent surfaces – soft blue wash */
-    --accent: 214 90% 94%;
-    --accent-foreground: 217 55% 32%;
+    /* Soft brand wash for highlights, hover rows, selected chips */
+    --accent: 218 80% 96%;
+    --accent-foreground: 218 70% 38%;
 
-    /* Errors; aligned with expense red family */
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 210 14% 88%;
-    --input: 210 14% 88%;
+    --border: 220 13% 90%;
+    --input: 220 13% 87%;
     --ring: var(--brand);
 
-    --radius: 0.75rem;
+    --radius: 0.875rem;
 
-    /* Sidebar: deep onyx field; brand accents */
-    --sidebar-background: 225 11% 9%;
-    --sidebar-foreground: 210 18% 78%;
-    --sidebar-primary: var(--brand);
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 14% 16%;
-    --sidebar-accent-foreground: 210 15% 95%;
-    --sidebar-border: 220 12% 18%;
-    --sidebar-ring: var(--brand);
-
-    --success: 160 84% 39%;
+    --success: 152 60% 36%;
     --success-foreground: 0 0% 100%;
     /* Semantic caution (not a second brand color) */
-    --warning: 45 93% 47%;
+    --warning: 38 92% 46%;
     --warning-foreground: 28 55% 16%;
 
     /* Money semantics (see docs/BRAND_COLORS.md) */
-    --money-income: 160 84% 39%;
-    --money-expense: 0 72% 51%;
+    --money-income: 152 55% 34%;
+    --money-expense: 0 68% 50%;
     --income: var(--money-income);
     --expense: var(--money-expense);
 
@@ -86,53 +67,56 @@
     --chart-3: 160 70% 38%;
     --chart-4: 262 52% 52%;
     --chart-5: 239 60% 58%;
+    /* Categorical series (validated dataviz reference order); assigned by category id, never by rank. */
+    --cat-1: #2a78d6;
+    --cat-2: #eb6834;
+    --cat-3: #1baf7a;
+    --cat-4: #eda100;
+    --cat-5: #e87ba4;
+    --cat-6: #008300;
+    --cat-7: #4a3aa7;
+    --cat-8: #e34948;
   }
 
   .dark {
     color-scheme: dark;
-    --background: 220 14% 11%;
-    --foreground: 40 20% 96%;
+    --brand: 214 90% 62%;
 
-    --card: 220 14% 14%;
-    --card-foreground: 40 20% 96%;
+    --background: 222 14% 7%;
+    --foreground: 220 14% 94%;
 
-    --popover: 220 14% 14%;
-    --popover-foreground: 40 20% 96%;
+    --card: 222 13% 11%;
+    --card-foreground: 220 14% 94%;
 
-    --primary-foreground: 0 0% 100%;
+    --popover: 222 13% 12%;
+    --popover-foreground: 220 14% 94%;
 
-    --secondary: 220 12% 20%;
-    --secondary-foreground: 40 18% 92%;
+    --primary: var(--brand);
+    --primary-foreground: 222 30% 8%;
 
-    --muted: 220 12% 22%;
-    --muted-foreground: 220 10% 65%;
+    --secondary: 222 11% 17%;
+    --secondary-foreground: 220 14% 92%;
 
-    --accent: 217 40% 20%;
-    --accent-foreground: 214 90% 88%;
+    --muted: 222 11% 15%;
+    --muted-foreground: 220 9% 62%;
+
+    --accent: 216 40% 18%;
+    --accent-foreground: 214 90% 82%;
 
     --destructive: 0 72% 58%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 220 12% 22%;
-    --input: 220 12% 22%;
+    --border: 222 10% 18%;
+    --input: 222 10% 22%;
     --ring: var(--brand);
 
-    --sidebar-background: 220 14% 8%;
-    --sidebar-foreground: 210 16% 72%;
-    --sidebar-primary: var(--brand);
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 14% 14%;
-    --sidebar-accent-foreground: 40 18% 94%;
-    --sidebar-border: 220 12% 16%;
-    --sidebar-ring: var(--brand);
+    --success: 152 55% 50%;
+    --success-foreground: 222 14% 9%;
+    --warning: 40 90% 55%;
+    --warning-foreground: 222 14% 9%;
 
-    --success: 158 64% 52%;
-    --success-foreground: 220 14% 9%;
-    --warning: 45 90% 52%;
-    --warning-foreground: 220 14% 9%;
-
-    --money-income: 158 64% 52%;
-    --money-expense: 0 84% 66%;
+    --money-income: 152 55% 52%;
+    --money-expense: 0 80% 66%;
     --income: var(--money-income);
     --expense: var(--money-expense);
 
@@ -141,6 +125,14 @@
     --chart-3: 160 55% 48%;
     --chart-4: 262 48% 60%;
     --chart-5: 239 55% 62%;
+    --cat-1: #3987e5;
+    --cat-2: #d95926;
+    --cat-3: #199e70;
+    --cat-4: #c98500;
+    --cat-5: #d55181;
+    --cat-6: #008300;
+    --cat-7: #9085e9;
+    --cat-8: #e66767;
   }
 }
 
@@ -151,6 +143,7 @@
 
   body {
     @apply bg-background text-foreground antialiased font-sans;
+    font-feature-settings: 'cv11', 'ss03';
   }
 
   h1,
@@ -168,23 +161,19 @@
 }
 
 @layer components {
-  /* Solid brand top bar (uses --brand) */
-  .app-shell-header {
-    position: relative;
-    isolation: isolate;
-    overflow: hidden;
-    background: hsl(var(--brand));
-    /* Tweak the `/ 0.xx` alphas (and blur px) to adjust glow strength */
-    box-shadow:
-      0 3px 14px -4px hsl(var(--brand) / 0.28),
-      0 10px 32px -8px hsl(var(--brand) / 0.34);
+  /* Standard page frame used by every routed page. */
+  .page {
+    @apply mx-auto w-full max-w-[1360px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8;
   }
 
-  .dark .app-shell-header {
-    background: hsl(var(--brand));
-    box-shadow:
-      0 3px 16px -4px hsl(var(--brand) / 0.26),
-      0 12px 36px -8px hsl(var(--brand) / 0.42);
+  /* Surface card: white, hairline border, soft shadow. */
+  .surface {
+    @apply rounded-2xl border border-border/70 bg-card text-card-foreground shadow-card;
+  }
+
+  /* Small uppercase section eyebrow. */
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground;
   }
 }
 
@@ -198,12 +187,6 @@
     align-items: center;
     justify-content: center;
     border-radius: 0.75rem;
-    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-    background: linear-gradient(
-      to bottom right,
-      hsl(var(--brand) / 0.28),
-      hsl(var(--brand) / 0.12),
-      hsl(var(--brand) / 0.18)
-    );
+    background: hsl(var(--brand) / 0.1);
   }
 }

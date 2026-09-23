@@ -78,7 +78,9 @@ function EditableCell({
   const value = row[columnId]
   const strVal =
     columnId === 'Amount'
-      ? String(value ?? '')
+      ? value == null || value === ''
+        ? ''
+        : Number(value).toFixed(2)
       : value == null
         ? ''
         : String(value)
@@ -96,7 +98,7 @@ function EditableCell({
 
   return (
     <Input
-      className={`h-8 text-xs font-mono border-0 bg-transparent shadow-none focus-visible:ring-1 px-1 ${inputClassName ?? ''}`}
+      className={`h-8 rounded-md border-0 bg-transparent px-1.5 text-[13px] font-mono shadow-none hover:bg-muted/70 focus-visible:bg-card focus-visible:ring-1 ${columnId === 'Amount' ? 'text-right' : ''} ${inputClassName ?? ''}`}
       defaultValue={strVal}
       key={`${row.id}-${columnId}-${strVal}`}
       type={columnId === 'Amount' ? 'number' : 'text'}
@@ -633,68 +635,14 @@ export default function TransactionsTable({
     getCoreRowModel: getCoreRowModel(),
   })
 
-  return (
-    <div className="p-6 lg:p-8">
-      <div className="flex flex-col items-end gap-2 mb-6">
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onSaveEdits}
-            disabled={savePending || !metaReady || unsavedCount === 0}
-          >
-            {unsavedCount > 0 ? `Save Edits (${unsavedCount})` : 'Save Edits'}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={onLinkCardPayment}
-            disabled={
-              getSelectedIds().length !== 2 ||
-              linkCardPaymentPending ||
-              unlinkTransferPending ||
-              deletePending ||
-              !metaReady
-            }
-          >
-            Link as transfer
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onUnlinkTransfer}
-            disabled={
-              getSelectedIds().length !== 2 ||
-              unlinkTransferPending ||
-              linkCardPaymentPending ||
-              deletePending ||
-              !metaReady
-            }
-          >
-            Unlink transfer
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={onDeleteSelected}
-            disabled={
-              getSelectedIds().length === 0 ||
-              deletePending ||
-              linkCardPaymentPending ||
-              unlinkTransferPending ||
-              !metaReady
-            }
-          >
-            Delete Selected
-          </Button>
-        </div>
-        <p className="text-xs text-muted-foreground text-right max-w-md">
-          Select one row to load the splits editor below.
-        </p>
-      </div>
+  const selectedCount = getSelectedIds().length
+  const activeFilterCount =
+    (fCategory !== 'All' ? 1 : 0) + (fTag !== 'All' ? 1 : 0) + (fAccountId !== null ? 1 : 0) + (showOnlyRecent ? 1 : 0)
 
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-5">
-        <div className="relative flex-1 max-w-sm">
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="relative w-full sm:w-72">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Input
             placeholder="Search merchants or notes..."
@@ -705,9 +653,14 @@ export default function TransactionsTable({
         </div>
         <Popover>
           <PopoverTrigger asChild>
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="sm" className="h-9">
               <Filter className="h-4 w-4 mr-1.5" />
               Filters
+              {activeFilterCount > 0 ? (
+                <span className="ml-1 rounded-full bg-primary px-1.5 text-[11px] font-semibold leading-5 text-primary-foreground">
+                  {activeFilterCount}
+                </span>
+              ) : null}
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-80 space-y-4" align="start">
@@ -770,18 +723,80 @@ export default function TransactionsTable({
             </div>
           </PopoverContent>
         </Popover>
+        {activeFilterCount > 0 ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-9 text-muted-foreground"
+            onClick={() => {
+              onFCategoryChange('All')
+              onFTagChange('All')
+              onFAccountChange(null)
+              onShowOnlyRecentChange(false)
+            }}
+          >
+            Clear
+          </Button>
+        ) : null}
+
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          {selectedCount > 0 ? (
+            <>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {selectedCount} selected{selectedCount === 1 ? ' · splits editor below' : ''}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onLinkCardPayment}
+                title="Select exactly two rows"
+                disabled={selectedCount !== 2 || linkCardPaymentPending || unlinkTransferPending || deletePending || !metaReady}
+              >
+                Link as transfer
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onUnlinkTransfer}
+                title="Select exactly two rows"
+                disabled={selectedCount !== 2 || unlinkTransferPending || linkCardPaymentPending || deletePending || !metaReady}
+              >
+                Unlink
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                onClick={onDeleteSelected}
+                disabled={deletePending || linkCardPaymentPending || unlinkTransferPending || !metaReady}
+              >
+                Delete
+              </Button>
+            </>
+          ) : (
+            <span className="hidden text-xs text-muted-foreground md:inline">Select rows to link, split, or delete</span>
+          )}
+          <Button
+            size="sm"
+            variant={unsavedCount > 0 ? 'default' : 'outline'}
+            onClick={onSaveEdits}
+            disabled={savePending || !metaReady || unsavedCount === 0}
+          >
+            {unsavedCount > 0 ? `Save ${unsavedCount} edit${unsavedCount === 1 ? '' : 's'}` : 'Saved'}
+          </Button>
+        </div>
       </div>
 
       <div
         ref={scrollRef}
         aria-busy={pagination.loading}
         className={cn(
-          'rounded-xl border bg-card shadow-card overflow-hidden max-h-[520px] overflow-y-auto transition-opacity',
+          'surface overflow-hidden max-h-[max(28rem,calc(100svh-20rem))] overflow-y-auto transition-opacity',
           pagination.loading && 'opacity-60',
         )}
       >
         <Table>
-          <TableHeader>
+          <TableHeader className="sticky top-0 z-10 bg-card shadow-[0_1px_0_hsl(var(--border))]">
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id} className="hover:bg-transparent">
                 {hg.headers.map((h) => (

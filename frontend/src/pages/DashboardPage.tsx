@@ -1,811 +1,101 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
-import { ArrowRight, Info, RefreshCw, Scale, TrendingDown, TrendingUp, Wallet } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Legend,
-  Line,
-  LineChart,
-  Pie,
-  PieChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip as RechartsTooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
-import { getAccounts } from '../api/accounts'
-import { forceBackupToday } from '../api/backups'
-import { getDashboard, type DashboardRange, type DashboardResponse } from '../api/dashboard'
-import { listConnections } from '../api/simplefin'
-import { queryKeys } from '../queryKeys'
-import { toast } from 'sonner'
-import ConfirmDialog from '@/components/ConfirmDialog'
-import { SortableTableHead } from '@/components/sortable-table-head'
-import { withSignedShare } from '@/components/reports/breakdown'
-import { fmtShortDate, todayIso } from '@/lib/dates'
-import { formatMoney } from '@/lib/format'
-import { cycleSort, sortBySelector, type ColumnSortState } from '@/lib/tableSort'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { Switch } from '@/components/ui/switch'
-import { Label } from '@/components/ui/label'
-import { syncResultSummary, useSimplefinSync } from '@/features/simplefin/useSimplefinSync'
+import { useQuery } from '@tanstack/react-query'
+import { useMemo, useState } from 'react'
+import { getAccounts } from '@/api/accounts'
+import { getCategories } from '@/api/categories'
+import { getRecurringSuggestions } from '@/api/recurring'
+import CategoryBreakdownCard from '@/features/home/CategoryBreakdownCard'
+import { AccountsCard, RecentActivityCard, UpcomingCard } from '@/features/home/SidebarCards'
+import SpendingHeroCard from '@/features/home/SpendingHeroCard'
+import { CashflowCard, NetWorthCard } from '@/features/home/SummaryCards'
+import { currentYearMonth, shiftMonth, useMonthOverview, type YearMonth } from '@/features/home/useMonthOverview'
+import { greeting, USER_FIRST_NAME } from '@/lib/profile'
+import { queryKeys } from '@/queryKeys'
 
-type RangeKey = DashboardRange
+const todayLong = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+const monthShort = new Intl.DateTimeFormat('en-US', { month: 'short' })
 
-const PRESETS: { key: RangeKey; label: string }[] = [
-  { key: 'this_month', label: 'This Month' },
-  { key: 'last_month', label: 'Last Month' },
-  { key: 'year', label: 'Year' },
-  { key: 'custom', label: 'Custom' },
-]
-
-const pieColors = [
-  'hsl(217, 91%, 54%)',
-  'hsl(199, 80%, 48%)',
-  'hsl(160, 84%, 38%)',
-  'hsl(262, 52%, 52%)',
-  'hsl(239, 58%, 58%)',
-  'hsl(330, 65%, 52%)',
-  'hsl(220, 11%, 58%)',
-]
-
-const container = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.08 } },
-}
-const item = {
-  hidden: { opacity: 0, y: 16, filter: 'blur(4px)' },
-  show: {
-    opacity: 1,
-    y: 0,
-    filter: 'blur(0px)',
-    transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] },
-  },
-}
-
-const DASHBOARD_SHOW_NET_WORTH_KEY = 'dashboard-show-net-worth'
-
-function readShowNetWorthPreference(): boolean {
-  try {
-    const v = localStorage.getItem(DASHBOARD_SHOW_NET_WORTH_KEY)
-    if (v === null) return true
-    return v === '1' || v === 'true'
-  } catch {
-    return true
-  }
+function sameMonth(a: YearMonth, b: YearMonth) {
+  return a.year === b.year && a.month === b.month
 }
 
 export default function DashboardPage() {
-  const [preset, setPreset] = useState<RangeKey>('this_month')
-  const [customStart, setCustomStart] = useState('')
-  const [customEnd, setCustomEnd] = useState('')
-  const [pinnedCategoryId, setPinnedCategoryId] = useState<number | null>(null)
-  const [recentSort, setRecentSort] = useState<ColumnSortState | null>(null)
-  const [showNetWorth, setShowNetWorth] = useState(readShowNetWorthPreference)
-  const [forceBackupOpen, setForceBackupOpen] = useState(false)
+  const thisMonth = currentYearMonth()
+  const [ym, setYm] = useState<YearMonth>(thisMonth)
+  const prevYm = shiftMonth(ym, -1)
+  const overview = useMonthOverview(ym)
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(DASHBOARD_SHOW_NET_WORTH_KEY, showNetWorth ? '1' : '0')
-    } catch {
-      /* ignore quota / private mode */
-    }
-  }, [showNetWorth])
-
-  const customReady = preset !== 'custom' || (Boolean(customStart) && Boolean(customEnd))
-
-  const { data: accounts } = useQuery({
-    queryKey: queryKeys.accounts(),
-    queryFn: () => getAccounts(),
+  const { data: accounts } = useQuery({ queryKey: queryKeys.accounts(), queryFn: () => getAccounts() })
+  const { data: categories } = useQuery({ queryKey: queryKeys.categories(), queryFn: getCategories })
+  const { data: recurring } = useQuery({
+    queryKey: queryKeys.recurringSuggestions(),
+    queryFn: getRecurringSuggestions,
   })
 
-  const { data: simplefinConnections = [] } = useQuery({
-    queryKey: queryKeys.simplefinConnections(),
-    queryFn: listConnections,
-  })
-  const simplefinConnection = simplefinConnections[0] ?? null
-
-  const syncMutation = useSimplefinSync(simplefinConnection?.id, {
-    onSuccess: (result) => toast.success(syncResultSummary(result)),
-    onError: (err) => toast.error(err.message),
-  })
-
-  const forceBackupMutation = useMutation({
-    mutationFn: forceBackupToday,
-    onSuccess: (result) => {
-      const suffix = result.overwritten ? 'overwritten' : 'created'
-      toast.success(`DB backup ${suffix}.`)
-      setForceBackupOpen(false)
-    },
-    onError: (err: Error) => toast.error(err.message),
-  })
-
-  const netWorthTotals = useMemo(() => {
-    const list = accounts ?? []
-    if (list.length === 0) {
-      return { total: 0, singleCurrency: 'USD', mixed: false }
-    }
-    const curSet = new Set(list.map((a) => a.currency))
-    const mixed = curSet.size > 1
-    const total = list.reduce((s, a) => s + Number(a.balance), 0)
-    const singleCurrency = [...curSet][0]!
-    return { total, singleCurrency, mixed }
-  }, [accounts])
-
-  const { data, error, isLoading } = useQuery<DashboardResponse, Error>({
-    queryKey: queryKeys.dashboardRange(
-      preset,
-      preset === 'custom' ? customStart : '',
-      preset === 'custom' ? customEnd : '',
-    ),
-    queryFn: () => getDashboard(preset, customStart, customEnd),
-    enabled: customReady,
-  })
-
-  const selectedCategoryId = useMemo(() => {
-    const rows = data?.by_category ?? []
-    if (!rows.length) return null
-    if (pinnedCategoryId != null && rows.some((r) => r.category_id === pinnedCategoryId)) {
-      return pinnedCategoryId
-    }
-    return rows[0].category_id
-  }, [data, pinnedCategoryId])
-
-  const categoryPieData = useMemo(() => {
-    if (!data?.by_category.length) return []
-    return data.by_category.map((r) => ({
-      name: r.category,
-      amount: Math.abs(Number(r.total)),
-      percent: Number(r.percent),
-      category_id: r.category_id,
-    }))
-  }, [data])
-
-  const subPieData = useMemo(() => {
-    if (!data || selectedCategoryId == null) return []
-    const rows = withSignedShare(data.by_subcategory.filter((r) => r.category_id === selectedCategoryId))
-    return rows
-      .map((r) => ({
-        name: (r.subcategory && String(r.subcategory).trim()) || 'Uncategorized',
-        amount: Math.abs(Number(r.total)),
-        percent: Number(r.percent),
-      }))
-      .filter((x) => x.amount > 0)
-  }, [data, selectedCategoryId])
-
-  const dailyBars = useMemo(() => {
-    if (!data?.spending_over_time?.length) return []
-    return data.spending_over_time.map((r) => ({
-      day: fmtShortDate(r.date),
-      spending: Number(r.spending),
-      creditsNeg: -Number(r.credits),
-    }))
-  }, [data])
-
-  const netWorthSeries = useMemo(() => {
-    if (!data?.net_worth_over_time?.length) return []
-    return data.net_worth_over_time.map((point) => ({
-      time: fmtShortDate(point.date),
-      value: Number(point.total_value),
-      currency: point.currency,
-      mixed: point.mixed_currencies,
-    }))
-  }, [data])
-
-  const selectedCategoryName =
-    data?.by_category.find((c) => c.category_id === selectedCategoryId)?.category ?? ''
-
-  const netBalance = data ? Number(data.total_income) - Number(data.total_spending) : 0
-
-  const sortedRecentTransactions = useMemo(() => {
-    if (!data?.recent_transactions?.length) return []
-    return sortBySelector(data.recent_transactions, recentSort, {
-      Date: (r) => r.Date,
-      Merchant: (r) => r.Merchant,
-      Amount: (r) => r.Amount,
-      Category: (r) => r.Category,
-    })
-  }, [data, recentSort])
-
-  function onSelectPreset(next: RangeKey) {
-    setPreset(next)
-    if (next === 'custom' && !customStart) {
-      const today = todayIso()
-      setCustomStart(`${today.slice(0, 8)}01`)
-      setCustomEnd(today)
-    }
-  }
+  const categoryIds = useMemo(() => new Map((categories ?? []).map((c) => [c.name, c.id])), [categories])
+  const label = (m: YearMonth) => monthShort.format(new Date(m.year, m.month - 1, 1))
 
   return (
-    <div className="p-6 lg:p-8 max-w-[1280px] mx-auto">
-      <motion.div variants={container} initial="hidden" animate="show">
-        <motion.div variants={item} className="flex flex-wrap items-center gap-2 mb-4">
-          {PRESETS.map(({ key, label }) => (
-            <Button
-              key={key}
-              type="button"
-              variant={preset === key ? 'default' : 'outline'}
-              size="sm"
-              className="text-xs"
-              onClick={() => onSelectPreset(key)}
-            >
-              {label}
-            </Button>
-          ))}
-          <div className="hidden sm:block h-6 w-px bg-border shrink-0" aria-hidden />
-          <div className="flex items-center gap-2">
-            <Switch
-              id="dashboard-net-worth"
-              checked={showNetWorth}
-              onCheckedChange={setShowNetWorth}
+    <div className="page">
+      <div className="mb-6">
+        <h1 className="text-[1.75rem] font-semibold leading-tight tracking-tight">
+          {greeting()}, {USER_FIRST_NAME}.
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">{todayLong.format(new Date())}</p>
+      </div>
+
+      {overview.error ? (
+        <div className="surface mb-6 border-destructive/40 p-4 text-sm text-destructive">{overview.error.message}</div>
+      ) : null}
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(320px,380px)] xl:gap-6">
+        <div className="min-w-0 space-y-5 xl:space-y-6">
+          <SpendingHeroCard
+            ym={ym}
+            prevYm={prevYm}
+            canGoForward={!sameMonth(ym, thisMonth)}
+            onPrev={() => setYm(prevYm)}
+            onNext={() => setYm(shiftMonth(ym, 1))}
+            onToday={() => setYm(thisMonth)}
+            loading={overview.isLoading}
+            isCurrentMonth={overview.isCurrentMonth}
+            spent={overview.spent}
+            prevTotal={overview.prevTotal}
+            prevAtSameDay={overview.prevAtSameDay}
+            dailyAverage={overview.dailyAverage}
+            projected={overview.projected}
+            elapsedDays={overview.elapsedDays}
+            totalDays={overview.totalDays}
+            chart={overview.chart}
+          />
+
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:gap-6">
+            <NetWorthCard accounts={accounts} series={overview.current?.net_worth_over_time} monthLabel={label(ym)} />
+            <CashflowCard
+              income={overview.income}
+              spent={overview.spent}
+              loading={overview.isLoading}
+              monthLabel={label(ym)}
             />
-            <Label htmlFor="dashboard-net-worth" className="text-xs text-muted-foreground cursor-pointer">
-              Net worth
-            </Label>
           </div>
-          <div className="flex-1 min-w-[120px]" />
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-xs"
-            type="button"
-            onClick={() => setForceBackupOpen(true)}
-            disabled={forceBackupMutation.isPending}
-          >
-            Force backup
-          </Button>
-          <Button variant="outline" size="sm" className="text-xs" asChild>
-            <Link to="/import">Import CSV</Link>
-          </Button>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="text-xs gap-1.5"
-                  disabled={!simplefinConnection || syncMutation.isPending}
-                  onClick={() => syncMutation.mutate()}
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
-                  Sync banks
-                </Button>
-              </span>
-            </TooltipTrigger>
-            {!simplefinConnection ? (
-              <TooltipContent side="bottom" className="max-w-xs text-xs">
-                Add a SimpleFIN connection under Connections first.
-              </TooltipContent>
-            ) : (
-              <TooltipContent side="bottom" className="text-xs">
-                Pull latest balances and transactions from SimpleFIN
-              </TooltipContent>
-            )}
-          </Tooltip>
-        </motion.div>
 
-        <ConfirmDialog
-          open={forceBackupOpen}
-          title="Force DB backup"
-          message="This will overwrite the most recent backup with the current DB state (today)."
-          confirmLabel={forceBackupMutation.isPending ? 'Backing up…' : 'Confirm'}
-          onCancel={() => setForceBackupOpen(false)}
-          onConfirm={() => {
-            if (!forceBackupMutation.isPending) forceBackupMutation.mutate()
-          }}
-        />
+          <CategoryBreakdownCard
+            current={overview.current}
+            previous={overview.previous}
+            loading={overview.isLoading}
+            prevLabel={label(prevYm)}
+          />
+        </div>
 
-        {preset === 'custom' ? (
-          <motion.div variants={item} className="flex flex-wrap items-end gap-3 mb-6">
-            <div className="space-y-1">
-              <span className="text-xs text-muted-foreground">From</span>
-              <Input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="w-auto" />
-            </div>
-            <div className="space-y-1">
-              <span className="text-xs text-muted-foreground">To</span>
-              <Input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="w-auto" />
-            </div>
-            {!customReady ? (
-              <span className="text-xs text-muted-foreground pb-2">Choose start and end dates</span>
-            ) : null}
-          </motion.div>
-        ) : null}
-
-        {data ? (
-          <p className="text-xs text-muted-foreground mb-4">
-            {fmtShortDate(data.start_date)} — {fmtShortDate(data.end_date)}
-          </p>
-        ) : null}
-
-        {error ? (
-          <div className="text-sm text-destructive mb-4">{error.message}</div>
-        ) : null}
-
-        {!customReady ? (
-          <div className="text-sm text-muted-foreground">Set a custom date range to load.</div>
-        ) : isLoading || !data ? (
-          <div className="text-sm text-muted-foreground">Loading…</div>
-        ) : (
-          <>
-            <motion.div
-              variants={item}
-              className={`grid grid-cols-1 gap-4 mb-8 ${showNetWorth ? 'sm:grid-cols-2 xl:grid-cols-4' : 'sm:grid-cols-3'}`}
-            >
-              {showNetWorth ? (
-                <div className="rounded-xl border bg-card p-5 shadow-card">
-                  <div className="flex items-center gap-2 mb-2.5">
-                    <div className="brand-icon-well h-8 w-8 !rounded-lg">
-                      <Wallet className="h-4 w-4 text-primary" />
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <p className="text-xs font-medium text-muted-foreground">Net worth</p>
-                      <Tooltip>
-                        <TooltipTrigger type="button">
-                          <Info className="h-3 w-3 text-muted-foreground/50" />
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p className="text-xs max-w-[220px]">
-                            Sum of current balances across all accounts. Not filtered by the date range
-                            above.
-                          </p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                  </div>
-                  {accounts === undefined ? (
-                    <p className="text-sm text-muted-foreground">Loading…</p>
-                  ) : (
-                    <>
-                      <p
-                        className={`text-2xl font-bold tabular-nums font-mono ${netWorthTotals.total >= 0 ? 'text-foreground' : 'text-expense'}`}
-                      >
-                        {netWorthTotals.mixed ? (
-                          <>
-                            {netWorthTotals.total < 0 ? '−' : ''}
-                            {Math.abs(netWorthTotals.total).toLocaleString('en-US', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </>
-                        ) : (
-                          formatMoney(netWorthTotals.total, netWorthTotals.singleCurrency)
-                        )}
-                      </p>
-                      {netWorthTotals.mixed ? (
-                        <p className="text-[10px] text-muted-foreground mt-1.5 leading-snug">
-                          Mixed currencies — summed without conversion.
-                        </p>
-                      ) : null}
-                    </>
-                  )}
-                </div>
-              ) : null}
-              <div className="rounded-xl border bg-card p-5 shadow-card">
-                <div className="flex items-center gap-2 mb-2.5">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-expense/10 ring-1 ring-expense/20 shadow-sm">
-                    <TrendingDown className="h-4 w-4 text-expense" />
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-xs font-medium text-muted-foreground">Total Spending</p>
-                    <Tooltip>
-                      <TooltipTrigger type="button">
-                        <Info className="h-3 w-3 text-muted-foreground/50" />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-xs max-w-[220px]">
-                          Net non-Income activity: purchases minus refunds in spend categories. Excludes
-                          transfers and the Income category. Negative means net credits in
-                          the period.
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                </div>
-                <p
-                  className={`text-2xl font-bold tabular-nums font-mono ${Number(data.total_spending) >= 0 ? 'text-expense' : 'text-income'}`}
-                >
-                  {Number(data.total_spending) < 0 ? '-' : ''}$
-                  {Math.abs(Number(data.total_spending)).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                </p>
-              </div>
-
-              <div className="rounded-xl border bg-card p-5 shadow-card">
-                <div className="flex items-center gap-2 mb-2.5">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-income/10 ring-1 ring-income/25 shadow-sm">
-                    <TrendingUp className="h-4 w-4 text-income" />
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-xs font-medium text-muted-foreground">Total Income</p>
-                    <Tooltip>
-                      <TooltipTrigger type="button">
-                        <Info className="h-3 w-3 text-muted-foreground/50" />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-xs max-w-[220px]">
-                          Sum of transactions in the Income category (e.g. Paycheck). Refunds in other
-                          categories are not included.
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                </div>
-                <p className="text-2xl font-bold tabular-nums font-mono text-income">
-                  ${Number(data.total_income).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                </p>
-              </div>
-
-              <div className="rounded-xl border bg-card p-5 shadow-card">
-                <div className="flex items-center gap-2 mb-2.5">
-                  <div className="brand-icon-well h-8 w-8 !rounded-lg">
-                    <Scale className="h-4 w-4 text-primary" />
-                  </div>
-                  <p className="text-xs font-medium text-muted-foreground">Net Balance</p>
-                </div>
-                <p
-                  className={`text-2xl font-bold tabular-nums font-mono ${netBalance >= 0 ? 'text-income' : 'text-expense'}`}
-                >
-                  {netBalance >= 0 ? '+' : ''}$
-                  {Math.abs(netBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                </p>
-              </div>
-            </motion.div>
-
-            {/* Full-width daily chart */}
-            <div className="mb-8">
-              {showNetWorth ? (
-                <motion.div variants={item} className="rounded-xl border bg-card p-6 shadow-card mb-6">
-                  <h2 className="text-sm font-semibold mb-1">Net worth trend</h2>
-                  <p className="text-xs text-muted-foreground mb-4">
-                    Daily, estimated from account balances and transactions.
-                  </p>
-                  {netWorthSeries.length === 0 ? (
-                    <p className="text-sm text-muted-foreground py-12 text-center">
-                      No account activity in this range yet.
-                    </p>
-                  ) : (
-                    <div className="h-[min(38vh,320px)] min-h-[220px] w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={netWorthSeries} margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                          <XAxis
-                            dataKey="time"
-                            tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                            tickLine={false}
-                            axisLine={false}
-                            interval="preserveStartEnd"
-                            height={36}
-                          />
-                          <YAxis
-                            tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                            tickLine={false}
-                            axisLine={false}
-                            width={64}
-                            tickFormatter={(v) => `$${Math.abs(Number(v)).toLocaleString('en-US', { maximumFractionDigits: 0 })}`}
-                          />
-                          <RechartsTooltip
-                            formatter={(value: number) => [
-                              `$${Number(value).toLocaleString('en-US', {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}`,
-                              'Net worth',
-                            ]}
-                            labelFormatter={(label) => String(label)}
-                            contentStyle={{
-                              fontSize: 12,
-                              borderRadius: 8,
-                              border: '1px solid hsl(var(--border))',
-                            }}
-                          />
-                          <Line
-                            type="monotone"
-                            dataKey="value"
-                            stroke="hsl(var(--primary))"
-                            strokeWidth={2.25}
-                            dot={false}
-                            activeDot={{ r: 4 }}
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  )}
-                </motion.div>
-              ) : null}
-              <motion.div variants={item} className="rounded-xl border bg-card p-6 shadow-card">
-                <h2 className="text-sm font-semibold mb-1">Daily spending (excl. Income)</h2>
-                <p className="text-xs text-muted-foreground mb-4">
-                  Red = money out; green = credits/refunds.
-                </p>
-                {dailyBars.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-12 text-center">No data for this range.</p>
-                ) : (
-                  <div className="h-[min(42vh,380px)] min-h-[280px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={dailyBars}
-                        stackOffset="sign"
-                        margin={{ top: 8, right: 12, left: 4, bottom: 8 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                        <XAxis
-                          dataKey="day"
-                          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                          tickLine={false}
-                          axisLine={false}
-                          interval="preserveStartEnd"
-                          height={36}
-                        />
-                        <YAxis
-                          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                          tickLine={false}
-                          axisLine={false}
-                          width={56}
-                          tickFormatter={(v) => {
-                            const n = Number(v)
-                            const s = Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 })
-                            if (n < 0) return `−$${s}`
-                            if (n > 0) return `$${s}`
-                            return '$0'
-                          }}
-                        />
-                        <ReferenceLine
-                          y={0}
-                          stroke="hsl(var(--muted-foreground))"
-                          strokeOpacity={0.45}
-                          strokeWidth={1.5}
-                        />
-                        <RechartsTooltip
-                          formatter={(value: number, name: string) => {
-                            const n = typeof value === 'number' ? value : Number(value)
-                            const abs = Math.abs(n).toLocaleString('en-US', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })
-                            const label =
-                              name === 'creditsNeg' || name === 'Credits' ? 'Credits' : 'Spending'
-                            return [`$${abs}`, label]
-                          }}
-                          labelFormatter={(label) => label}
-                          contentStyle={{
-                            fontSize: 12,
-                            borderRadius: 8,
-                            border: '1px solid hsl(var(--border))',
-                          }}
-                        />
-                        <Legend
-                          wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
-                          formatter={(value) => (value === 'creditsNeg' ? 'Credits' : value)}
-                        />
-                        <Bar
-                          dataKey="spending"
-                          name="Spending"
-                          stackId="stack"
-                          fill="hsl(var(--expense))"
-                          maxBarSize={28}
-                          radius={[3, 3, 0, 0]}
-                        />
-                        <Bar
-                          dataKey="creditsNeg"
-                          name="Credits"
-                          stackId="stack"
-                          fill="hsl(var(--income))"
-                          maxBarSize={28}
-                          radius={[3, 3, 0, 0]}
-                        />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </motion.div>
-            </div>
-
-            {/* Category (2 cols) + Subcategories (1 col) */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-              <motion.div variants={item} className="lg:col-span-2 rounded-xl border bg-card p-6 shadow-card">
-                <h2 className="text-sm font-semibold mb-4">By Category</h2>
-                <div className="h-40 sm:h-44 mb-4">
-                  {categoryPieData.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No spending in this period.</p>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={categoryPieData}
-                          dataKey="amount"
-                          nameKey="name"
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={40}
-                          outerRadius={68}
-                          paddingAngle={2}
-                          strokeWidth={0}
-                          onClick={(_, index) => {
-                            const id = categoryPieData[index]?.category_id
-                            if (id != null) setPinnedCategoryId(id)
-                          }}
-                        >
-                          {categoryPieData.map((_, i) => (
-                            <Cell key={i} fill={pieColors[i % pieColors.length]} className="cursor-pointer" />
-                          ))}
-                        </Pie>
-                      </PieChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  {categoryPieData.slice(0, 7).map((cat, i) => (
-                    <button
-                      key={cat.category_id}
-                      type="button"
-                      className={`flex w-full items-center justify-between text-sm rounded-md px-1 py-0.5 text-left hover:bg-muted/80 ${
-                        selectedCategoryId === cat.category_id ? 'bg-muted' : ''
-                      }`}
-                      onClick={() => setPinnedCategoryId(cat.category_id)}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div
-                          className="h-2.5 w-2.5 shrink-0 rounded-full"
-                          style={{ backgroundColor: pieColors[i % pieColors.length] }}
-                        />
-                        <span className="text-foreground truncate">{cat.name}</span>
-                      </div>
-                      <span className="font-mono text-xs tabular-nums text-muted-foreground shrink-0">
-                        {cat.percent.toFixed(0)}%
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </motion.div>
-
-              <motion.div variants={item} className="lg:col-span-1 rounded-xl border bg-card p-6 shadow-card min-h-[280px] flex flex-col">
-                <h2 className="text-sm font-semibold mb-1">Subcategories</h2>
-                <p className="text-xs text-muted-foreground mb-4 truncate" title={selectedCategoryName}>
-                  {selectedCategoryName || '—'}
-                </p>
-                {subPieData.length > 0 ? (
-                  <>
-                    <div className="h-44 w-full shrink-0 mb-4">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={subPieData}
-                            dataKey="amount"
-                            nameKey="name"
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={28}
-                            outerRadius={52}
-                            paddingAngle={2}
-                            strokeWidth={0}
-                          >
-                            {subPieData.map((_, i) => (
-                              <Cell key={i} fill={pieColors[i % pieColors.length]} />
-                            ))}
-                          </Pie>
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                    <div className="space-y-2 min-w-0 flex-1 overflow-auto">
-                      {subPieData.map((sub, i) => (
-                        <div
-                          key={`${sub.name}-${i}`}
-                          className="flex w-full items-center justify-between text-sm rounded-md px-1 py-0.5"
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div
-                              className="h-2.5 w-2.5 shrink-0 rounded-full"
-                              style={{ backgroundColor: pieColors[i % pieColors.length] }}
-                            />
-                            <span className="text-foreground truncate" title={sub.name}>
-                              {sub.name}
-                            </span>
-                          </div>
-                          <span className="font-mono text-xs tabular-nums text-muted-foreground shrink-0">
-                            {sub.percent.toFixed(0)}%
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex flex-1 flex-col items-center justify-center text-center text-sm text-muted-foreground px-2 py-8">
-                    {categoryPieData.length === 0
-                      ? 'Add categorized transactions to see subcategories.'
-                      : 'Click a category (chart or list) to see its subcategories.'}
-                  </div>
-                )}
-              </motion.div>
-            </div>
-
-            <motion.div variants={item} className="rounded-xl border bg-card shadow-card overflow-hidden">
-              <div className="flex items-center justify-between px-6 pt-5 pb-3">
-                <h2 className="text-sm font-semibold">Recent Activity</h2>
-                <Link
-                  to="/transactions"
-                  className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-                >
-                  View all <ArrowRight className="h-3 w-3" />
-                </Link>
-              </div>
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    <SortableTableHead
-                      label="Date"
-                      columnKey="Date"
-                      sort={recentSort}
-                      onSort={(k) => setRecentSort((prev) => cycleSort(prev, k))}
-                    />
-                    <SortableTableHead
-                      label="Merchant"
-                      columnKey="Merchant"
-                      sort={recentSort}
-                      onSort={(k) => setRecentSort((prev) => cycleSort(prev, k))}
-                    />
-                    <SortableTableHead
-                      label="Amount"
-                      columnKey="Amount"
-                      sort={recentSort}
-                      onSort={(k) => setRecentSort((prev) => cycleSort(prev, k))}
-                      align="right"
-                    />
-                    <SortableTableHead
-                      label="Category"
-                      columnKey="Category"
-                      sort={recentSort}
-                      onSort={(k) => setRecentSort((prev) => cycleSort(prev, k))}
-                    />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sortedRecentTransactions.map((tx) => (
-                    <TableRow key={tx.id}>
-                      <TableCell className="font-mono text-xs text-muted-foreground">
-                        {fmtShortDate(tx.Date)}
-                      </TableCell>
-                      <TableCell className="text-sm font-medium">{tx.Merchant}</TableCell>
-                      <TableCell
-                        className={`text-right font-mono text-sm tabular-nums font-medium ${
-                          tx.Amount > 0 ? 'text-income' : tx.Amount < 0 ? 'text-expense' : ''
-                        }`}
-                      >
-                        {tx.Amount > 0 ? '+' : ''}
-                        {tx.Amount.toFixed(2)}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary" className="text-[10px] font-normal">
-                          {tx.Category}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </motion.div>
-          </>
-        )}
-      </motion.div>
+        <aside className="min-w-0 space-y-5 xl:space-y-6">
+          <RecentActivityCard
+            rows={overview.current?.recent_transactions}
+            categoryIds={categoryIds}
+            loading={overview.isLoading}
+          />
+          <UpcomingCard series={recurring} />
+          <AccountsCard accounts={accounts} />
+        </aside>
+      </div>
     </div>
   )
 }

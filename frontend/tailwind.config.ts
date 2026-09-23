@@ -51,16 +51,6 @@ export default {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
-        sidebar: {
-          DEFAULT: 'hsl(var(--sidebar-background))',
-          foreground: 'hsl(var(--sidebar-foreground))',
-          primary: 'hsl(var(--sidebar-primary))',
-          'primary-foreground': 'hsl(var(--sidebar-primary-foreground))',
-          accent: 'hsl(var(--sidebar-accent))',
-          'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
-          border: 'hsl(var(--sidebar-border))',
-          ring: 'hsl(var(--sidebar-ring))',
-        },
         success: 'hsl(var(--success))',
         warning: 'hsl(var(--warning))',
         income: 'hsl(var(--income))',
@@ -76,14 +66,15 @@ export default {
         sm: 'calc(var(--radius) - 4px)',
       },
       fontFamily: {
-        sans: ["'DM Sans'", 'system-ui', '-apple-system', 'sans-serif'],
+        sans: ["'Inter'", 'system-ui', '-apple-system', 'sans-serif'],
         playfair: ['Playfair', 'serif'],
-        mono: ["'JetBrains Mono'", 'monospace'],
+        // Money columns use `font-mono` for alignment; tabular Inter digits read cleaner than a code font.
+        mono: [["'Inter'", 'system-ui', 'sans-serif'], { fontFeatureSettings: '"tnum"' }],
       },
       boxShadow: {
-        card: '0 1px 3px 0 hsl(220 11% 9% / 0.05), 0 1px 2px -1px hsl(220 11% 9% / 0.04)',
-        'card-hover': '0 4px 12px 0 hsl(220 11% 9% / 0.09), 0 2px 4px -1px hsl(220 11% 9% / 0.05)',
-        elevated: '0 8px 24px 0 hsl(220 11% 9% / 0.11), 0 2px 8px -2px hsl(220 11% 9% / 0.06)',
+        card: '0 1px 2px 0 hsl(220 20% 10% / 0.04), 0 2px 8px -2px hsl(220 20% 10% / 0.04)',
+        'card-hover': '0 2px 4px 0 hsl(220 20% 10% / 0.05), 0 8px 20px -4px hsl(220 20% 10% / 0.08)',
+        elevated: '0 8px 24px 0 hsl(220 20% 10% / 0.10), 0 2px 8px -2px hsl(220 20% 10% / 0.06)',
       },
       keyframes: {
         'accordion-down': {

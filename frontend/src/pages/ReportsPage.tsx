@@ -36,6 +36,7 @@ import {
   subcategorySlices,
 } from '@/components/reports/breakdown'
 import { formatSignedUsd as formatMoney } from '@/lib/format'
+import PageHeader from '@/components/PageHeader'
 
 function monthYearLabel(year: number, month: number) {
   return new Date(year, month - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' })
@@ -122,12 +123,12 @@ export default function ReportsPage() {
   const income = data ? Number(data.total_income) : 0
 
   return (
-    <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
-      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
-        <p className="text-muted-foreground text-sm mb-4">
-          Monthly spending, income, and category mix. Transfers (including to savings) are excluded from spending.
-        </p>
-      </motion.div>
+    <div className="page space-y-6">
+      <PageHeader
+        className="mb-0"
+        title="Reports"
+        description="Monthly spending, income, and category mix. Transfers are excluded from spending."
+      />
 
       <div className="flex flex-wrap items-end gap-4">
         <div className="space-y-2">

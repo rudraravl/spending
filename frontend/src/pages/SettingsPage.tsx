@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
-import { motion } from 'framer-motion'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -34,6 +33,7 @@ const EMPTY_TAGS: TagOut[] = []
 const EMPTY_RULES: Rule[] = []
 import { Separator } from '@/components/ui/separator'
 import { Link } from 'react-router-dom'
+import PageHeader from '@/components/PageHeader'
 
 type RuleFormValues = {
   priority: number
@@ -203,10 +203,22 @@ export default function SettingsPage() {
     categoriesQuery.isLoading || tagsQuery.isLoading || rulesQuery.isLoading || ruleMetaQuery.isLoading
 
   return (
-    <div className="p-6 lg:p-8 max-w-6xl mx-auto">
+    <div className="page">
+      <PageHeader
+        title="Settings"
+        description={
+          <>
+            Categories, tags, and auto-categorization rules. Accounts live on the{' '}
+            <Link to="/accounts" className="text-primary underline-offset-4 hover:underline">
+              Accounts
+            </Link>{' '}
+            page.
+          </>
+        }
+      />
       <div className="grid gap-8 md:grid-cols-[220px_minmax(0,1fr)]">
         <aside className="hidden md:block">
-          <div className="sticky top-24 rounded-xl border bg-card/95 p-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-card/85">
+          <div className="sticky top-24 surface p-3">
             <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Settings</p>
             <nav className="space-y-1">
               {sectionLinks.map((section) => (
@@ -223,16 +235,6 @@ export default function SettingsPage() {
         </aside>
 
         <div className="space-y-10">
-          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
-            <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
-              Categories, tags, and rules for labeling transactions. Manage accounts on the{' '}
-              <Link to="/accounts" className="text-primary underline-offset-4 hover:underline">
-                Accounts
-              </Link>{' '}
-              page.
-            </p>
-          </motion.div>
-
           <ConfirmDialog
             open={confirmState != null}
             title={confirmState?.title ?? ''}

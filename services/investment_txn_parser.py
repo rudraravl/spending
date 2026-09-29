@@ -9,21 +9,45 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session, contains_eager, selectinload
 
-from db.models import Account, InvestmentTxnClassification, Transaction
+from db.models import Account, InvestmentHoldingSnapshot, InvestmentTxnClassification, Transaction
 
 if TYPE_CHECKING:
     pass
 
 # Bump when classification rules change; startup reclassifies rows from older versions.
-PARSER_VERSION = "2"
+PARSER_VERSION = "3"
 
-# Uppercase tickers 1–5 chars, optional exchange suffix
-_TICKER_RE = re.compile(r"\b([A-Z]{1,5})(?:\.[A-Z]+)?\b")
+# "Cash dividend of $0.50 from VONG"
+_DIVIDEND_FROM_RE = re.compile(r"\bfrom\s+([A-Z][A-Z0-9.]{0,9})\b")
+# "buy 0.125 shares of QUAL for $190 each", "buy 2 shares of Rocket Lab Corporation for $118 each",
+# "buy 0.0027 BTC for $71616 each"
+_TRADE_RE = re.compile(r"\b(?:buy|bought|sell|sold)\s+[\d.,]+\s+(?:shares?\s+of\s+)?(.+?)\s+for\s+\$", re.IGNORECASE)
+_TICKER_ONLY_RE = re.compile(r"[A-Z][A-Z0-9.]{0,9}")
 
 
-def _extract_symbol(merchant: str) -> str | None:
-    m = _TICKER_RE.search(merchant.upper())
-    return m.group(1) if m else None
+def _holding_names(session: Session) -> dict[str, str]:
+    """Lower-cased holding description -> symbol, learned from synced holdings."""
+    rows = (
+        session.query(InvestmentHoldingSnapshot.description, InvestmentHoldingSnapshot.symbol)
+        .filter(InvestmentHoldingSnapshot.description.isnot(None), InvestmentHoldingSnapshot.symbol.isnot(None))
+        .distinct()
+        .all()
+    )
+    return {d.strip().lower(): s.strip().upper() for d, s in rows if d and s and s.strip()}
+
+
+def _extract_symbol(session: Session, merchant: str, kind: str) -> str | None:
+    """Ticker for a transaction description, or None when it cannot be determined confidently."""
+    if kind in ("dividend", "fee"):
+        m = _DIVIDEND_FROM_RE.search(merchant)
+        return m.group(1) if m else None
+    m = _TRADE_RE.search(merchant)
+    if not m:
+        return None
+    subject = m.group(1).strip()
+    if _TICKER_ONLY_RE.fullmatch(subject):
+        return subject
+    return _holding_names(session).get(subject.lower())
 
 
 def classify_investment_transaction(session: Session, txn: Transaction) -> InvestmentTxnClassification | None:
@@ -44,7 +68,7 @@ def classify_investment_transaction(session: Session, txn: Transaction) -> Inves
     amt = float(txn.amount)
     kind = "other"
     confidence = "low"
-    parsed_symbol = _extract_symbol(txn.merchant or "")
+    parsed_symbol: str | None = None
     is_ach = re.search(r"\bach\b", merchant) is not None
 
     if "dividend" in merchant or "div " in merchant:
@@ -69,15 +93,19 @@ def classify_investment_transaction(session: Session, txn: Transaction) -> Inves
         confidence = "low"
     elif re.search(r"\bbought\b|\bbuy\b", merchant):
         kind = "buy"
-        confidence = "high" if parsed_symbol else "low"
+        confidence = "high"
     elif re.search(r"\bsold\b|\bsell\b", merchant):
         kind = "sell"
-        confidence = "high" if parsed_symbol else "low"
-    elif amt < 0 and parsed_symbol:
+        confidence = "high"
+    elif amt < 0 and _TRADE_RE.search(txn.merchant or ""):
         kind = "buy"
         confidence = "low"
-    elif amt > 0 and parsed_symbol and "stock" in merchant:
+    elif amt > 0 and "stock" in merchant and _TRADE_RE.search(txn.merchant or ""):
         kind = "sell"
+        confidence = "low"
+
+    parsed_symbol = _extract_symbol(session, txn.merchant or "", kind)
+    if kind in ("buy", "sell") and not parsed_symbol:
         confidence = "low"
 
     # Via the relationship (not a query by txn.id) so unflushed transactions work and a

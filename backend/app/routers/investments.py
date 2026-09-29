@@ -14,6 +14,7 @@ from backend.app.schemas import (
     InvestmentsSummaryOut,
 )
 from db.models import Account, InvestmentManualPosition
+from services.investment_performance import get_portfolio_performance
 from services.investment_service import (
     get_history_series,
     get_investments_summary,
@@ -29,6 +30,12 @@ def api_investments_summary(session: Session = Depends(get_db_session)) -> Inves
     data = get_investments_summary(session)
     session.commit()
     return InvestmentsSummaryOut(**data)
+
+
+@router.get("/api/investments/performance")
+def api_investments_performance(session: Session = Depends(get_db_session)) -> dict:
+    """Combined value history with market gain / time-weighted return, plus per-symbol gain and income."""
+    return get_portfolio_performance(session)
 
 
 @router.get("/api/investments/accounts/{account_id}/portfolio")

@@ -407,6 +407,7 @@ class InvestmentAllocationRowOut(BaseModel):
     market_value: float
     shares: float
     cost_basis: float | None = None
+    gain: float | None = None
     gain_pct: float | None = None
     percent_of_grand_total: float | None = None
 
@@ -429,6 +430,8 @@ class InvestmentsSummaryOut(BaseModel):
     accounts: list[InvestmentAccountSummaryRow]
     allocation: list[InvestmentAllocationRowOut]
     day_change_pct: float | None = None
+    total_cost_basis: float = 0.0
+    total_gain: float = 0.0
 
 
 class InvestmentManualPositionCreate(BaseModel):

@@ -5,6 +5,7 @@ export type InvestmentAllocationRow = {
   market_value: number
   shares: number
   cost_basis: number | null
+  gain: number | null
   gain_pct: number | null
   percent_of_grand_total: number | null
 }
@@ -27,6 +28,25 @@ export type InvestmentsSummary = {
   accounts: InvestmentAccountSummaryRow[]
   allocation: InvestmentAllocationRow[]
   day_change_pct: number | null
+  total_cost_basis: number
+  total_gain: number
+}
+
+export type PerformancePoint = {
+  t: number
+  value: number
+  /** Cumulative market gain + income since the series start (excludes deposits/withdrawals). */
+  gain: number
+  /** Cumulative time-weighted return since the series start, as a fraction. */
+  twr: number
+}
+
+export type PerformanceSymbol = { symbol: string; gain: number; income: number }
+
+export type PortfolioPerformance = {
+  series: PerformancePoint[]
+  symbols: PerformanceSymbol[]
+  start: number | null
 }
 
 export type InvestmentHistoryPoint = {
@@ -114,6 +134,10 @@ export type ManualPositionOut = {
 
 export function getInvestmentsSummary() {
   return apiGet<InvestmentsSummary>('/api/investments/summary')
+}
+
+export function getPortfolioPerformance() {
+  return apiGet<PortfolioPerformance>('/api/investments/performance')
 }
 
 export function getPortfolio(accountId: number) {

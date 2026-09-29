@@ -17,6 +17,7 @@ from db.models import (
     InvestmentSyncSnapshot,
     Transaction,
 )
+from services.investment_performance import get_portfolio_performance
 from utils.timestamps import utc_isoformat
 
 UNKNOWN_LABEL = "Unknown investment"
@@ -70,8 +71,20 @@ def get_history_series(session: Session, account_id: int, *, limit: int = 365) -
     ]
 
 
+def holding_cost_basis(h: InvestmentHoldingSnapshot) -> float | None:
+    """
+    Total cost of a holding. SimpleFIN's cost_basis is usually 0 for Robinhood, but purchase_price
+    (average cost per share) is populated, so fall back to shares * purchase_price.
+    """
+    if h.cost_basis is not None and h.cost_basis > 0:
+        return float(h.cost_basis)
+    if h.purchase_price is not None and h.purchase_price > 0 and h.shares and h.shares > 0:
+        return float(h.purchase_price) * float(h.shares)
+    return None
+
+
 def _holding_to_dict(h: InvestmentHoldingSnapshot) -> dict[str, Any]:
-    cost = h.cost_basis
+    cost = holding_cost_basis(h)
     mv = h.market_value
     gain_pct = None
     if cost is not None and cost > 0 and mv is not None:
@@ -188,15 +201,25 @@ def get_portfolio_detail(session: Session, account_id: int) -> dict[str, Any] | 
     }
 
 
-def _rollup_symbol_row(symbol_key: str, market_value: float, shares: float, cost_basis: float | None) -> dict[str, Any]:
+def _rollup_symbol_row(
+    symbol_key: str,
+    market_value: float,
+    shares: float,
+    cost_basis: float | None,
+    costed_value: float = 0.0,
+) -> dict[str, Any]:
+    """`costed_value` is the market value of just the lots that have a cost basis, so gain compares like with like."""
+    gain = None
     gain_pct = None
     if cost_basis is not None and cost_basis > 0:
-        gain_pct = (market_value - cost_basis) / cost_basis
+        gain = costed_value - cost_basis
+        gain_pct = gain / cost_basis
     return {
         "symbol": symbol_key,
         "market_value": market_value,
         "shares": shares,
         "cost_basis": cost_basis,
+        "gain": gain,
         "gain_pct": gain_pct,
     }
 
@@ -243,17 +266,20 @@ def _build_summary_clean(session: Session, accounts: list[Account]) -> dict[str,
         for h in bundle.holdings:
             mv = h.market_value or 0.0
             sh = h.shares or 0.0
-            cb = h.cost_basis
+            cb = holding_cost_basis(h)
             if not h.symbol or not str(h.symbol).strip():
                 unknown_mv += mv
                 acct_unknown += mv
                 continue
             key = str(h.symbol).strip().upper()
-            bucket = global_symbols.setdefault(key, {"market_value": 0.0, "shares": 0.0, "cost_basis": 0.0})
+            bucket = global_symbols.setdefault(
+                key, {"market_value": 0.0, "shares": 0.0, "cost_basis": 0.0, "costed_value": 0.0}
+            )
             bucket["market_value"] += mv
             bucket["shares"] += sh
             if cb is not None:
                 bucket["cost_basis"] += float(cb)
+                bucket["costed_value"] += mv
 
         for m in manual_list:
             cb = m.cost_basis_total or 0.0
@@ -262,7 +288,9 @@ def _build_summary_clean(session: Session, accounts: list[Account]) -> dict[str,
                 unknown_mv += cb
                 acct_unknown += cb
                 continue
-            bucket = global_symbols.setdefault(sym, {"market_value": 0.0, "shares": 0.0, "cost_basis": 0.0})
+            bucket = global_symbols.setdefault(
+                sym, {"market_value": 0.0, "shares": 0.0, "cost_basis": 0.0, "costed_value": 0.0}
+            )
             bucket["market_value"] += cb
             bucket["shares"] += m.quantity or 0.0
             if cb:
@@ -288,7 +316,7 @@ def _build_summary_clean(session: Session, accounts: list[Account]) -> dict[str,
         sh = b["shares"]
         cb_raw = b["cost_basis"]
         cb = cb_raw if cb_raw > 0 else None
-        allocation.append(_rollup_symbol_row(sym, mv, sh, cb))
+        allocation.append(_rollup_symbol_row(sym, mv, sh, cb, b['costed_value']))
 
     if unknown_mv > RECON_EPS:
         allocation.append(
@@ -297,6 +325,7 @@ def _build_summary_clean(session: Session, accounts: list[Account]) -> dict[str,
                 "market_value": unknown_mv,
                 "shares": 0.0,
                 "cost_basis": None,
+                "gain": None,
                 "gain_pct": None,
             }
         )
@@ -307,6 +336,7 @@ def _build_summary_clean(session: Session, accounts: list[Account]) -> dict[str,
             "market_value": total_cash,
             "shares": 0.0,
             "cost_basis": None,
+            "gain": None,
             "gain_pct": None,
         }
     )
@@ -320,13 +350,15 @@ def _build_summary_clean(session: Session, accounts: list[Account]) -> dict[str,
         for row in allocation:
             row["percent_of_grand_total"] = None
 
+    costed = [r for r in allocation if r.get("cost_basis")]
+    total_cost_basis = sum(r["cost_basis"] for r in costed)
+    total_gain = sum(r["gain"] for r in costed)
+
+    # Market movement between the last two sync days, excluding deposits/withdrawals.
     day_change_pct = None
-    if len(accounts) == 1:
-        hist = get_history_series(session, accounts[0].id, limit=2)
-        if len(hist) >= 2:
-            a, b = hist[-2]["total_value"], hist[-1]["total_value"]
-            if a and abs(a) > RECON_EPS:
-                day_change_pct = (b - a) / a
+    series = get_portfolio_performance(session)["series"]
+    if len(series) >= 2 and series[-2]["value"] > RECON_EPS:
+        day_change_pct = (series[-1]["gain"] - series[-2]["gain"]) / series[-2]["value"]
 
     return {
         "grand_total": grand_total,
@@ -334,4 +366,6 @@ def _build_summary_clean(session: Session, accounts: list[Account]) -> dict[str,
         "accounts": account_summaries,
         "allocation": allocation,
         "day_change_pct": day_change_pct,
+        "total_cost_basis": total_cost_basis,
+        "total_gain": total_gain,
     }

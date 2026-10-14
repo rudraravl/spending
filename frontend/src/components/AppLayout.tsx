@@ -66,7 +66,7 @@ function Logo() {
       <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary shadow-md shadow-brand/40 ring-2 ring-brand/15">
         <Wallet className="h-4 w-4 text-primary-foreground drop-shadow-sm" />
       </span>
-      <span className="font-playfair text-[1.9rem] font-bold leading-none tracking-tight">Keep</span>
+      <span className="font-display text-[1.65rem] font-extrabold leading-none tracking-[-0.03em]">Keep</span>
     </Link>
   )
 }

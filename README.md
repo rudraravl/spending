@@ -29,11 +29,16 @@ Both work side by side. You can sync some accounts and import CSVs for others.
 
 ## Setup
 
+Use the latest [release](https://github.com/rudraravl/spending/releases). `main` is where development happens and may be unstable.
+
 ```bash
 git clone https://github.com/rudraravl/spending.git keep
 cd keep
+git checkout "$(git describe --tags --abbrev=0)"   # latest release
 ./setup.sh
 ```
+
+Git will say you're in "detached HEAD" state. That's expected: you're on a release tag, not a branch. You can also download the source zip from the [Releases page](https://github.com/rudraravl/spending/releases) instead of cloning.
 
 `setup.sh` creates a `.venv`, installs the Python and frontend dependencies, and creates the database at `data/budget.db`. To set up by hand instead:
 
@@ -150,6 +155,21 @@ Options: `--lookback-days N` (default 7) controls how far back to fetch, and `--
 2. In Keep, open **Accounts → Bank Sync**, click the trash icon on the connection, confirm, and click **Remove from Keep**.
 
 Keep checks with SimpleFIN before removing anything and refuses while the connection still works, so you can't accidentally leave live bank access behind. Your local accounts and their transaction history stay. They're just unlinked, and you can keep using them with CSV import or link them to a new connection.
+
+## Updating
+
+Your data in `data/` isn't tracked by git, so switching versions leaves it alone. The database is migrated automatically when the backend starts. Stop the app, then:
+
+```bash
+cp -R data data-backup-$(date +%F)     # optional; Keep also keeps daily backups
+git fetch --tags
+git checkout "$(git describe --tags "$(git rev-list --tags --max-count=1)")"   # newest release
+source .venv/bin/activate
+pip install -r requirements.txt
+npm --prefix frontend install
+```
+
+Then start the backend and frontend as usual. Each release's notes on the [Releases page](https://github.com/rudraravl/spending/releases) list what changed.
 
 ## Your data
 

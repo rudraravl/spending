@@ -32,7 +32,6 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from db.models import Account, Category, RecurringSeries, Subcategory, Transaction
-from services.zbb_service import recalc_activity_for_months
 
 
 # Pre-merchant-aware rows were keyed on amount alone under this sentinel.
@@ -437,21 +436,6 @@ def list_series_occurrences(session: Session, payload: RecurringSeriesActionIn) 
     return txns
 
 
-def series_occurrences_by_fingerprint(
-    session: Session,
-    *,
-    merchant_norm: str,
-    amount_anchor_cents: int,
-) -> list[Transaction]:
-    return list_series_occurrences(
-        session,
-        RecurringSeriesActionIn(
-            merchant_norm=merchant_norm,
-            amount_anchor_cents=int(amount_anchor_cents),
-        ),
-    )
-
-
 def bulk_update_series_category(
     session: Session,
     payload: RecurringSeriesActionIn,
@@ -478,9 +462,6 @@ def bulk_update_series_category(
         txn_any.category_id = int(category_id)
         txn_any.subcategory_id = int(subcategory_id)
         updated += 1
-    # Budget activity is cached per month by category; refresh the affected months.
-    session.flush()
-    recalc_activity_for_months(session, {(t.date.year, t.date.month) for t in txns})
 
     existing_any = cast(Any, _upsert_saved_row(session, payload))
     existing_any.category_id = int(category_id)

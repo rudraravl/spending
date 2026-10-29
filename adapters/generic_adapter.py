@@ -11,7 +11,6 @@ set invert_amounts_for_cash_flow=False.
 """
 
 import pandas as pd
-from datetime import datetime
 from adapters.base_adapter import BaseAdapter
 
 

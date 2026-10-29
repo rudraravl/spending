@@ -11,6 +11,7 @@ from backend.app.schemas import (
     ZbbAssignIn,
     ZbbMonthOut,
     ZbbMoveMoneyIn,
+    ZbbQuickAssignIn,
     ZbbRolloverSettingOut,
     ZbbRolloverSettingUpdateIn,
 )
@@ -23,6 +24,7 @@ from services.zbb_service import (
     get_rollover_mode,
     list_budget_categories,
     move_money,
+    quick_assign,
     set_budget_start_month,
     set_rollover_mode,
     update_budget_category,
@@ -40,6 +42,7 @@ def get_zbb_month(
 ) -> ZbbMonthOut:
     if month < 1 or month > 12:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="month must be 1..12")
+    # Reads can seed first-run envelopes, so commit like the mutations do.
     out = get_month_overview(session, year, month)
     session.commit()
     return ZbbMonthOut(**out)
@@ -82,6 +85,28 @@ def post_zbb_move_money(
             from_category_id=payload.from_category_id,
             to_category_id=payload.to_category_id,
             amount=payload.amount,
+        )
+        session.commit()
+        return ZbbMonthOut(**out)
+    except ValueError as e:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/api/budgets/zbb/months/{year}/{month}/quick-assign", response_model=ZbbMonthOut)
+def post_zbb_quick_assign(
+    year: int,
+    month: int,
+    payload: ZbbQuickAssignIn,
+    session: Session = Depends(get_db_session),
+) -> ZbbMonthOut:
+    try:
+        out = quick_assign(
+            session,
+            year=year,
+            month=month,
+            strategy=payload.strategy,
+            category_ids=payload.category_ids,
         )
         session.commit()
         return ZbbMonthOut(**out)
@@ -145,12 +170,10 @@ def post_zbb_category(
             name=payload.name,
             txn_category_id=payload.txn_category_id,
             txn_subcategory_id=payload.txn_subcategory_id,
+            monthly_target=payload.monthly_target,
         )
-        row = next((r for r in list_budget_categories(session) if int(r["id"]) == int(created["id"])), None)
         session.commit()
-        if row is None:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to load created category")
-        return BudgetCategoryOut(**row)
+        return BudgetCategoryOut(**created)
     except ValueError as e:
         session.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -163,18 +186,11 @@ def patch_zbb_category(
     session: Session = Depends(get_db_session),
 ) -> BudgetCategoryOut:
     try:
-        update_budget_category(
-            session,
-            budget_category_id,
-            name=payload.name,
-            txn_category_id=payload.txn_category_id,
-            txn_subcategory_id=payload.txn_subcategory_id,
-        )
-        row = next((r for r in list_budget_categories(session) if int(r["id"]) == int(budget_category_id)), None)
+        # Only forward fields the client sent, so a rename doesn't clear the mapping.
+        fields = payload.model_dump(include=payload.model_fields_set)
+        updated = update_budget_category(session, budget_category_id, **fields)
         session.commit()
-        if row is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Budget category not found")
-        return BudgetCategoryOut(**row)
+        return BudgetCategoryOut(**updated)
     except ValueError as e:
         session.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

@@ -2,7 +2,6 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { MotionConfig } from 'framer-motion'
 import { ThemeProvider } from 'next-themes'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
-import { Navigate } from 'react-router-dom'
 import AppLayout from '@/components/AppLayout'
 import TransferReviewProvider from '@/features/transfers/TransferReviewProvider'
 import { Toaster } from '@/components/ui/sonner'
@@ -40,18 +39,13 @@ export default function KeepApp() {
                 <Route path="/accounts" element={<AccountsPage />} />
                 <Route path="/accounts/:accountId" element={<AccountDetailPage />} />
                 <Route path="/import" element={<ImportCsvPage />} />
-                <Route path="/add-transaction" element={<Navigate to="/transactions?tab=add-transaction" replace />} />
-                <Route path="/transfer" element={<Navigate to="/transactions?tab=transfers" replace />} />
-                <Route path="/transfers/review" element={<Navigate to="/transactions?tab=transfers" replace />} />
                 <Route path="/transactions" element={<AllTransactionsPage />} />
                 <Route path="/recurring" element={<RecurringChargesPage />} />
                 <Route path="/budgets" element={<BudgetsPage />} />
                 <Route path="/views" element={<ViewsPage />} />
                 <Route path="/investments" element={<InvestmentsPage />} />
                 <Route path="/reports" element={<ReportsPage />} />
-                <Route path="/summaries" element={<Navigate to="/reports" replace />} />
                 <Route path="/net-worth" element={<NetWorthOverTimePage />} />
-                <Route path="/connections" element={<Navigate to="/accounts?tab=connections" replace />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>
               <Route path="*" element={<NotFoundPage />} />

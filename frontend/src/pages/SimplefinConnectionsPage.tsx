@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
-import { Info, LinkIcon, Plug, RefreshCw, Unlink } from 'lucide-react'
+import { Info, LinkIcon, Plug, RefreshCw, Trash2, Unlink } from 'lucide-react'
 import { getAccounts } from '../api/accounts'
 import {
   claimConnection,
@@ -29,6 +29,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import RemoveConnectionDialog from '@/features/simplefin/RemoveConnectionDialog'
 import { useSimplefinSync } from '@/features/simplefin/useSimplefinSync'
 
 function formatDate(iso: string | null | undefined) {
@@ -56,7 +57,7 @@ function budgetVariant(used: number, limit: number): 'default' | 'secondary' | '
   return 'default'
 }
 
-export default function SimplefinConnectionsPage({ embedded = false }: { embedded?: boolean }) {
+export default function SimplefinConnectionsPage() {
   const queryClient = useQueryClient()
 
   const { data: connections = [], isLoading } = useQuery({
@@ -73,6 +74,7 @@ export default function SimplefinConnectionsPage({ embedded = false }: { embedde
   const [token, setToken] = useState('')
   const [claimError, setClaimError] = useState<string | null>(null)
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null)
+  const [removeOpen, setRemoveOpen] = useState(false)
 
   const claimMutation = useMutation({
     mutationFn: () => claimConnection(token.trim(), 'SimpleFIN'),
@@ -188,19 +190,10 @@ export default function SimplefinConnectionsPage({ embedded = false }: { embedde
   )
 
   return (
-    <div className={embedded ? 'space-y-8' : 'p-6 max-w-4xl mx-auto space-y-8'}>
+    <div className="space-y-8">
       <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
         <p className="text-sm text-muted-foreground mt-1">
           Claim a bank connection, map each remote account to a local account, then run sync.
-          {!embedded ? (
-            <>
-              {' '}
-              Same page as sidebar <span className="text-foreground/80 font-medium">Bank Sync → Connections</span>.{' '}
-              <Link to="/accounts" className="text-primary underline-offset-4 hover:underline">
-                View local accounts &rarr;
-              </Link>
-            </>
-          ) : null}
         </p>
       </motion.div>
 
@@ -278,6 +271,16 @@ export default function SimplefinConnectionsPage({ embedded = false }: { embedde
                 >
                   {refreshAccountsMutation.isPending ? 'Refreshing…' : 'Refresh cached accounts'}
                 </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                  aria-label="Remove connection"
+                  title="Remove connection"
+                  onClick={() => setRemoveOpen(true)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -317,6 +320,14 @@ export default function SimplefinConnectionsPage({ embedded = false }: { embedde
         </div>
       )}
       {connection ? claimConnectionCard : null}
+      {connection ? (
+        <RemoveConnectionDialog
+          open={removeOpen}
+          connectionId={connection.id}
+          linkedCount={localAccounts.filter((a) => a.provider === 'simplefin' && a.is_linked).length}
+          onClose={() => setRemoveOpen(false)}
+        />
+      ) : null}
     </div>
   )
 }

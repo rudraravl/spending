@@ -13,7 +13,7 @@ import pandas as pd
 from datetime import datetime, timezone
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
-from db.models import Transaction, Account, Category, Subcategory, Tag
+from db.models import Transaction, Account, Category, Subcategory
 from adapters.base_adapter import BaseAdapter
 from adapters.generic_adapter import GenericAdapter
 from adapters.wells_adapter import WellsAdapter
@@ -24,7 +24,6 @@ from adapters.chase_adapter import ChaseCreditCardAdapter, ChaseCheckingAdapter
 from adapters.capital_one_adapter import CapitalOneAdapter
 from services.rule_service import apply_rules_to_transaction, list_rules
 from services.account_service import ASSET_ACCOUNT_TYPES
-from services.zbb_service import recalc_activity_for_months
 
 
 # Adapter registry
@@ -102,7 +101,6 @@ def import_csv(
     num_imported = 0
     skipped = []
     imported_transaction_ids: List[int] = []
-    touched_months: set[tuple[int, int]] = set()
 
     # Default to "Other" / "Uncategorized"; rules may override per row.
     other_category = ensure_category(session, "Other")
@@ -146,7 +144,6 @@ def import_csv(
             apply_rules_to_transaction(session, transaction, rules)
             session.flush()
             imported_transaction_ids.append(transaction.id)
-            touched_months.add((int(transaction.date.year), int(transaction.date.month)))
             num_imported += 1
 
         except SQLAlchemyError:
@@ -170,8 +167,6 @@ def import_csv(
         account.reported_balance = float(reported)
         account.reported_balance_at = datetime.now(timezone.utc)
 
-    if touched_months:
-        recalc_activity_for_months(session, touched_months)
     session.commit()
 
     return ImportCsvOutcome(num_imported, skipped, imported_transaction_ids)
@@ -239,28 +234,6 @@ def _transaction_exists(
     return existing is not None
 
 
-def ensure_account(session: Session, account_name: str, account_type: str = 'credit_card') -> Account:
-    """
-    Ensure an account exists, creating it if necessary.
-    
-    Args:
-        session: Database session
-        account_name: Name of the account
-        account_type: Type of account (default: 'credit_card')
-        
-    Returns:
-        Account object
-    """
-    account = session.query(Account).filter(Account.name == account_name).first()
-    
-    if not account:
-        account = Account(name=account_name, type=account_type)
-        session.add(account)
-        session.commit()
-    
-    return account
-
-
 def ensure_category(session: Session, category_name: str) -> Category:
     """
     Ensure a category exists, creating it if necessary.
@@ -310,26 +283,3 @@ def ensure_subcategory(session: Session, subcategory_name: str, category_id: int
         session.commit()
     
     return subcategory
-
-
-def ensure_tag(session: Session, tag_name: str) -> Tag:
-    """
-    Ensure a tag exists, creating it if necessary.
-    
-    Tags are flat (no category relationship).
-    
-    Args:
-        session: Database session
-        tag_name: Name of the tag
-        
-    Returns:
-        Tag object
-    """
-    tag = session.query(Tag).filter(Tag.name == tag_name).first()
-    
-    if not tag:
-        tag = Tag(name=tag_name)
-        session.add(tag)
-        session.commit()
-    
-    return tag

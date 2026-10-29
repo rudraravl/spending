@@ -8,7 +8,7 @@ import { AccountsCard, RecentActivityCard, UpcomingCard } from '@/features/home/
 import SpendingHeroCard from '@/features/home/SpendingHeroCard'
 import { CashflowCard, NetWorthCard } from '@/features/home/SummaryCards'
 import { currentYearMonth, shiftMonth, useMonthOverview, type YearMonth } from '@/features/home/useMonthOverview'
-import { greeting, USER_FIRST_NAME } from '@/lib/profile'
+import { greeting } from '@/lib/profile'
 import { queryKeys } from '@/queryKeys'
 
 const todayLong = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
@@ -38,7 +38,7 @@ export default function DashboardPage() {
     <div className="page">
       <div className="mb-6">
         <h1 className="text-[1.75rem] font-semibold leading-tight tracking-tight">
-          {greeting()}, {USER_FIRST_NAME}.
+          {greeting()}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">{todayLong.format(new Date())}</p>
       </div>

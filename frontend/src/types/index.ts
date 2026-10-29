@@ -5,11 +5,18 @@ export type { TagOut } from './tag'
 export type { TransactionOut } from './transaction'
 export type { TransactionSplitIn, TransactionSplitOut } from './transactionSplit'
 export type {
-  ZbbAssignIn,
+  BudgetCategoryIn,
   BudgetCategoryOut,
+  ZbbAccountOut,
+  ZbbAssignIn,
   ZbbCategoryRowOut,
   ZbbMonthOut,
+  ZbbMonthTotalsOut,
   ZbbMoveMoneyIn,
+  ZbbQuickAssignIn,
+  ZbbQuickAssignStrategy,
+  ZbbRolloverMode,
   ZbbRolloverSettingOut,
+  ZbbUnbudgetedOut,
 } from './budget'
 

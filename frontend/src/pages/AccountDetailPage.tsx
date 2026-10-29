@@ -232,7 +232,7 @@ export default function AccountDetailPage() {
             {acct.is_linked && acct.last_synced_at ? (
               <p className="text-xs text-muted-foreground mt-2">
                 Last synced: {formatImportedAt(acct.last_synced_at)}{' '}
-                <Link to="/connections" className="text-primary underline-offset-4 hover:underline">
+                <Link to="/accounts?tab=connections" className="text-primary underline-offset-4 hover:underline">
                   Manage link
                 </Link>
               </p>

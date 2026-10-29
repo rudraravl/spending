@@ -1,13 +1,13 @@
 """Tags record when they were last added to a transaction (drives recency ordering in pickers)."""
 
 import unittest
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from db.database import _migrate_tags_columns
-from db.models import Account, Base, Category, Subcategory, Tag, Transaction
+from db.models import Account, Base, Category, Subcategory, Tag
 from services.transaction_service import assign_tags, create_transaction, update_transaction
 
 LONG_AGO = datetime(2020, 1, 1)

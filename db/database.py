@@ -10,7 +10,6 @@ Handles:
 import html
 import os
 import sqlite3
-from datetime import date
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, Session
@@ -27,8 +26,6 @@ engine = create_engine(
     connect_args={'check_same_thread': False},  # Required for SQLite
 )
 
-# Bump this when schema changes require a rebuild.
-SCHEMA_VERSION = "2026-03-31-zbb-v2-decoupled"
 
 @event.listens_for(Engine, "connect")
 def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
@@ -186,55 +183,16 @@ def _migrate_budget_settings_table(conn) -> None:
         conn.execute(text("ALTER TABLE budget_settings ADD COLUMN budget_start_month INTEGER"))
 
 
-def _seed_zbb_period_rows(conn) -> None:
+def _migrate_budget_categories_columns(conn) -> None:
     tables = {
         row[0]
         for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()
     }
-    required = {"budget_periods", "category_budgets", "categories", "budget_settings", "budget_categories"}
-    if not required.issubset(tables):
+    if "budget_categories" not in tables:
         return
-
-    today = date.today()
-    months: list[tuple[int, int]] = [(today.year, today.month)]
-    if today.month == 12:
-        months.append((today.year + 1, 1))
-    else:
-        months.append((today.year, today.month + 1))
-
-    for year, month in months:
-        conn.execute(
-            text(
-                "INSERT OR IGNORE INTO budget_periods (year, month, rta_snapshot) "
-                "VALUES (:year, :month, 0)"
-            ),
-            {"year": year, "month": month},
-        )
-        period_row = conn.execute(
-            text("SELECT id FROM budget_periods WHERE year = :year AND month = :month LIMIT 1"),
-            {"year": year, "month": month},
-        ).fetchone()
-        if period_row is None:
-            continue
-        period_id = int(period_row[0])
-        conn.execute(
-            text(
-                "INSERT OR IGNORE INTO category_budgets (category_id, budget_category_id, budget_period_id, assigned, activity) "
-                "SELECT "
-                "COALESCE("
-                "  bc.txn_category_id, "
-                "  (SELECT id FROM categories WHERE name = 'Other' LIMIT 1), "
-                "  (SELECT id FROM categories ORDER BY id ASC LIMIT 1)"
-                "), "
-                "bc.id, :period_id, 0, 0 "
-                "FROM budget_categories bc"
-            ),
-            {"period_id": period_id},
-        )
-
-    row = conn.execute(text("SELECT id FROM budget_settings ORDER BY id ASC LIMIT 1")).fetchone()
-    if row is None:
-        conn.execute(text("INSERT INTO budget_settings (id, rollover_mode) VALUES (1, 'strict')"))
+    cols = {row[1] for row in conn.execute(text("PRAGMA table_info(budget_categories)")).fetchall()}
+    if "monthly_target" not in cols:
+        conn.execute(text("ALTER TABLE budget_categories ADD COLUMN monthly_target FLOAT"))
 
 
 def _migrate_recurring_series_columns(conn) -> None:
@@ -297,7 +255,6 @@ def _migrate_category_budgets_unique_constraint(conn) -> None:
     # Detect whether legacy unique index/constraint still exists.
     index_rows = conn.execute(text("PRAGMA index_list(category_budgets)")).fetchall()
     has_legacy_unique = False
-    has_new_unique = False
     for row in index_rows:
         idx_name = str(row[1])
         is_unique = int(row[2]) == 1
@@ -306,8 +263,6 @@ def _migrate_category_budgets_unique_constraint(conn) -> None:
         cols = [str(c[2]) for c in conn.execute(text(f"PRAGMA index_info('{idx_name}')")).fetchall()]
         if cols == ["category_id", "budget_period_id"]:
             has_legacy_unique = True
-        if cols == ["budget_category_id", "budget_period_id"]:
-            has_new_unique = True
 
     if not has_legacy_unique:
         return
@@ -465,7 +420,7 @@ def init_db():
         _migrate_budget_category_decoupling(conn)
         _migrate_category_budgets_unique_constraint(conn)
         _migrate_budget_settings_table(conn)
-        _seed_zbb_period_rows(conn)
+        _migrate_budget_categories_columns(conn)
         _migrate_unescape_simplefin_text(conn)
         _ensure_model_indexes(conn)
 

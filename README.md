@@ -1,146 +1,174 @@
 # Keep
 
-Local spending tracker backed by SQLite: import credit card CSVs, categorize transactions, and view summaries through the React UI and FastAPI backend.
+A local-first personal finance app. Track spending across cards and bank accounts, budget with envelopes, spot recurring charges, follow investments, and watch net worth over time. Your data lives in a single SQLite file on your machine.
 
-## New user setup
+You can use it two ways:
 
-### What you need
+- **Without bank sync:** import CSV exports from your bank or card, or enter transactions by hand. No accounts, keys, or third-party services needed.
+- **With [SimpleFIN](https://www.simplefin.org/) bank sync:** connect your institutions once, and balances and transactions sync automatically.
 
-- **Python 3.x** (for the API and scripts)
-- **Node.js (LTS) and npm** (for the React UI—you cannot run the frontend with Python alone)
-- **git**
-
-### Install
-
-From the repo root:
-
-1. Create and activate a virtual environment, then install Python dependencies:
-
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate   # Windows: .venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
-
-2. Install frontend dependencies:
-
-   ```bash
-   npm --prefix frontend install
-   ```
-
-### Run
-
-Start **two** terminals from the repo root (venv active in the one that runs the backend):
-
-- **Backend:** `npm run dev:backend` → [http://localhost:8000](http://localhost:8000)
-- **Frontend:** `npm run dev:frontend` → [http://localhost:5173](http://localhost:5173)
-
-Open the UI in the browser. The frontend expects the API at `http://localhost:8000` by default; override with `VITE_API_BASE_URL` if you change the port.
-
-### First launch
-
-When the backend starts, it creates `data/budget.db` and seeds default **categories** and **subcategories** (for example Food, Travel, Income, and Other → Uncategorized for imports). **Tags** and **rules** start empty.
-
-### Accounts
-
-In the sidebar, open **Accounts** and use **New account** for each wallet or card you want to track. The **type** (e.g. credit card vs checking) changes how the account detail page behaves. **Import CSV** and **Add transaction** both require at least one account.
-
-For **SimpleFIN** bank sync, create these **local** accounts first, then map each bank account to a local one on **Connections** (under **Bank Sync**). Sync only updates accounts that are already linked—it does not create local accounts for you.
-
-### Categories, subcategories, tags, and rules
-
-Use **Settings** to customize **categories** and **subcategories** (each subcategory belongs to one category). **Tags** are optional extra labels. **Rules** auto-assign category and subcategory when transactions are imported or synced, based on fields such as merchant text.
-
-### Get transactions
-
-- **Import CSV:** pick the account, then a bank **adapter** or generic column mapping.
-- **Bank sync:** set `SIMPLEFIN_ACCESS_URL_PROD` in `.env` if you want a connection seeded on startup, or add a connection from the UI. Open **Connections** (**SimpleFIN Connections**), claim a token, link each remote account to a local account, then **Sync now**. Step-by-step: [SimpleFIN setup guide](#simplefin-setup-guide).
-
-### Amounts
-
-Stored amounts use one sign convention (positive = money in, negative = out). How that affects the dashboard and transfers is documented in [docs/AMOUNT_CONVENTION.md](docs/AMOUNT_CONVENTION.md).
-
-### OPTIONAL for Mac — Automator launcher
-
-Open Automator, create a new Application where you like, add **Run AppleScript**, and paste:
-
-```applescript
-tell application "Terminal"
-	activate
-
-	-- Backend tab
-	do script "cd *PATH/TO/REPO*; source .venv/bin/activate; npm run dev:backend"
-
-	-- New tab for frontend
-	tell application "System Events" to keystroke "t" using command down
-	delay 0.5
-
-	do script "cd *PATH/TO/REPO*; npm run dev:frontend" in front window
-end tell
-
--- Wait for the frontend server to start
-delay 2
-
--- Open the app in the browser
-do shell script "open http://localhost:5173"
-```
-
-Replace `*PATH/TO/REPO*` with your clone path.
-
-## SimpleFIN auto-sync (bank account linking)
-
-The app supports automatic bank account syncing via the [SimpleFIN Protocol](https://www.simplefin.org/protocol.html).
-
-**Quick start:** Add your SimpleFIN Access URL to `.env`:
-
-```
-SIMPLEFIN_ACCESS_URL_PROD="https://user:pass@beta-bridge.simplefin.org/simplefin"
-```
-
-On first startup the app seeds a connection automatically. A single SimpleFIN Access URL/connection can include multiple bank accounts; you do not add one URL per account. Open **Connections** (**SimpleFIN Connections** in the Bank Sync section) to see discovered accounts for that connection, then link each one to a **local** account you created on the **Accounts** page.
-
-If you call the sync API with a custom `end_date`, it follows SimpleFIN protocol semantics: `end-date` is exclusive (transactions are returned before, but not on, that date).
-
-To stay within common Bridge quotas, the app also enforces a local daily SimpleFIN request budget per connection (`SIMPLEFIN_MAX_REQUESTS_PER_DAY`, default `20`).
-
-**Daily auto-sync** via cron (venv must be active):
-
-```bash
-# Example crontab entry – sync at 6 AM daily
-0 6 * * * cd /path/to/spending && .venv/bin/python -m backend.scripts.simplefin_sync_once --lookback-days 7
-```
-
-Or run manually:
-
-```bash
-python -m backend.scripts.simplefin_sync_once
-```
+Both work side by side. You can sync some accounts and import CSVs for others.
 
 ## Features
 
-- Import credit card CSVs (adapters + generic mapping)
-- Automatic bank account syncing via SimpleFIN
-- Add/edit transactions; categories, subcategories, tags
-- Filters and summaries (month/year/semester/custom ranges)
+- CSV import with built-in adapters (Chase, Capital One, Citi, Discover, Wells Fargo, Bilt) and a generic column mapper for anything else
+- Optional automatic bank sync via SimpleFIN
+- Categories, subcategories, tags, and rules that auto-categorize imported and synced transactions
+- Split transactions and transfer matching between your own accounts
+- Envelope-style (zero-based) monthly budget
+- Recurring-charge detection
+- Investment holdings, cost basis, and performance
+- Reports, saved views, and net worth history
+- Automatic daily database backups (the last 5 are kept in `data/`)
 
-## SimpleFIN setup guide
+## Requirements
 
-Use this guide if you are setting up bank syncing from scratch.
+- Python 3.11+
+- Node.js 20+ and npm
+- git
 
-1. Create a SimpleFIN token from your institution (or Bridge) `/create` page.
-2. In the app, open **Connections** and paste the token in **Add a root connection** (**Claim & Connect**).
-3. On **Connections**, your connection appears with **Available remote accounts (cached)**. Use **Refresh cached accounts** or **Sync now** if the list is empty.
-4. For each remote account, choose a **local** account (create more on **Accounts** if needed) and click **Link**.
-5. Click **Sync now** to import balances and transactions for linked accounts.
-
-Notes:
-
-- The app only stores the claimed Access URL in encrypted form; the token is one-time use.
-- Treat the Access URL as the root connection. Your account list should come from discovered/linked accounts under that connection, not from multiple per-account Access URLs.
-- `end_date` sync filtering is exclusive (`before, not on`) per protocol.
-- Daily request budget is visible in the UI and enforced locally to reduce risk of hitting provider limits.
-- For automatic refresh, run the daily script:
+## Setup
 
 ```bash
-python -m backend.scripts.simplefin_sync_once --lookback-days 7
+git clone https://github.com/rudraravl/spending.git keep
+cd keep
+./setup.sh
 ```
+
+`setup.sh` creates a `.venv`, installs the Python and frontend dependencies, and creates the database at `data/budget.db`. To set up by hand instead:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+npm --prefix frontend install
+```
+
+### Run
+
+Use two terminals from the repo root:
+
+```bash
+# Terminal 1: API on http://localhost:8000
+source .venv/bin/activate
+npm run dev:backend
+
+# Terminal 2: UI on http://localhost:5173
+npm run dev:frontend
+```
+
+Open http://localhost:5173. On first start the backend creates `data/budget.db` and seeds default categories (Food, Travel, Income, Other → Uncategorized, and so on). Tags and rules start empty.
+
+### Optional configuration
+
+Copy `.env.example` to `.env` for backend settings. Every variable is optional. The app runs without a `.env`.
+
+To personalize the home page greeting, create `frontend/.env.local` with:
+
+```
+VITE_USER_NAME=Alex
+```
+
+If the API runs somewhere other than `http://localhost:8000`, set `VITE_API_BASE_URL` in the same file.
+
+## Getting started
+
+These steps are the same with or without bank sync.
+
+1. **Create accounts.** Go to **Accounts → New account** and add each card, checking, savings, or brokerage account you want to track. The account type matters: credit cards, cash accounts, and investment accounts behave differently on the detail page and in net worth.
+2. **Customize categories (optional).** Under **Settings → Categories & tags**, rename or add categories and subcategories. Under **Settings → Rules**, add rules that set the category automatically based on merchant text and other fields. Rules run on every import and sync.
+3. **Get transactions in.** Use one or both of the paths below.
+
+### Option A: without bank sync (CSV import and manual entry)
+
+**Import a CSV**
+
+1. Download a transaction export (CSV) from your bank or card's website.
+2. In Keep, open **Import CSV** in the sidebar.
+3. Pick the account the file belongs to.
+4. Pick an adapter:
+   - A **bank adapter** (Chase, Capital One, Citi, Discover, Wells Fargo, Bilt) if one matches. These know the column layout and sign convention for that export.
+   - **Generic** for anything else. Map the date, amount, and merchant columns yourself.
+5. Review the preview, then import. Rows that look like duplicates of existing transactions are skipped, so re-importing an overlapping date range is safe.
+
+**Add transactions by hand**
+
+Open **Transactions → Add transaction** for one-off entries such as cash purchases. Use the **Transfers** tab to record money moved between your own accounts so it doesn't count as spending.
+
+That's the whole setup. You don't need a `.env`, an encryption key, or a SimpleFIN account.
+
+Missing an adapter for your bank? See [DEVELOPMENT.md](DEVELOPMENT.md#adding-a-csv-adapter). It's usually about ten lines.
+
+### Option B: with SimpleFIN bank sync
+
+[SimpleFIN](https://www.simplefin.org/) is an open protocol for read-only access to bank data. The easiest way to use it is the [SimpleFIN Bridge](https://beta-bridge.simplefin.org/), a paid hosted service (a few dollars a month at the time of writing) that connects to most US banks. Keep only reads from SimpleFIN. It never moves money.
+
+**1. Get a setup token**
+
+Sign up at SimpleFIN Bridge, connect your banks there, then create a new app connection. You'll get a one-time **setup token** (a long base64 string).
+
+**2. Connect Keep**
+
+1. In Keep, go to **Accounts → Bank Sync**.
+2. Paste the token under **Add a root connection** and click **Claim & Connect**.
+
+Keep exchanges the token for an **Access URL**, encrypts it, and stores it in the database. The token is single-use. If claiming fails, generate a fresh one.
+
+One connection covers every bank you linked in the Bridge. You don't need a connection per bank.
+
+**3. Link remote accounts to local accounts**
+
+1. Make sure you've created a local account for each bank account you want synced (**Accounts → New account**). Sync never creates accounts for you.
+2. On **Bank Sync**, the **Available remote accounts** list shows what SimpleFIN can see. If it's empty, click **Refresh cached accounts**.
+3. For each remote account, choose the matching local account and click **Link**.
+
+**4. Sync**
+
+Click **Sync now** on the Bank Sync tab, or use the **Sync** button in the top bar from any page. New transactions go through your rules, and Keep suggests likely transfers between your accounts for you to confirm.
+
+**Sync on a schedule (optional)**
+
+Run the sync script from cron (or launchd, or Task Scheduler):
+
+```bash
+# Every day at 6 AM
+0 6 * * * cd /path/to/keep && .venv/bin/python -m backend.scripts.simplefin_sync_once
+```
+
+Options: `--lookback-days N` (default 7) controls how far back to fetch, and `--min-interval-hours H` (default 20) skips connections that synced recently.
+
+**Things to know**
+
+- **Rate limits:** SimpleFIN Bridge limits how often you can pull data. Keep tracks its own requests and stops at 24 per connection per rolling 24 hours (SimpleFIN's published guideline) (`SIMPLEFIN_MAX_REQUESTS_PER_DAY`). The Bank Sync tab shows usage and when the next request is allowed.
+- **Encryption key:** the stored Access URL is encrypted with a key from `SIMPLEFIN_ENCRYPTION_KEY`. If that's unset, the key is generated and saved to `data/.simplefin_key`. Back up that file together with `data/budget.db`. Without it, you'll need to reconnect with a new token.
+- **Skipping the UI:** if you already have a claimed Access URL, put it in `.env` as `SIMPLEFIN_ACCESS_URL_PROD`. Keep creates the connection on startup if none exists.
+- **Mixing with CSV:** a synced account can still take CSV imports, for example to backfill history from before you connected. Duplicates are skipped.
+
+**Removing a connection**
+
+1. Delete Keep's app connection on the SimpleFIN Bridge website. This revokes Keep's access.
+2. In Keep, open **Accounts → Bank Sync**, click the trash icon on the connection, confirm, and click **Remove from Keep**.
+
+Keep checks with SimpleFIN before removing anything and refuses while the connection still works, so you can't accidentally leave live bank access behind. Your local accounts and their transaction history stay. They're just unlinked, and you can keep using them with CSV import or link them to a new connection.
+
+## Your data
+
+- Everything is stored in `data/budget.db` (SQLite). Back up the `data/` folder to keep your history.
+- A backup is written to `data/db_backup_<timestamp>.db` at most once a day when the backend starts, and the 5 most recent are kept.
+- To start over, stop the backend and delete `data/budget.db`.
+
+## Security
+
+Keep is built to run on your own machine. **The API has no authentication.** It accepts browser requests only from `localhost` origins and rejects cross-site writes, but anything that can reach port 8000 can read your data. Don't expose it to the internet or an untrusted network. If you want remote access, put it behind something that handles auth, such as a VPN like Tailscale or an authenticating reverse proxy.
+
+## Amount sign convention
+
+Amounts are stored as cash flow: positive means money in, negative means money out. See [docs/AMOUNT_CONVENTION.md](docs/AMOUNT_CONVENTION.md) for how this plays out with credit cards and transfers.
+
+## Development
+
+See [DEVELOPMENT.md](DEVELOPMENT.md) for the architecture, tests, and how to add a CSV adapter.
+
+## License
+
+[MIT](LICENSE.md)

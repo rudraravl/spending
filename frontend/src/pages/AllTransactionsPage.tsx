@@ -102,11 +102,11 @@ export default function AllTransactionsPage() {
         </TabsContent>
 
         <TabsContent value="add-transaction">
-          <AddTransactionPage embedded />
+          <AddTransactionPage />
         </TabsContent>
 
         <TabsContent value="transfers">
-          <TransferPage embedded />
+          <TransferPage />
         </TabsContent>
       </Tabs>
     </div>

@@ -41,7 +41,7 @@ const SEARCH_DEBOUNCE_MS = 300
 const AUTOSAVE_DELAY_MS = 700
 
 /** Table columns the server can sort by; sorting spans every page, not just the visible one. */
-export const SORT_FIELD_BY_COLUMN: Record<string, TransactionSortField> = {
+const SORT_FIELD_BY_COLUMN: Record<string, TransactionSortField> = {
   Date: 'date',
   Merchant: 'merchant',
   Amount: 'amount',

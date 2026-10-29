@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPatchJson, apiPostJson } from './client'
+import { apiDelete, apiGet, apiPostJson } from './client'
 
 export type InvestmentAllocationRow = {
   symbol: string
@@ -153,17 +153,6 @@ export function getPortfolioHistory(accountId: number, limit = 365) {
 export function createManualPosition(accountId: number, body: ManualPositionCreate) {
   return apiPostJson<ManualPositionOut>(
     `/api/investments/accounts/${accountId}/manual-positions`,
-    body,
-  )
-}
-
-export function updateManualPosition(
-  accountId: number,
-  positionId: number,
-  body: Partial<ManualPositionCreate>,
-) {
-  return apiPatchJson<ManualPositionOut>(
-    `/api/investments/accounts/${accountId}/manual-positions/${positionId}`,
     body,
   )
 }

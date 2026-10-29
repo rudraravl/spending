@@ -15,7 +15,7 @@ export function shiftMonth({ year, month }: YearMonth, delta: number): YearMonth
   return { year: d.getFullYear(), month: d.getMonth() + 1 }
 }
 
-export function daysInMonth({ year, month }: YearMonth): number {
+function daysInMonth({ year, month }: YearMonth): number {
   return new Date(year, month, 0).getDate()
 }
 

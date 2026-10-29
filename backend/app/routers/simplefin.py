@@ -15,6 +15,7 @@ from backend.app.transfer_helpers import transfer_pair_to_candidate_out
 from services.transfer_matching_service import find_transfer_match_candidates
 from services.simplefin_client import SimpleFINAuthError, SimpleFINError
 from services.simplefin_sync_service import (
+    ConnectionStillActiveError,
     create_connection_from_token,
     delete_connection,
     discover_accounts,
@@ -257,6 +258,13 @@ def api_delete_connection(
         delete_connection(session, connection_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ConnectionStillActiveError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except SimpleFINError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Couldn't confirm the connection was deleted on SimpleFIN: {exc}",
+        ) from exc
 
 
 # ---------------------------------------------------------------------------

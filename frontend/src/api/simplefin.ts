@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPatchJson, apiPostJson } from './client'
+import { apiDelete, apiGet, apiPostJson } from './client'
 import type { TransferMatchCandidate } from './transfers'
 
 // ---------------------------------------------------------------------------
@@ -71,34 +71,12 @@ export interface SyncResult {
   transfer_candidates?: TransferMatchCandidate[]
 }
 
-export interface SyncRun {
-  id: number
-  connection_id: number
-  started_at: string | null
-  finished_at: string | null
-  status: string
-  accounts_synced: number | null
-  transactions_imported: number | null
-  error_message: string | null
-}
-
 export interface SimpleFINDailyBudget {
   connection_id: number
   used: number
   limit: number
   /** Set when the budget is exhausted: when the rolling 24h window frees a request. */
   next_available_at?: string | null
-}
-
-export interface SimpleFINEndpointStatus {
-  endpoint: string
-  supported: boolean
-  detail: string
-}
-
-export interface SimpleFINProtocolStatus {
-  root_url: string
-  endpoints: SimpleFINEndpointStatus[]
 }
 
 export interface CachedDiscoveryResponse extends DiscoveryResponse {
@@ -114,9 +92,6 @@ export const listConnections = () =>
 
 export const claimConnection = (token: string, label?: string) =>
   apiPostJson<SimpleFINConnection>('/api/simplefin/connections/claim', { token, label })
-
-export const updateConnection = (id: number, payload: { label?: string; status?: string }) =>
-  apiPatchJson<SimpleFINConnection>(`/api/simplefin/connections/${id}`, payload)
 
 export const deleteConnection = (id: number) =>
   apiDelete(`/api/simplefin/connections/${id}`)
@@ -140,27 +115,9 @@ export const unlinkAccount = (localAccountId: number) =>
 export const triggerSync = (payload: SyncPayload) =>
   apiPostJson<SyncResult>('/api/simplefin/sync', payload)
 
-export const getSyncRuns = (connectionId?: number | null, limit = 20) =>
-  apiGet<SyncRun[]>(
-    connectionId != null
-      ? `/api/simplefin/sync-runs?connection_id=${connectionId}&limit=${limit}`
-      : `/api/simplefin/sync-runs?limit=${limit}`,
-  )
-
 export const getDailyBudget = (connectionId?: number | null) =>
   apiGet<SimpleFINDailyBudget>(
     connectionId != null
       ? `/api/simplefin/daily-budget?connection_id=${connectionId}`
       : '/api/simplefin/daily-budget',
   )
-
-export const getProtocolStatus = (connectionId?: number, rootUrl?: string) => {
-  const params = new URLSearchParams()
-  if (connectionId != null) params.set('connection_id', String(connectionId))
-  if (rootUrl) params.set('root_url', rootUrl)
-  const suffix = params.toString()
-  const url = suffix
-    ? `/api/simplefin/protocol-status?${suffix}`
-    : '/api/simplefin/protocol-status'
-  return apiGet<SimpleFINProtocolStatus>(url)
-}

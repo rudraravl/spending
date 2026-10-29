@@ -203,10 +203,6 @@ def delete_account(session: Session, account_id: int) -> None:
 
         delete_empty_transfer_groups(session, group_ids)
 
-    touched_months = {
-        (d.year, d.month)
-        for (d,) in session.query(Transaction.date).filter(Transaction.account_id == account_id).distinct()
-    }
     # The account's credit-card payment envelope (and its monthly rows) goes with it.
     envelope_ids = session.query(BudgetCategory.id).filter(BudgetCategory.linked_account_id == account_id)
     session.query(CategoryBudget).filter(CategoryBudget.budget_category_id.in_(envelope_ids)).delete(
@@ -216,10 +212,4 @@ def delete_account(session: Session, account_id: int) -> None:
         synchronize_session=False
     )
     session.delete(account)
-    if touched_months:
-        # Local import: zbb_service imports this module.
-        from services.zbb_service import recalc_activity_for_months
-
-        session.flush()
-        recalc_activity_for_months(session, touched_months)
     session.commit()

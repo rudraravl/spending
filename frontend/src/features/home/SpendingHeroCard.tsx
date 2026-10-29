@@ -13,7 +13,7 @@ function monthName(ym: YearMonth, fmt = monthLong) {
 }
 
 /** "$2,839" with smaller ".29" — the hero figure. */
-export function HeroAmount({ value, className }: { value: number; className?: string }) {
+function HeroAmount({ value, className }: { value: number; className?: string }) {
   const [whole, cents] = formatSignedUsd(value).split('.')
   return (
     <span className={cn('font-semibold tracking-tight', className)}>

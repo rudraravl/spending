@@ -8,6 +8,7 @@ db/*.db
 *.csv
 .env
 .env.*
+!.env.example
 
 # Python
 __pycache__/

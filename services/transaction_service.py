@@ -16,7 +16,6 @@ from sqlalchemy.orm import Query, Session, aliased, joinedload, selectinload
 from db.models import Transaction, Tag, Account, Category, Subcategory, TransferGroup, TransactionSplit
 from services.account_service import delete_empty_transfer_groups, get_other_uncategorized_ids
 from services.transfer_matching_service import CARD_PAYMENT_AMOUNT_TOLERANCE
-from services.zbb_service import recalc_activity_for_months
 from utils.filters import TransactionFilter, apply_transaction_filters
 
 
@@ -52,18 +51,6 @@ def _set_tags(transaction: Transaction, tags: Iterable[Tag]) -> None:
         if tag.id not in previous:
             tag.last_used_at = now
     transaction.tags = tags
-
-
-def _month_key(d: date | None) -> tuple[int, int] | None:
-    if d is None:
-        return None
-    return int(d.year), int(d.month)
-
-
-def _recalc_zbb_months(session: Session, months: list[tuple[int, int] | None]) -> None:
-    normalized = [(y, m) for ym in months if ym is not None for (y, m) in [ym]]
-    if normalized:
-        recalc_activity_for_months(session, normalized)
 
 
 def create_transaction(
@@ -142,7 +129,6 @@ def create_transaction(
         _set_tags(transaction, tags)
     
     session.add(transaction)
-    _recalc_zbb_months(session, [_month_key(date_)])
     session.commit()
     
     return transaction
@@ -175,7 +161,6 @@ def update_transaction(
     if not transaction:
         raise ValueError(f"Transaction with id {transaction_id} does not exist")
 
-    old_month = _month_key(transaction.date)
     # Resolve target values (fall back to current)
     new_date = date_ if date_ is not None else transaction.date
     new_amount = amount if amount is not None else transaction.amount
@@ -248,7 +233,6 @@ def update_transaction(
             raise ValueError(f"Tags with ids {missing_ids} do not exist")
         _set_tags(transaction, tags)
 
-    _recalc_zbb_months(session, [old_month, _month_key(new_date)])
     session.commit()
 
     return transaction
@@ -439,11 +423,9 @@ def delete_transaction(
     transaction = session.query(Transaction).filter(Transaction.id == transaction_id).first()
     if not transaction:
         return False
-    month = _month_key(transaction.date)
 
     group_id = transaction.transfer_group_id
     if group_id is not None:
-        month_keys = [month]
         other_cat_id, unc_sub_id = get_other_uncategorized_ids(session)
         peers = (
             session.query(Transaction)
@@ -456,16 +438,13 @@ def delete_transaction(
             peer.category_id = other_cat_id
             peer.subcategory_id = unc_sub_id
             peer.notes = _remove_link_note(peer.notes)
-            month_keys.append(_month_key(peer.date))
 
         session.delete(transaction)
         delete_empty_transfer_groups(session, {int(group_id)})
-        _recalc_zbb_months(session, month_keys)
         session.commit()
         return True
 
     session.delete(transaction)
-    _recalc_zbb_months(session, [month])
     session.commit()
 
     return True
@@ -531,7 +510,6 @@ def create_transfer(
 
     session.add(debit_txn)
     session.add(credit_txn)
-    _recalc_zbb_months(session, [_month_key(date_)])
     session.commit()
 
     return group
@@ -626,7 +604,6 @@ def link_transactions_as_transfer(
     for t in (source_txn, destination_txn):
         t.notes = _add_link_note(t.notes)
 
-    _recalc_zbb_months(session, [_month_key(t_a.date), _month_key(t_b.date)])
     session.commit()
     return group
 
@@ -674,7 +651,6 @@ def unlink_transfer_pair(
 
     delete_empty_transfer_groups(session, {group_id})
 
-    _recalc_zbb_months(session, [_month_key(t_a.date), _month_key(t_b.date)])
     session.commit()
     return group_id
 
@@ -729,7 +705,6 @@ def set_transaction_splits(
     if not splits:
         # clear splits, revert to using parent transaction
         txn.splits.clear()
-        _recalc_zbb_months(session, [_month_key(txn.date)])
         session.commit()
         return []
 
@@ -764,6 +739,5 @@ def set_transaction_splits(
     for s in new_splits:
         txn.splits.append(s)
 
-    _recalc_zbb_months(session, [_month_key(txn.date)])
     session.commit()
     return list(txn.splits)

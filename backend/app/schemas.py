@@ -6,12 +6,7 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, model_validator
 
-from services.recurring_service import (
-    RecurringOccurrenceOut,
-    RecurringSeriesActionIn,
-    RecurringSeriesCardOut,
-    RecurringSeriesFingerprint,
-)
+from services.recurring_service import RecurringSeriesFingerprint
 from utils.timestamps import as_utc
 
 # Stored timestamps are UTC but come back from SQLite naive; serialize with an
@@ -295,34 +290,64 @@ class RecurringSeriesBulkCategoryUpdateIn(RecurringSeriesFingerprint):
     subcategory_id: int
 
 
-class RecurringSeriesDetailOut(RecurringSeriesCardOut):
-    total_occurrences: int = 0
-
-
 class ZbbCategoryRowOut(BaseModel):
     category_id: int
     category_name: str
+    txn_category_id: int | None = None
+    txn_subcategory_id: int | None = None
+    txn_category_name: str | None = None
+    txn_subcategory_name: str | None = None
     assigned: float
     activity: float
     rollover: float
     available: float
-    is_system: bool = False
-    system_kind: str | None = None
-    linked_account_id: int | None = None
-    cc_balance_target: float | None = None
-    cc_balance_mismatch: bool = False
+    target: float | None = None
+    underfunded: float = 0.0
+    last_month_assigned: float = 0.0
+    avg_spent: float = 0.0
+
+
+class ZbbAccountOut(BaseModel):
+    id: int
+    name: str
+    type: str
+    balance: float
+
+
+class ZbbMonthTotalsOut(BaseModel):
+    assigned: float
+    activity: float
+    available: float
+    income: float
+    unbudgeted: float
+    overspent: float
+    overspent_count: int
+    underfunded: float
+    reset_overspending: float
+    uncategorized_count: int
+
+
+class ZbbUnbudgetedOut(BaseModel):
+    txn_category_id: int | None = None
+    txn_category_name: str
+    amount: float
 
 
 class ZbbMonthOut(BaseModel):
     year: int
     month: int
     rollover_mode: str
-    budget_start_year: int | None = None
-    budget_start_month: int | None = None
+    budget_start_year: int
+    budget_start_month: int
+    budget_start_is_set: bool
     is_before_budget_start: bool = False
-    liquid_pool: float
-    total_assigned: float
+    horizon_year: int
+    horizon_month: int
     ready_to_assign: float
+    cash_on_budget: float
+    accounts: list[ZbbAccountOut]
+    totals: ZbbMonthTotalsOut
+    unbudgeted: list[ZbbUnbudgetedOut]
     rows: list[ZbbCategoryRowOut]
 
 
@@ -332,9 +357,16 @@ class ZbbAssignIn(BaseModel):
 
 
 class ZbbMoveMoneyIn(BaseModel):
-    from_category_id: int
-    to_category_id: int
+    """None on either side means Ready to Assign."""
+
+    from_category_id: int | None = None
+    to_category_id: int | None = None
     amount: float
+
+
+class ZbbQuickAssignIn(BaseModel):
+    strategy: Literal["targets", "last_month", "avg_spent", "clear"]
+    category_ids: list[int] | None = None
 
 
 class ZbbRolloverSettingOut(BaseModel):
@@ -377,18 +409,25 @@ class BudgetCategoryOut(BaseModel):
     linked_account_id: int | None = None
     txn_category_id: int | None = None
     txn_subcategory_id: int | None = None
+    txn_category_name: str | None = None
+    txn_subcategory_name: str | None = None
+    monthly_target: float | None = None
 
 
 class BudgetCategoryCreateIn(BaseModel):
     name: str
     txn_category_id: int | None = None
     txn_subcategory_id: int | None = None
+    monthly_target: float | None = None
 
 
 class BudgetCategoryUpdateIn(BaseModel):
+    """Omitted fields are left unchanged; send null to clear a mapping or target."""
+
     name: str | None = None
     txn_category_id: int | None = None
     txn_subcategory_id: int | None = None
+    monthly_target: float | None = None
 
 
 # --- Investments / portfolio ---

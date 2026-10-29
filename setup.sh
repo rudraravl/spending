@@ -1,51 +1,30 @@
 #!/bin/bash
-# Quick Start Setup Script for Keep
+# One-time setup for Keep: Python venv + deps, frontend deps, and the SQLite database.
+set -e
 
-set -e  # Exit on error
+cd "$(dirname "$0")"
 
-echo "🚀 Keep - Quick Start Setup"
-echo "==========================================="
-echo ""
+echo "Keep setup"
+echo
 
-# Check Python version
-echo "✓ Checking Python version..."
-python_version=$(python3 --version 2>&1 | awk '{print $2}')
-echo "  Found Python $python_version"
-
-# Create virtual environment if it doesn't exist
+echo "- Python: $(python3 --version 2>&1)"
 if [ ! -d ".venv" ]; then
-    echo "✓ Creating virtual environment..."
+    echo "- Creating virtual environment (.venv)"
     python3 -m venv .venv
-else
-    echo "✓ Virtual environment already exists"
 fi
-
-# Activate virtual environment
-echo "✓ Activating virtual environment..."
 source .venv/bin/activate
 
-# Install dependencies
-echo "✓ Installing dependencies..."
+echo "- Installing Python dependencies"
 pip install -q -r requirements.txt
 
-# Create data directory
-echo "✓ Creating data directory..."
-mkdir -p data
+echo "- Installing frontend dependencies"
+npm --prefix frontend install --silent
 
-# Initialize database
-echo "✓ Initializing database..."
-python3 << EOF
-from db.database import init_db
-init_db()
-print("  Database ready at data/budget.db")
-EOF
+echo "- Initializing database"
+python3 -c "from db.database import init_db; init_db()"
 
-echo ""
-echo "✅ Setup complete!"
-echo ""
-echo "To start the React app stack, run:"
-echo "  source .venv/bin/activate"
-echo "  npm --prefix frontend install"
-echo "  npm run dev:backend"
+echo
+echo "Done. Start the app in two terminals:"
+echo "  source .venv/bin/activate && npm run dev:backend"
 echo "  npm run dev:frontend"
-echo ""
+echo "Then open http://localhost:5173"

@@ -324,7 +324,7 @@ export default function AccountsPage() {
           )}
         </TabsContent>
         <TabsContent value="connections">
-          <SimplefinConnectionsPage embedded />
+          <SimplefinConnectionsPage />
         </TabsContent>
       </Tabs>
     </div>

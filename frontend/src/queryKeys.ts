@@ -123,12 +123,6 @@ export const queryKeys = {
     ['investments', 'history', accountId, limit] as const,
 }
 
-export function normalizeNumberArrayKey(ids: number[] | null | undefined): string {
-  if (!ids || ids.length === 0) return ''
-  return [...ids].sort((a, b) => a - b).join(',')
-}
-
-
 /**
  * Mark stale everything derived from transaction rows: lists, splits, balances, rollups,
  * budgets (activity), investment activity, and transfer / recurring suggestions.

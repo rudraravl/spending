@@ -5,7 +5,6 @@ Expects columns: Transaction Date, Amount, Merchant Name
 BILT format: Sign convention not yet verified.
 """
 
-import pandas as pd
 from adapters.generic_adapter import GenericAdapter
 
 

@@ -408,6 +408,8 @@ class BudgetCategory(Base):
     linked_account_id = Column(Integer, ForeignKey("accounts.id"), nullable=True)
     txn_category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     txn_subcategory_id = Column(Integer, ForeignKey("subcategories.id"), nullable=True)
+    # Amount the user plans to assign every month; drives "Underfunded" and "Fund targets".
+    monthly_target = Column(Float, nullable=True)
     created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=False)
     updated_at = Column(
         DateTime,

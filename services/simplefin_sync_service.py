@@ -18,6 +18,7 @@ from datetime import datetime, date, timezone, timedelta
 from pathlib import Path
 from typing import Any
 
+from cryptography.fernet import InvalidToken
 from sqlalchemy.orm import Session
 from urllib.parse import urlparse
 
@@ -27,14 +28,13 @@ from services.import_service import ensure_category, ensure_subcategory
 from services.investment_snapshot_service import record_investment_snapshot
 from services.investment_txn_parser import classify_investment_transaction
 from services.net_worth_service import capture_net_worth_snapshot
-from services.zbb_service import recalc_activity_for_months
 from utils.timestamps import local_date
 from services.rule_service import apply_rules_to_transaction, list_rules
 from services.simplefin_client import (
     SFINAccount,
     SFINAccountSet,
-    SimpleFINAuthError,
     DailyBudgetUsage,
+    SimpleFINAuthError,
     SimpleFINError,
     claim_access_url,
     get_info,
@@ -418,10 +418,42 @@ def update_connection(
     return conn
 
 
+class ConnectionStillActiveError(Exception):
+    """The Access URL still works, so the connection hasn't been revoked on SimpleFIN yet."""
+
+
+def _assert_revoked_remotely(conn: SimpleFINConnection) -> None:
+    """
+    Refuse to forget a connection SimpleFIN still honors: deleting it locally would
+    leave a live, read-capable Access URL that the user can no longer see or revoke
+    from here. One balances-only request settles it; SimpleFIN answers 403 once revoked.
+    """
+    try:
+        access_url = decrypt(conn.access_url_encrypted)
+    except InvalidToken:
+        # Encryption key is gone; the URL is unusable by anyone holding this DB.
+        return
+    try:
+        get_accounts(access_url, balances_only=True)
+    except SimpleFINAuthError:
+        return
+    raise ConnectionStillActiveError(
+        "This connection is still active on SimpleFIN. Remove Keep's app connection "
+        "on the SimpleFIN Bridge website first, then try again."
+    )
+
+
 def delete_connection(session: Session, connection_id: int) -> None:
+    """
+    Remove a connection the user has already revoked on SimpleFIN.
+
+    Raises ConnectionStillActiveError if SimpleFIN still accepts the Access URL, and
+    SimpleFINError if revocation can't be checked (network, local request budget).
+    Linked local accounts are unlinked but kept, along with their transactions.
+    """
     conn = get_connection(session, connection_id)
-    # Single-root behavior: unlink all SimpleFIN-linked local accounts without
-    # making any remote /accounts request.
+    _assert_revoked_remotely(conn)
+    # Single-root behavior: unlink all SimpleFIN-linked local accounts.
     linked = (
         session.query(Account)
         .filter(Account.provider == PROVIDER_NAME, Account.is_linked.is_(True))
@@ -434,6 +466,7 @@ def delete_connection(session: Session, connection_id: int) -> None:
         acct.institution_name = None
     session.delete(conn)
     session.commit()
+    _LATEST_ACCOUNTS_SNAPSHOT_PATH.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -575,26 +608,6 @@ def _is_external_id_in_cached_snapshot(session: Session, external_id: str) -> bo
     return any(
         _make_account_external_id(a.conn_id, a.account_id) == external_id for a in accounts
     )
-
-
-def validate_discovered_account(
-    session: Session,
-    connection_id: int | None,
-    conn_id: str,
-    sfin_account_id: str,
-) -> bool:
-    """
-    Validate that a remote account exists under this connection's Access URL.
-    Uses a targeted /accounts?account=... request to reduce all-accounts quota pressure.
-    """
-    conn = get_connection(session, connection_id) if connection_id is not None else get_singleton_connection(session)
-    access_url = decrypt(conn.access_url_encrypted)
-    account_set = get_accounts(
-        access_url,
-        balances_only=True,
-        account_ids=[sfin_account_id],
-    )
-    return any(a.id == sfin_account_id and a.conn_id == conn_id for a in account_set.accounts)
 
 
 def get_connection_daily_budget(session: Session, connection_id: int | None = None) -> DailyBudgetUsage:
@@ -775,7 +788,6 @@ def sync_connection(
         other_category = ensure_category(session, "Other")
         other_subcategory = ensure_subcategory(session, "Uncategorized", other_category.id)
         rules = list_rules(session)
-        touched_months: set[tuple[int, int]] = set()
 
         full_history_by_external_id: dict[str, SFINAccountSet] = {}
 
@@ -866,7 +878,6 @@ def sync_connection(
                 if local_acct.type == "investment":
                     classify_investment_transaction(session, new_txn)
                 new_txns.append(new_txn)
-                touched_months.add((txn_date.year, txn_date.month))
 
             if new_txns:
                 session.flush()
@@ -918,8 +929,6 @@ def sync_connection(
             result.errors = error_messages
             run.error_message = "; ".join(error_messages)
 
-        if touched_months:
-            recalc_activity_for_months(session, touched_months)
 
         # Record one aggregate net-worth point per sync run so the dashboard can
         # plot trend history over time.

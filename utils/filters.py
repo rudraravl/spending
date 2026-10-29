@@ -75,69 +75,6 @@ class TransactionFilter:
         self.max_amount = max_amount
         self.exclude_account_types = exclude_account_types
     
-    def combine(self, other: 'TransactionFilter') -> 'TransactionFilter':
-        """
-        Combine two filters (create a new filter with constraints from both).
-        
-        Args:
-            other: Another TransactionFilter
-            
-        Returns:
-            A new TransactionFilter with combined constraints
-        """
-        # For dates: use the most restrictive range
-        start_date = self.start_date or other.start_date
-        if self.start_date and other.start_date:
-            start_date = max(self.start_date, other.start_date)
-        
-        end_date = self.end_date or other.end_date
-        if self.end_date and other.end_date:
-            end_date = min(self.end_date, other.end_date)
-        
-        # For amounts: use the most restrictive range
-        min_amount = self.min_amount or other.min_amount
-        if self.min_amount is not None and other.min_amount is not None:
-            min_amount = max(self.min_amount, other.min_amount)
-        
-        max_amount = self.max_amount or other.max_amount
-        if self.max_amount is not None and other.max_amount is not None:
-            max_amount = min(self.max_amount, other.max_amount)
-
-        exclude_account_types = None
-        if self.exclude_account_types or other.exclude_account_types:
-            a = set(self.exclude_account_types or ())
-            b = set(other.exclude_account_types or ())
-            exclude_account_types = tuple(sorted(a | b)) if (a | b) else None
-        
-        # For IDs: use the one that is set (or None if both unset)
-        account_id = self.account_id or other.account_id
-        category_id = self.category_id or other.category_id
-        subcategory_id = self.subcategory_id or other.subcategory_id
-        subcategory_ids = None
-        if self.subcategory_ids or other.subcategory_ids:
-            subcategory_ids = list(set((self.subcategory_ids or []) + (other.subcategory_ids or [])))
-        
-        # For tags: combine lists; use OR if either filter uses OR
-        tag_ids = None
-        if self.tag_ids or other.tag_ids:
-            tag_ids = (self.tag_ids or []) + (other.tag_ids or [])
-            tag_ids = list(set(tag_ids))  # Remove duplicates
-        tags_match_any = self.tags_match_any or other.tags_match_any
-
-        return TransactionFilter(
-            start_date=start_date,
-            end_date=end_date,
-            account_id=account_id,
-            category_id=category_id,
-            subcategory_id=subcategory_id,
-            subcategory_ids=subcategory_ids,
-            tag_ids=tag_ids,
-            tags_match_any=tags_match_any,
-            min_amount=min_amount,
-            max_amount=max_amount,
-            exclude_account_types=exclude_account_types,
-        )
-    
     def __repr__(self):
         parts = []
         if self.start_date:

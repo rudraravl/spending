@@ -5,13 +5,11 @@ from sqlalchemy.orm import Session
 from typing import Any, cast
 
 from backend.app.deps import get_db_session
-from backend.app.schemas import (
+from backend.app.schemas import RecurringSeriesBulkCategoryUpdateIn
+from services.recurring_service import (
     RecurringOccurrenceOut,
     RecurringSeriesActionIn,
-    RecurringSeriesBulkCategoryUpdateIn,
     RecurringSeriesCardOut,
-)
-from services.recurring_service import (
     apply_series_action,
     bulk_update_series_category,
     list_series_occurrences,

@@ -55,7 +55,7 @@ function selectIdValue(id: number | null | undefined, options: { id: number }[])
   return SELECT_NONE
 }
 
-export default function AddTransactionPage({ embedded = false }: { embedded?: boolean } = {}) {
+export default function AddTransactionPage() {
   const queryClient = useQueryClient()
   const form = useForm<AddTransactionFormValues>({
     defaultValues: {
@@ -160,7 +160,7 @@ export default function AddTransactionPage({ embedded = false }: { embedded?: bo
   }
 
   return (
-    <div className={embedded ? 'max-w-4xl mx-auto' : 'p-6 lg:p-8 max-w-4xl mx-auto'}>
+    <div className="max-w-4xl mx-auto">
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
         <p className="text-muted-foreground mb-2">
           Capture a single purchase or income with full context.

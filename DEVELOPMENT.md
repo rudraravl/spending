@@ -1,39 +1,63 @@
-# Development Guide
+# Development
 
-This document describes how to extend and modify the Keep MVP.
-
-## Architecture Overview
+## Architecture
 
 ```
-React UI (frontend/)
-    ↓ HTTP
-FastAPI (backend/)
-    ↓
-Service Layer (services/)
-    ├── transaction_service.py (CRUD)
-    ├── summary_service.py (Aggregation)
-    └── import_service.py (CSV Import)
-    ↓
-Database Layer (db/)
-    ├── models.py (SQLAlchemy ORM)
-    └── database.py (Connection)
-    ↓
-SQLite (data/budget.db)
+frontend/          React + Vite + TypeScript UI (TanStack Query, shadcn/ui, Tailwind)
+   ↓ HTTP (JSON)
+backend/           FastAPI app
+   main.py           app setup, CORS, cross-site write guard
+   app/routers/      one router per area (transactions, budgets, simplefin, ...)
+   app/schemas.py    Pydantic request/response models
+   app/startup.py    DB init, daily backups, SimpleFIN seeding
+   scripts/          CLI entry points (scheduled SimpleFIN sync)
+   ↓
+services/          business logic, framework-agnostic (no FastAPI imports)
+adapters/          CSV parsers, one per bank export format (no DB access)
+utils/             filters, date ranges, timestamp helpers
+db/                SQLAlchemy models, engine, and in-place migrations
+   ↓
+data/budget.db     SQLite (gitignored)
 ```
 
-## Adding New CSV Adapters
+Keep the layering: routers translate HTTP to service calls, services hold the logic, and adapters only parse files. The UI never talks to the database directly.
 
-To support a new bank/card format:
+## Running tests and checks
 
-### 1. Create Adapter Class
+```bash
+source .venv/bin/activate
+python -m pytest                      # backend tests (in-memory SQLite)
+
+cd frontend
+npx tsc -b                            # typecheck
+npm run lint                          # eslint
+npm run build                         # production build
+```
+
+## Database and migrations
+
+Models live in `db/models.py`. There's no migration framework. `init_db()` in `db/database.py` runs `create_all()` and then a series of small, idempotent `_migrate_*` functions that alter existing SQLite databases in place. When you change the schema:
+
+1. Update the model in `db/models.py`.
+2. If existing databases need a column, index, or backfill, add an idempotent `_migrate_*` function and call it from `init_db()`. It should check `PRAGMA table_info` or `index_list` before altering anything.
+3. Add a test that runs the migration against an old-shaped in-memory database. See `tests/test_tag_recency.py::TestTagMigration` for an example.
+
+## Amounts
+
+All stored amounts follow one sign convention: positive means money in, negative means money out. Adapters must normalize to it. See [docs/AMOUNT_CONVENTION.md](docs/AMOUNT_CONVENTION.md).
+
+## Adding a CSV adapter
+
+Most bank exports only need column names and a date format, so subclass `GenericAdapter`:
 
 ```python
 # adapters/amex_adapter.py
 from adapters.generic_adapter import GenericAdapter
 
+
 class AmexAdapter(GenericAdapter):
-    """American Express CSV format adapter."""
-    
+    """American Express CSV export."""
+
     def __init__(self):
         super().__init__(
             date_col='Date',
@@ -43,317 +67,34 @@ class AmexAdapter(GenericAdapter):
         )
 ```
 
-### 2. Register Adapter
-
-In `services/import_service.py`, add to `ADAPTERS` dict:
+Then register it in `ADAPTERS` in `services/import_service.py`:
 
 ```python
 ADAPTERS = {
-    'generic': GenericAdapter,
-    'wells': WellsAdapter,
-    'amex': AmexAdapter,  # Add this
     ...
+    'Amex': AmexAdapter,
 }
 ```
 
-### 3. Test
+It shows up in the **Import CSV** adapter list right away. Check the sign of the amounts: `GenericAdapter` negates amounts by default (`invert_amounts_for_cash_flow=True`) because most card exports list charges as positive numbers. Pass `False` if the export already shows charges as negative. For formats that don't fit the generic mapper, implement `BaseAdapter.parse()` directly and return a DataFrame with `date`, `amount`, and `merchant` columns.
 
-The adapter will immediately be available in the Import CSV page.
+## SimpleFIN
 
-## Adding Features
+- `services/simplefin_client.py` is the protocol client: token claiming, `/accounts` requests, and the local daily request budget.
+- `services/simplefin_sync_service.py` handles connections, account linking, and importing transactions and balances.
+- `services/encryption.py` encrypts the stored Access URL (Fernet).
+- `backend/scripts/simplefin_sync_once.py` is the cron entry point.
 
-### Adding a New Service Function
+Tests mock the network layer, so you don't need a SimpleFIN account to work on sync code.
 
-Services layer handles business logic. Example:
+## Frontend conventions
 
-```python
-# services/transaction_service.py
+- API wrappers live in `frontend/src/api/` and use the helpers in `api/client.ts`.
+- Query keys are centralized in `frontend/src/queryKeys.ts`. After a mutation that touches transactions, call `invalidateTransactionData()`.
+- `components/ui/` holds shadcn/ui primitives. Add new ones with the shadcn CLI as needed rather than vendoring the whole set.
+- Brand colors and theme tokens are described in [docs/BRAND_COLORS.md](docs/BRAND_COLORS.md).
 
-def bulk_assign_tags(
-    session: Session,
-    transaction_ids: List[int],
-    tag_ids: List[int],
-):
-    """Assign same tags to multiple transactions."""
-    transactions = session.query(Transaction).filter(
-        Transaction.id.in_(transaction_ids)
-    ).all()
-    
-    tags = session.query(Tag).filter(Tag.id.in_(tag_ids)).all()
-    
-    for txn in transactions:
-        txn.tags = tags
-    
-    session.commit()
-```
+## Troubleshooting
 
-### Adding a New React Page
-
-1. Add a route and page component under `frontend/src/pages`.
-2. Add API calls in `frontend/src/api` and a matching router in `backend/app/routers` if needed.
-3. Keep business logic in `services/` and avoid duplicating logic in route handlers.
-
-### Adding Database Model
-
-1. Add to `db/models.py`
-2. Call `init_db()` to create tables
-3. Create service functions to interact with the model
-
-Example:
-
-```python
-# db/models.py
-class Budget(Base):
-    __tablename__ = 'budgets'
-    
-    id = Column(Integer, primary_key=True)
-    category_id = Column(Integer, ForeignKey('categories.id'))
-    limit_amount = Column(Float)
-    period = Column(String)  # 'monthly', 'yearly'
-    created_at = Column(DateTime, default=datetime.utcnow)
-```
-
-## Filtering Patterns
-
-Use the `TransactionFilter` object for consistent querying:
-
-```python
-from utils.filters import TransactionFilter
-
-# Create filter
-filters = TransactionFilter(
-    start_date=date(2024, 1, 1),
-    end_date=date(2024, 3, 31),
-    category_id=5,
-    tag_ids=[1, 2, 3],
-    min_amount=10.0,
-)
-
-# Use in service
-transactions = get_transactions(session, filters=filters)
-total = calculate_total(session, filters=filters)
-```
-
-## Testing
-
-### Test Database Operations
-
-```python
-from db.database import get_session, init_db
-from services.transaction_service import create_transaction
-
-init_db()
-session = get_session()
-
-# Create test transaction
-txn = create_transaction(
-    session,
-    date.today(),
-    50.00,
-    "Test Merchant",
-    account_id=1,
-)
-
-print(f"Created transaction: {txn.id}")
-```
-
-### Test CSV Import
-
-```python
-from services.import_service import preview_csv
-
-# Preview before importing
-df = preview_csv(
-    'test.csv',
-    'wells',  # or 'generic' with kwargs
-)
-
-print(df.head())
-```
-
-## Performance Optimization
-
-### For Large Transaction Sets
-
-1. **Add indexes** to frequently queried fields:
-
-```python
-# In models.py
-class Transaction(Base):
-    __tablename__ = 'transactions'
-    
-    # ... columns ...
-    
-    __table_args__ = (
-        Index('idx_date', 'date'),
-        Index('idx_account_id', 'account_id'),
-        Index('idx_date_account', 'date', 'account_id'),
-    )
-```
-
-2. **Use pagination** in list views (already implemented in All Transactions view)
-
-3. **Cache summary calculations** for frequently viewed ranges (not in MVP)
-
-## Common Patterns
-
-### Query with Multiple Conditions
-
-```python
-query = session.query(Transaction)
-
-if filters.start_date:
-    query = query.filter(Transaction.date >= filters.start_date)
-
-if filters.account_id:
-    query = query.filter(Transaction.account_id == filters.account_id)
-
-transactions = query.all()
-```
-
-### Handle Optional Relationships
-
-```python
-# Safe access to related objects
-for txn in transactions:
-    account_name = txn.account.name if txn.account else "Unknown"
-    tags = [t.name for t in txn.tags]  # Returns empty list if no tags
-```
-
-### Export Data to CSV
-
-```python
-import pandas as pd
-
-df = pd.DataFrame([
-    {
-        'date': txn.date,
-        'merchant': txn.merchant,
-        'amount': txn.amount,
-        'tags': ', '.join([t.name for t in txn.tags]),
-    }
-    for txn in transactions
-])
-
-df.to_csv('export.csv', index=False)
-```
-
-## Debugging
-
-### Enable SQL Logging
-
-```python
-# In db/database.py
-engine = create_engine(
-    DATABASE_URL,
-    echo=True,  # Set to True for logging
-    ...
-)
-```
-
-### Check Database State
-
-```python
-from db.database import get_session
-
-session = get_session()
-
-# Count rows
-print(f"Transactions: {session.query(Transaction).count()}")
-print(f"Tags: {session.query(Tag).count()}")
-
-# View all accounts
-for account in session.query(Account).all():
-    print(f"Account: {account.name}")
-```
-
-### Reset Database
-
-```bash
-# Delete and recreate
-rm data/budget.db
-python3 demo.py  # Recreates with sample data
-```
-
-## Code Organization
-
-- **models.py**: Data structures (no logic)
-- **database.py**: Connection management (no business logic)
-- ***_service.py**: Business logic and queries
-- **adapters/*.py**: CSV parsing (no DB access)
-- **utils/*.py**: Helper functions (no DB access)
-- **frontend/src/**: UI only (delegates to backend APIs)
-
-Keep this separation clean:
-- Services stay framework-agnostic
-- UI never queries database directly
-- Adapters never touch the database
-
-## Future Enhancements
-
-### Recommended Next Steps
-
-1. **Duplicate Detection**
-   - ML-based matching for similar merchant names
-   - Fuzzy matching for typos
-
-2. **Budget Tracking**
-   - Set monthly budgets per category
-   - Alert when exceeding limits
-
-3. **Recurring Transactions**
-   - Auto-categorize based on merchant patterns
-   - Flag and skip recurring items
-
-4. **Analytics**
-   - Trend analysis (month-over-month)
-   - Spending habits insights
-   - Visualization with Plotly
-
-5. **Backup & Export**
-   - Export all data to CSV
-   - Import from backup
-   - Data integrity checks
-
-6. **Multi-Currency**
-   - Support for different currencies
-   - Exchange rate handling
-   - Converted amounts in reports
-
-## Troubleshooting Development
-
-### Import Errors
-
-```
-ModuleNotFoundError: No module named 'services'
-```
-
-Solution: Ensure you're running from the project root directory:
-
-```bash
-cd /path/to/your/repo
-uvicorn backend.main:app --reload --port 8000
-```
-
-### Database Locked
-
-```
-OperationalError: database is locked
-```
-
-Solution: Close all other instances of the app. SQLite doesn't handle concurrent writes well.
-
-### CSV Parse Errors
-
-Check:
-- Column names exactly match (case-sensitive)
-- Date format string is correct
-- All required columns are present
-
-## Questions?
-
-Refer to:
-- README.md for usage
-- Code comments in relevant modules
-- FastAPI docs: https://fastapi.tiangolo.com
-- SQLAlchemy docs: https://docs.sqlalchemy.org
+- **`ModuleNotFoundError: No module named 'services'`**: run the backend from the repo root (`npm run dev:backend`).
+- **`database is locked`**: another process has the SQLite file open, often a second backend or a DB browser holding a write transaction.

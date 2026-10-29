@@ -34,11 +34,11 @@ Use the latest [release](https://github.com/rudraravl/spending/releases). `main`
 ```bash
 git clone https://github.com/rudraravl/spending.git keep
 cd keep
-git checkout "$(git describe --tags --abbrev=0)"   # latest release
+git checkout "$(git tag --list 'v*' --sort=-v:refname | head -1)"   # latest release
 ./setup.sh
 ```
 
-Git will say you're in "detached HEAD" state. That's expected: you're on a release tag, not a branch. You can also download the source zip from the [Releases page](https://github.com/rudraravl/spending/releases) instead of cloning.
+Git will say you're in "detached HEAD" state. That's expected: you're on a release tag, not a branch. Install with `git clone` as shown (rather than downloading a zip) so `./update.sh` can update you later.
 
 `setup.sh` creates a `.venv`, installs the Python and frontend dependencies, and creates the database at `data/budget.db`. To set up by hand instead:
 
@@ -158,18 +158,15 @@ Keep checks with SimpleFIN before removing anything and refuses while the connec
 
 ## Updating
 
-Your data in `data/` isn't tracked by git, so switching versions leaves it alone. The database is migrated automatically when the backend starts. Stop the app, then:
+Stop the app, then from the repo folder:
 
 ```bash
-cp -R data data-backup-$(date +%F)     # optional; Keep also keeps daily backups
-git fetch --tags
-git checkout "$(git describe --tags "$(git rev-list --tags --max-count=1)")"   # newest release
-source .venv/bin/activate
-pip install -r requirements.txt
-npm --prefix frontend install
+./update.sh
 ```
 
-Then start the backend and frontend as usual. Each release's notes on the [Releases page](https://github.com/rudraravl/spending/releases) list what changed.
+It backs up your database to `data/pre-update_<version>_<date>.db`, checks out the newest release, and reinstalls dependencies. Your data in `data/` isn't tracked by git, so it carries over, and the database is migrated automatically the next time the backend starts. Start the app as usual afterwards.
+
+To hear about new versions, click **Watch → Custom → Releases** on the GitHub repo. Each release's notes on the [Releases page](https://github.com/rudraravl/spending/releases) list what changed.
 
 ## Your data
 

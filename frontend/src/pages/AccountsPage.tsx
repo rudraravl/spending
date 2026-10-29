@@ -33,6 +33,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Switch } from '@/components/ui/switch'
 import PageHeader from '@/components/PageHeader'
+import PageTip from '@/features/onboarding/PageTip'
 
 const TYPE_ORDER = new Map(ACCOUNT_TYPES.map((t, i) => [t, i]))
 
@@ -142,6 +143,7 @@ export default function AccountsPage() {
           </Button>
         }
       />
+      <PageTip id="accounts" />
       <ConfirmDialog
         open={confirmState != null}
         title={confirmState?.title ?? ''}

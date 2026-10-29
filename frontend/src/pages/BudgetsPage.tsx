@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Plus, Settings2, Wand2 } from 'lucide-react'
 import PageHeader from '@/components/PageHeader'
+import PageTip from '@/features/onboarding/PageTip'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -93,6 +94,8 @@ export default function BudgetsPage() {
           </>
         }
       />
+
+      <PageTip id="budget" className="mb-0" />
 
       {api.monthQ.error ? (
         <p className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">

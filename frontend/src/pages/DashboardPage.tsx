@@ -10,6 +10,7 @@ import { CashflowCard, NetWorthCard } from '@/features/home/SummaryCards'
 import { currentYearMonth, shiftMonth, useMonthOverview, type YearMonth } from '@/features/home/useMonthOverview'
 import { greeting } from '@/lib/profile'
 import { queryKeys } from '@/queryKeys'
+import PageTip from '@/features/onboarding/PageTip'
 
 const todayLong = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 const monthShort = new Intl.DateTimeFormat('en-US', { month: 'short' })
@@ -42,6 +43,8 @@ export default function DashboardPage() {
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">{todayLong.format(new Date())}</p>
       </div>
+
+      <PageTip id="home" />
 
       {overview.error ? (
         <div className="surface mb-6 border-destructive/40 p-4 text-sm text-destructive">{overview.error.message}</div>

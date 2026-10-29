@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils'
 import { formatMoney, formatSignedUsd, formatSignedUsdWhole } from '@/lib/format'
 import { syncResultSummary, useSimplefinSync } from '@/features/simplefin/useSimplefinSync'
 import PageHeader from '@/components/PageHeader'
+import PageTip from '@/features/onboarding/PageTip'
 import AllocationCard from '@/features/investments/AllocationCard'
 import HoldingsTable from '@/features/investments/HoldingsTable'
 import PortfolioHeroCard from '@/features/investments/PortfolioHeroCard'
@@ -50,6 +51,7 @@ export default function InvestmentsPage() {
   })
 
   const pageToolbar = (
+    <>
     <PageHeader
       title="Investments"
       description="All investment accounts, combined."
@@ -82,6 +84,8 @@ export default function InvestmentsPage() {
           </Tooltip>
       }
     />
+    <PageTip id="investments" />
+    </>
   )
 
   if (summaryQ.isPending) {

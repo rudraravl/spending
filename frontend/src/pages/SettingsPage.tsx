@@ -37,7 +37,9 @@ const EMPTY_TAGS: TagOut[] = []
 const EMPTY_RULES: Rule[] = []
 import { Link, useSearchParams } from 'react-router-dom'
 import PageHeader from '@/components/PageHeader'
+import PageTip from '@/features/onboarding/PageTip'
 import InlineRename from '@/components/InlineRename'
+import HelpPanel from '@/features/onboarding/HelpPanel'
 
 type RuleFormValues = {
   priority: number
@@ -56,7 +58,7 @@ export default function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const tabParam = searchParams.get('tab')
   // `?tab=tags` predates the merged tab; it lands on Categories & tags.
-  const activeTab = tabParam === 'rules' ? 'rules' : 'categories'
+  const activeTab = tabParam === 'rules' || tabParam === 'help' ? tabParam : 'categories'
 
   const queryClient = useQueryClient()
 
@@ -229,7 +231,7 @@ export default function SettingsPage() {
           title="Settings"
           description={
             <>
-              Categories, tags, and auto-categorization rules. Accounts live on the{' '}
+              Categories, tags, auto-categorization rules, and help. Accounts live on the{' '}
               <Link to="/accounts" className="text-primary underline-offset-4 hover:underline">
                 Accounts
               </Link>{' '}
@@ -240,15 +242,21 @@ export default function SettingsPage() {
             <TabsList>
               <TabsTrigger value="categories">Categories &amp; tags</TabsTrigger>
               <TabsTrigger value="rules">Rules</TabsTrigger>
+              <TabsTrigger value="help">Help</TabsTrigger>
             </TabsList>
           }
         />
 
+        <TabsContent value="help" className="mt-0">
+          <HelpPanel />
+        </TabsContent>
+
         {isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          activeTab === 'help' ? null : <p className="text-sm text-muted-foreground">Loading…</p>
         ) : (
           <>
             <TabsContent value="categories" className="mt-0 space-y-4">
+              <PageTip id="settings" className="mb-0" />
               <section className="surface p-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>

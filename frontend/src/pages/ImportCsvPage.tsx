@@ -25,6 +25,7 @@ import { columnLooksNumeric, cycleSort, sortByColumn, type ColumnSortState } fro
 import TransferMatchDialog, { type TransferReviewSummary } from '@/features/transfers/TransferMatchDialog'
 import type { AccountOut } from '../types'
 import PageHeader from '@/components/PageHeader'
+import PageTip from '@/features/onboarding/PageTip'
 
 
 type ImportCsvFormValues = {
@@ -226,6 +227,7 @@ export default function ImportCsvPage() {
   return (
     <div className="page">
       <PageHeader title="Import CSV" description="Import transactions from a bank or card statement." />
+      <PageTip id="import" />
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

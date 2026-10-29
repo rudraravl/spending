@@ -2,6 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   ChevronDown,
   DatabaseBackup,
+  LifeBuoy,
   Menu,
   Monitor,
   Moon,
@@ -144,7 +145,7 @@ function SyncButton() {
 
 function MobileNav() {
   const [open, setOpen] = useState(false)
-  const all = [...primaryNav, ...insightsNav, { title: 'Import CSV', url: '/import' }, { title: 'Settings', url: '/settings' }]
+  const all = [...primaryNav, ...insightsNav, { title: 'Import CSV', url: '/import' }, { title: 'Settings', url: '/settings' }, { title: 'Help', url: '/settings?tab=help' }]
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
@@ -245,6 +246,11 @@ export default function AppLayout() {
                 <DropdownMenuItem asChild className="rounded-lg">
                   <Link to="/import">
                     <Upload className="mr-2 h-4 w-4" /> Import CSV
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild className="rounded-lg">
+                  <Link to="/settings?tab=help">
+                    <LifeBuoy className="mr-2 h-4 w-4" /> Help &amp; walkthrough
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem className="rounded-lg" onSelect={() => setBackupOpen(true)}>

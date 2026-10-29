@@ -6,6 +6,7 @@ import TransactionsTable from '../features/transactions/TransactionsTable'
 import { useTransactions } from '../features/transactions/useTransactions'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import PageHeader from '@/components/PageHeader'
+import PageTip from '@/features/onboarding/PageTip'
 
 export default function AllTransactionsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -41,6 +42,8 @@ export default function AllTransactionsPage() {
             </TabsList>
           }
         />
+
+        <PageTip id="transactions" />
 
         <TabsContent value="transactions">
           {bannerError ? <div className="text-destructive text-sm pb-4">{bannerError}</div> : null}

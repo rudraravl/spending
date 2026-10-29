@@ -29,6 +29,7 @@ import { invalidateTransactionData, queryKeys } from '@/queryKeys'
 import type { RecurringOccurrenceOut, RecurringSeriesCardOut } from '@/types/recurring'
 import { formatMoney } from '@/lib/format'
 import PageHeader from '@/components/PageHeader'
+import PageTip from '@/features/onboarding/PageTip'
 
 const queryKey = queryKeys.recurringSuggestions()
 const EMPTY_CATEGORIES: CategoryOut[] = []
@@ -189,6 +190,8 @@ export default function RecurringChargesPage() {
           </Button>
         }
       />
+
+      <PageTip id="recurring" />
 
       {scanMut.error ? (
         <p className="mb-4 text-sm text-destructive">{(scanMut.error as Error).message}</p>

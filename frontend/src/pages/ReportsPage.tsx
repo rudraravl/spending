@@ -37,6 +37,7 @@ import {
 } from '@/components/reports/breakdown'
 import { formatSignedUsd as formatMoney } from '@/lib/format'
 import PageHeader from '@/components/PageHeader'
+import PageTip from '@/features/onboarding/PageTip'
 
 function monthYearLabel(year: number, month: number) {
   return new Date(year, month - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' })
@@ -129,6 +130,8 @@ export default function ReportsPage() {
         title="Reports"
         description="Monthly spending, income, and category mix. Transfers are excluded from spending."
       />
+
+      <PageTip id="insights" className="mb-0" />
 
       <div className="flex flex-wrap items-end gap-4">
         <div className="space-y-2">

@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { motion } from 'framer-motion'
-import { Upload } from 'lucide-react'
-import FeedbackDialog from '../components/FeedbackDialog'
+import { CheckCircle2, Upload } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import type { TransferMatchCandidate } from '../api/transfers'
 import { getImportAdapters, importCsv, previewCsv, type CsvImportResult, type CsvPreview } from '../api/imports'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -28,6 +28,8 @@ import PageHeader from '@/components/PageHeader'
 import PageTip from '@/features/onboarding/PageTip'
 
 
+const DEFAULT_ADAPTER = 'Bilt'
+
 type ImportCsvFormValues = {
   account_id: number | null
   adapter_name: string
@@ -35,6 +37,16 @@ type ImportCsvFormValues = {
   generic_amount_col: string
   generic_merchant_col: string
 }
+
+type ImportOutcome = {
+  account: AccountOut | null
+  imported: number
+  duplicates: number
+  failed: number
+  linked: number
+}
+
+const pluralize = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`
 
 export default function ImportCsvPage() {
   const queryClient = useQueryClient()
@@ -54,7 +66,7 @@ export default function ImportCsvPage() {
   const { control, watch, setValue } = useForm<ImportCsvFormValues>({
     defaultValues: {
       account_id: null,
-      adapter_name: 'Wells',
+      adapter_name: DEFAULT_ADAPTER,
       generic_date_col: '',
       generic_amount_col: '',
       generic_merchant_col: '',
@@ -68,10 +80,9 @@ export default function ImportCsvPage() {
 
   const [file, setFile] = useState<File | null>(null)
   const [isDraggingFile, setIsDraggingFile] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const [feedbackOpen, setFeedbackOpen] = useState(false)
-  const [feedbackTitle, setFeedbackTitle] = useState('')
-  const [feedbackMessage, setFeedbackMessage] = useState('')
+  const [importOutcome, setImportOutcome] = useState<ImportOutcome | null>(null)
   // Column sort for the preview table; tied to the preview it was chosen on.
   const [previewSortState, setPreviewSortState] = useState<{ signature: string; sort: ColumnSortState | null }>({
     signature: '',
@@ -79,44 +90,28 @@ export default function ImportCsvPage() {
   })
 
   const [matchBatch, setMatchBatch] = useState<{ id: number; candidates: TransferMatchCandidate[] } | null>(null)
-  const [pendingImportSummary, setPendingImportSummary] = useState<{
-    num_imported: number
-    skipped: number
-  } | null>(null)
 
   const isGeneric = adapterName === 'Generic'
 
   const fileSignature = file ? `${file.name}|${file.size}|${file.lastModified}` : ''
-  const previewSignature = fileSignature
-    ? `${fileSignature}|${adapterName}|${genericDateCol}|${genericAmountCol}|${genericMerchantCol}`
-    : ''
+  const previewSignature = fileSignature ? `${fileSignature}|${adapterName}` : ''
 
-  const previewEnabled =
-    Boolean(file) && (!isGeneric || (Boolean(genericDateCol) && Boolean(genericAmountCol) && Boolean(genericMerchantCol)))
+  const genericMappingComplete = Boolean(genericDateCol) && Boolean(genericAmountCol) && Boolean(genericMerchantCol)
 
   const previewQuery = useQuery<CsvPreview, Error>({
     queryKey: queryKeys.csvPreview(previewSignature),
     queryFn: async () => {
       if (!file) throw new Error('Choose a CSV file to preview.')
 
-      if (isGeneric) {
-        if (!genericDateCol || !genericAmountCol || !genericMerchantCol) {
-          throw new Error('Please select Generic mapping columns.')
-        }
-      }
-
+      // The preview is the raw file, which is where the Generic column choices
+      // come from, so it can't depend on them. Import validates the mapping.
       const form = new FormData()
       form.append('file', file)
       form.append('adapter_name', adapterName)
-      if (isGeneric) {
-        form.append('date_col', genericDateCol)
-        form.append('amount_col', genericAmountCol)
-        form.append('merchant_col', genericMerchantCol)
-      }
 
       return previewCsv(form)
     },
-    enabled: previewEnabled,
+    enabled: Boolean(file),
   })
 
   const preview = previewQuery.data ?? null
@@ -140,14 +135,9 @@ export default function ImportCsvPage() {
   useEffect(() => {
     if (accountId != null) return
     if (accounts.length === 0) return
-    setValue('account_id', accounts[0].id)
+    const bilt = accounts.find((a) => a.name.toLowerCase().includes('bilt'))
+    setValue('account_id', (bilt ?? accounts[0]).id)
   }, [accounts, accountId, setValue])
-
-  useEffect(() => {
-    if (adapters.includes('Generic')) {
-      setValue('adapter_name', 'Generic')
-    }
-  }, [adapters, setValue])
 
   const acceptCsvFile = (f: File) => {
     const nameOk = f.name.toLowerCase().endsWith('.csv')
@@ -157,7 +147,14 @@ export default function ImportCsvPage() {
       f.type === 'application/vnd.ms-excel' ||
       f.type === ''
     const accepted = nameOk || typeOk
-    if (accepted) setFile(f)
+    if (accepted) {
+      setFile(f)
+      setValue('generic_date_col', '')
+      setValue('generic_amount_col', '')
+      setValue('generic_merchant_col', '')
+      setImportOutcome(null)
+      importMutation.reset()
+    }
     return accepted
   }
 
@@ -166,10 +163,8 @@ export default function ImportCsvPage() {
       if (!file) throw new Error('Choose a CSV file first.')
       if (!accountId) throw new Error('Select an account first.')
 
-      if (isGeneric) {
-        if (!genericDateCol || !genericAmountCol || !genericMerchantCol) {
-          throw new Error('Please select Generic mapping columns.')
-        }
+      if (isGeneric && !genericMappingComplete) {
+        throw new Error('Please select Generic mapping columns.')
       }
 
       const form = new FormData()
@@ -187,42 +182,32 @@ export default function ImportCsvPage() {
     onSuccess: (res) => {
       void invalidateTransactionData(queryClient)
 
+      const duplicates = res.skipped.filter((row) => row.reason === 'duplicate').length
+      setImportOutcome({
+        account: accounts.find((a) => a.id === accountId) ?? null,
+        imported: res.num_imported,
+        duplicates,
+        failed: res.skipped.length - duplicates,
+        linked: 0,
+      })
+
+      // The file is consumed: clear it so the preview gives way to the result.
+      setFile(null)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+
       const candidates = res.transfer_match_candidates ?? []
       if (candidates.length > 0) {
-        setPendingImportSummary({ num_imported: res.num_imported, skipped: res.skipped.length })
         setMatchBatch({ id: Date.now(), candidates })
-        return
       }
-
-      const lines = [`Imported ${res.num_imported} transactions.`]
-      if (res.skipped.length > 0) lines.push(`Skipped ${res.skipped.length} duplicate rows.`)
-      setFeedbackTitle('Import complete')
-      setFeedbackMessage(lines.join('\n'))
-      setFeedbackOpen(true)
-    },
-    onError: (e: unknown) => {
-      setFeedbackTitle('Import failed')
-      setFeedbackMessage(e instanceof Error ? e.message : 'Import failed')
-      setFeedbackOpen(true)
     },
   })
 
-  const finishImportFeedback = (review: TransferReviewSummary) => {
+  const finishTransferReview = (review: TransferReviewSummary) => {
     setMatchBatch(null)
-    if (!pendingImportSummary) return
-    const summary = pendingImportSummary
-    setPendingImportSummary(null)
-    const lines = [`Imported ${summary.num_imported} transactions.`]
-    if (summary.skipped > 0) {
-      lines.push(`Skipped ${summary.skipped} duplicate rows.`)
-    }
-    if (review.linked > 0) {
-      lines.push(`Linked ${review.linked} transfer${review.linked === 1 ? '' : 's'}.`)
-    }
-    setFeedbackTitle('Import complete')
-    setFeedbackMessage(lines.join('\n'))
-    setFeedbackOpen(true)
+    setImportOutcome((prev) => (prev ? { ...prev, linked: review.linked } : prev))
   }
+
+  const importError = importMutation.error?.message ?? null
 
   return (
     <div className="page">
@@ -336,6 +321,7 @@ export default function ImportCsvPage() {
                   <p className="text-sm font-medium text-muted-foreground">Choose CSV file</p>
                   <p className="text-xs text-muted-foreground/70 mt-1">or drop here (click to browse)</p>
                   <input
+                    ref={fileInputRef}
                     id="import-csv-file"
                     type="file"
                     accept=".csv"
@@ -431,6 +417,7 @@ export default function ImportCsvPage() {
             </CardHeader>
             <CardContent>
               {previewError ? <p className="text-sm text-destructive mb-4">{previewError}</p> : null}
+              {importError ? <p className="text-sm text-destructive mb-4">{importError}</p> : null}
 
               {preview ? (
                 <div className="space-y-4">
@@ -482,12 +469,60 @@ export default function ImportCsvPage() {
                   </div>
 
                   {accountId ? (
-                    <Button onClick={() => importMutation.mutate()} disabled={importMutation.isPending}>
-                      Confirm import
-                    </Button>
+                    <div className="space-y-2">
+                      {isGeneric && !genericMappingComplete ? (
+                        <p className="text-sm text-muted-foreground">
+                          Choose the date, amount, and merchant columns to import.
+                        </p>
+                      ) : null}
+                      <Button
+                        onClick={() => importMutation.mutate()}
+                        disabled={importMutation.isPending || (isGeneric && !genericMappingComplete)}
+                      >
+                        {importMutation.isPending ? 'Importing…' : 'Confirm import'}
+                      </Button>
+                    </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">Create/select an account first.</p>
                   )}
+                </div>
+              ) : importOutcome ? (
+                <div className="space-y-4" role="status">
+                  <div className="flex items-start gap-3">
+                    <CheckCircle2
+                      className={`h-5 w-5 shrink-0 mt-0.5 ${importOutcome.imported > 0 ? 'text-income' : 'text-muted-foreground'}`}
+                    />
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">
+                        {importOutcome.imported > 0
+                          ? `Imported ${pluralize(importOutcome.imported, 'transaction')}${
+                              importOutcome.account ? ` to ${importOutcome.account.name}` : ''
+                            }`
+                          : 'No new transactions to import'}
+                      </p>
+                      {importOutcome.duplicates > 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          Skipped {pluralize(importOutcome.duplicates, 'duplicate row')}.
+                        </p>
+                      ) : null}
+                      {importOutcome.failed > 0 ? (
+                        <p className="text-sm text-destructive">
+                          Couldn't import {pluralize(importOutcome.failed, 'row')}.
+                        </p>
+                      ) : null}
+                      {importOutcome.linked > 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          Linked {pluralize(importOutcome.linked, 'transfer')}.
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                  {importOutcome.account ? (
+                    <Button variant="outline" size="sm" asChild>
+                      <Link to={`/accounts/${importOutcome.account.id}`}>View {importOutcome.account.name}</Link>
+                    </Button>
+                  ) : null}
+                  <p className="text-sm text-muted-foreground">Choose another file to keep importing.</p>
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
@@ -499,19 +534,12 @@ export default function ImportCsvPage() {
         </div>
       </motion.div>
 
-      <FeedbackDialog
-        open={feedbackOpen}
-        title={feedbackTitle}
-        message={feedbackMessage}
-        onClose={() => setFeedbackOpen(false)}
-      />
-
       {matchBatch ? (
         <TransferMatchDialog
           key={matchBatch.id}
           candidates={matchBatch.candidates}
           source="import"
-          onClose={finishImportFeedback}
+          onClose={finishTransferReview}
         />
       ) : null}
     </div>
